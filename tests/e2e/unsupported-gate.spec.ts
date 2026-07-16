@@ -37,4 +37,11 @@ test.describe('SA-11 — Unsupported experience gate', () => {
     await page.goto('/unsupported')
     await checkA11y(page)
   })
+
+  test('matches the unsupported gate visual baseline', async ({ page }) => {
+    await page.goto('/unsupported')
+    await expect(page.getByTestId('unsupported-gate')).toBeVisible()
+    // Visual regression: overlay against the committed baseline to catch UI changes.
+    await expect(page).toHaveScreenshot('unsupported-gate.png', { fullPage: true })
+  })
 })

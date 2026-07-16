@@ -30,4 +30,11 @@ test.describe('Health page', () => {
     await page.goto('/health')
     await checkA11y(page)
   })
+
+  test('matches the health page visual baseline', async ({ page }) => {
+    await page.goto('/health')
+    await expect(page.getByTestId('health-status')).toBeVisible()
+    // Visual regression: overlay against the committed baseline to catch UI changes.
+    await expect(page).toHaveScreenshot('health-page.png', { fullPage: true })
+  })
 })
