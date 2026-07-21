@@ -27,7 +27,7 @@
     >
       <h1 id="device-check-heading" class="sr-only">{{ $t('interview.device_check.title') }}</h1>
       <ClientOnly>
-        <DeviceCheck.client @confirmed="onDevicesConfirmed" />
+        <DeviceCheck @confirmed="onDevicesConfirmed" />
       </ClientOnly>
     </section>
 
@@ -50,7 +50,7 @@
     >
       <div class="relative w-full rounded-xl overflow-hidden shadow-avatar">
         <ClientOnly v-if="activeProvider && activeConfig">
-          <AvatarPlayer.client
+          <AvatarPlayer
             :provider="activeProvider"
             :config="activeConfig"
             @state="onProviderState"
@@ -76,10 +76,7 @@
 
       <!-- Invisible proctoring overlay -->
       <ClientOnly v-if="confirmedStream">
-        <ProctorOverlay.client
-          :stream="confirmedStream"
-          :on-events-updated="onIntegrityEventsUpdated"
-        />
+        <ProctorOverlay :stream="confirmedStream" :on-events-updated="onIntegrityEventsUpdated" />
       </ClientOnly>
     </section>
 

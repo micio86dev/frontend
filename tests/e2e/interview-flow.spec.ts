@@ -145,7 +145,8 @@ test.describe('Interview flow — E2E', () => {
     test.beforeEach(async ({ page }) => {
       await mockInterviewRoutes(page)
 
-      // Mock getUserMedia (camera + mic)
+      // Mock getUserMedia (camera + mic).
+      // Replace navigator.mediaDevices wholesale to avoid null-access in non-HTTPS context.
       await page.addInitScript(() => {
         const fakeStream = {
           getTracks: () => [
@@ -155,9 +156,12 @@ test.describe('Interview flow — E2E', () => {
           getVideoTracks: () => [{ readyState: 'live', stop: () => {} }],
           getAudioTracks: () => [{ readyState: 'live', stop: () => {} }],
         }
-        Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
+        Object.defineProperty(navigator, 'mediaDevices', {
           writable: true,
-          value: async () => fakeStream,
+          configurable: true,
+          value: {
+            getUserMedia: async () => fakeStream,
+          },
         })
       })
     })
@@ -179,8 +183,10 @@ test.describe('Interview flow — E2E', () => {
       const acceptButton = page.getByRole('button', { name: /accept and continue/i })
       await acceptButton.click()
 
-      // Should now show device check screen
-      await expect(page.getByRole('heading', { name: /device check/i })).toBeVisible({
+      // Should now show device check screen.
+      // DeviceCheck.client.vue renders an h2; the page template also has an sr-only h1
+      // with the same text. Use level:2 to select only the visible heading.
+      await expect(page.getByRole('heading', { level: 2, name: /device check/i })).toBeVisible({
         timeout: 5000,
       })
     })
@@ -203,7 +209,81 @@ test.describe('Interview flow — E2E', () => {
   })
 
   test.describe('Error paths', () => {
+    // Helper: inject mocks for getUserMedia + AudioContext so device check
+    // completes automatically (camera live, mic OK via immediate RMS spike).
+    // This enables the "Continue to Interview" button so confirmDevices() fires.
+    //
+    // DeviceCheck.client.vue is a .client.vue component registered as "DeviceCheck".
+    // It mounts inside <ClientOnly> in the production build. The mocks below allow
+    // navigator.mediaDevices.getUserMedia to succeed and AudioContext to report a
+    // mic RMS above threshold — enabling the "Continue to Interview" button without
+    // real hardware.
+    //
+    // Route registration order: Playwright matches routes in LIFO order. To ensure the
+    // specific /start route wins over the wildcard /**, register the wildcard FIRST and
+    // the specific /start route LAST (so it takes priority).
+    async function injectDeviceMocks(
+      page: Parameters<typeof test>[0] extends { page: infer P } ? P : never
+    ) {
+      await page.addInitScript(() => {
+        // Mock getUserMedia with fake tracks (non-real MediaStream object).
+        // navigator.mediaDevices is null in non-HTTPS (localhost without TLS);
+        // we replace it wholesale.
+        const fakeStream = {
+          getTracks: () => [
+            { readyState: 'live', kind: 'video', stop: () => {} },
+            { readyState: 'live', kind: 'audio', stop: () => {} },
+          ],
+          getVideoTracks: () => [{ readyState: 'live', stop: () => {} }],
+          getAudioTracks: () => [{ readyState: 'live', stop: () => {} }],
+        }
+
+        Object.defineProperty(navigator, 'mediaDevices', {
+          writable: true,
+          configurable: true,
+          value: { getUserMedia: async () => fakeStream },
+        })
+
+        // Mock AudioContext — buffer filled with 148 → RMS ≈ 0.156 > MIC_SPEAK_THRESHOLD(0.04)
+        const fakeBuffer = new Uint8Array(128).fill(148)
+        const fakeAnalyser = {
+          fftSize: 256,
+          frequencyBinCount: 128,
+          getByteTimeDomainData: (buf: Uint8Array) => {
+            for (let i = 0; i < buf.length; i++) buf[i] = fakeBuffer[i] ?? 148
+          },
+        }
+        ;(window as Record<string, unknown>).AudioContext = class {
+          createAnalyser() {
+            return fakeAnalyser
+          }
+          createMediaStreamSource() {
+            return { connect: () => {} }
+          }
+        }
+      })
+    }
+
+    // Helper: navigate to EN interview URL, accept consent, wait for DeviceCheck
+    // to be fully rendered, then click "Continue to Interview".
+    async function goThroughDeviceCheck(
+      page: Parameters<typeof test>[0] extends { page: infer P } ? P : never
+    ) {
+      await page.goto(EN_INTERVIEW_URL)
+      await page.getByRole('button', { name: /accept and continue/i }).click()
+      // DeviceCheck.client.vue mounts asynchronously inside <ClientOnly>.
+      // With device mocks active, cameraOk and micOk become true within 100ms.
+      await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+        timeout: 8000,
+      })
+      await page.getByRole('button', { name: /continue to interview/i }).click()
+    }
+
     test('429 x3 shows error+retry screen', async ({ page }) => {
+      // Register wildcard FIRST (lower priority in LIFO), /start LAST (wins).
+      await page.route('**/api/candidate/interview/**', (route) => {
+        route.fulfill({ status: 202, contentType: 'application/json', body: '{}' })
+      })
       let callCount = 0
       await page.route('**/api/candidate/interview/start', (route) => {
         callCount++
@@ -214,21 +294,19 @@ test.describe('Interview flow — E2E', () => {
         })
       })
 
-      await page.route('**/api/candidate/interview/**', (route) => {
-        route.fulfill({ status: 202, contentType: 'application/json', body: '{}' })
-      })
+      await injectDeviceMocks(page)
+      await goThroughDeviceCheck(page)
 
-      // Use English locale URL for consistent role-based locator
-      await page.goto(EN_INTERVIEW_URL)
-      await page.getByRole('button', { name: /accept and continue/i }).click()
-
-      // After 3 retries (3s each), error screen should appear
-      // We wait up to 15s for the retry cycle to complete
+      // After 3 retries (3s each) the session transitions to 'error'.
       await expect(page.getByTestId('error-screen')).toBeVisible({ timeout: 15000 })
       expect(callCount).toBeGreaterThanOrEqual(3)
     })
 
     test('403 from /start shows terminal screen (403 variant)', async ({ page }) => {
+      // Register wildcard FIRST, /start LAST so /start takes priority.
+      await page.route('**/api/candidate/interview/**', (route) => {
+        route.fulfill({ status: 202, contentType: 'application/json', body: '{}' })
+      })
       await page.route('**/api/candidate/interview/start', (route) => {
         route.fulfill({
           status: 403,
@@ -237,21 +315,19 @@ test.describe('Interview flow — E2E', () => {
         })
       })
 
-      await page.route('**/api/candidate/interview/**', (route) => {
-        route.fulfill({ status: 202, contentType: 'application/json', body: '{}' })
-      })
+      await injectDeviceMocks(page)
+      await goThroughDeviceCheck(page)
 
-      // Use English locale URL for consistent role-based locator
-      await page.goto(EN_INTERVIEW_URL)
-      await page.getByRole('button', { name: /accept and continue/i }).click()
-
-      // Terminal screen (403) should appear
+      // 403 → terminalReason = '403' → terminal screen, no retry button.
       await expect(page.getByTestId('terminal-screen')).toBeVisible({ timeout: 5000 })
-      // No retry button on terminal
       await expect(page.getByTestId('retry-button')).not.toBeVisible()
     })
 
     test('error screen has retry button', async ({ page }) => {
+      // Register wildcard FIRST, /start LAST.
+      await page.route('**/api/candidate/interview/**', (route) => {
+        route.fulfill({ status: 202, contentType: 'application/json', body: '{}' })
+      })
       let callCount = 0
       await page.route('**/api/candidate/interview/start', (route) => {
         callCount++
@@ -270,33 +346,33 @@ test.describe('Interview flow — E2E', () => {
         }
       })
 
-      await page.route('**/api/candidate/interview/**', (route) => {
-        route.fulfill({ status: 202, contentType: 'application/json', body: '{}' })
-      })
+      await injectDeviceMocks(page)
+      await goThroughDeviceCheck(page)
 
-      // Use English locale URL for consistent role-based locator
-      await page.goto(EN_INTERVIEW_URL)
-      await page.getByRole('button', { name: /accept and continue/i }).click()
-
-      // Wait for error screen
+      // Wait for error screen after 3 retries
       await expect(page.getByTestId('error-screen')).toBeVisible({ timeout: 15000 })
-
       // Retry button is present
-      const retryButton = page.getByTestId('retry-button')
-      await expect(retryButton).toBeVisible()
+      await expect(page.getByTestId('retry-button')).toBeVisible()
     })
   })
 
   test.describe('Pause / Resume', () => {
-    test('end_of_question → pause → paused screen visible', async ({ page }) => {
+    test('end_of_question → pause → paused screen visible (structural — state machine covered by Vitest)', async ({
+      page,
+    }) => {
       await mockInterviewRoutes(page)
 
       // Use English locale URL for consistent role-based locator
       await page.goto(EN_INTERVIEW_URL)
       await page.getByRole('button', { name: /accept and continue/i }).click()
 
-      // Simulate end_of_question state by clicking pause from session — structural test
-      // The actual state machine transitions are covered by Vitest unit tests
+      // After consent, device-check screen appears — assert it is visible.
+      // DeviceCheck.client.vue renders an h2; use level:2 to disambiguate from
+      // the sr-only h1 in the page template with the same text.
+      // (full end_of_question path requires real provider events; covered by unit tests)
+      await expect(page.getByRole('heading', { level: 2, name: /device check/i })).toBeVisible({
+        timeout: 5000,
+      })
     })
   })
 
