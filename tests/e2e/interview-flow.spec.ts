@@ -138,6 +138,10 @@ test.describe('Interview flow — E2E', () => {
   })
 
   test.describe('Happy path — consent → device-check → live → end-of-question → done', () => {
+    // Navigate to the English locale URL so that role-based locators match
+    // the English i18n keys ("I Accept and Continue") — avoids locale mismatch
+    // with Italian defaults ("Accetto e continuo"). Per project convention:
+    // always use role-based locators, never CSS class/id.
     test.beforeEach(async ({ page }) => {
       await mockInterviewRoutes(page)
 
@@ -159,19 +163,20 @@ test.describe('Interview flow — E2E', () => {
     })
 
     test('shows consent screen on first load', async ({ page }) => {
-      await page.goto(INTERVIEW_URL)
+      // Use English locale URL → button text is "I Accept and Continue"
+      await page.goto(EN_INTERVIEW_URL)
 
       // Consent screen should be visible
       await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
-      // Accept button present (role-based locator — project convention)
-      const acceptButton = page.getByRole('button', { name: /accept/i })
+      // Accept button present (role-based locator — project convention, English locale)
+      const acceptButton = page.getByRole('button', { name: /accept and continue/i })
       await expect(acceptButton).toBeVisible()
     })
 
     test('consent acceptance transitions to device check', async ({ page }) => {
-      await page.goto(INTERVIEW_URL)
+      await page.goto(EN_INTERVIEW_URL)
 
-      const acceptButton = page.getByRole('button', { name: /accept/i })
+      const acceptButton = page.getByRole('button', { name: /accept and continue/i })
       await acceptButton.click()
 
       // Should now show device check screen
@@ -190,10 +195,10 @@ test.describe('Interview flow — E2E', () => {
         })
       })
 
-      await page.goto(INTERVIEW_URL)
+      await page.goto(EN_INTERVIEW_URL)
 
-      // Accept consent
-      await page.getByRole('button', { name: /accept/i }).click()
+      // Accept consent (English locale)
+      await page.getByRole('button', { name: /accept and continue/i }).click()
     })
   })
 
@@ -213,8 +218,9 @@ test.describe('Interview flow — E2E', () => {
         route.fulfill({ status: 202, contentType: 'application/json', body: '{}' })
       })
 
-      await page.goto(INTERVIEW_URL)
-      await page.getByRole('button', { name: /accept/i }).click()
+      // Use English locale URL for consistent role-based locator
+      await page.goto(EN_INTERVIEW_URL)
+      await page.getByRole('button', { name: /accept and continue/i }).click()
 
       // After 3 retries (3s each), error screen should appear
       // We wait up to 15s for the retry cycle to complete
@@ -235,8 +241,9 @@ test.describe('Interview flow — E2E', () => {
         route.fulfill({ status: 202, contentType: 'application/json', body: '{}' })
       })
 
-      await page.goto(INTERVIEW_URL)
-      await page.getByRole('button', { name: /accept/i }).click()
+      // Use English locale URL for consistent role-based locator
+      await page.goto(EN_INTERVIEW_URL)
+      await page.getByRole('button', { name: /accept and continue/i }).click()
 
       // Terminal screen (403) should appear
       await expect(page.getByTestId('terminal-screen')).toBeVisible({ timeout: 5000 })
@@ -267,8 +274,9 @@ test.describe('Interview flow — E2E', () => {
         route.fulfill({ status: 202, contentType: 'application/json', body: '{}' })
       })
 
-      await page.goto(INTERVIEW_URL)
-      await page.getByRole('button', { name: /accept/i }).click()
+      // Use English locale URL for consistent role-based locator
+      await page.goto(EN_INTERVIEW_URL)
+      await page.getByRole('button', { name: /accept and continue/i }).click()
 
       // Wait for error screen
       await expect(page.getByTestId('error-screen')).toBeVisible({ timeout: 15000 })
@@ -283,8 +291,9 @@ test.describe('Interview flow — E2E', () => {
     test('end_of_question → pause → paused screen visible', async ({ page }) => {
       await mockInterviewRoutes(page)
 
-      await page.goto(INTERVIEW_URL)
-      await page.getByRole('button', { name: /accept/i }).click()
+      // Use English locale URL for consistent role-based locator
+      await page.goto(EN_INTERVIEW_URL)
+      await page.getByRole('button', { name: /accept and continue/i }).click()
 
       // Simulate end_of_question state by clicking pause from session — structural test
       // The actual state machine transitions are covered by Vitest unit tests
@@ -328,7 +337,8 @@ test.describe('Interview flow — E2E', () => {
       })
 
       await mockInterviewRoutes(page)
-      await page.goto(INTERVIEW_URL)
+      // Use English locale URL for consistency across all tests in this file
+      await page.goto(EN_INTERVIEW_URL)
 
       // Trigger page unload to fire pagehide
       await page.evaluate(() => {

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import type { Browser } from '@playwright/test'
 import { checkA11y } from './fixtures/a11y'
 
 /**
@@ -71,23 +72,45 @@ test.describe('SA-11 — Unsupported experience gate', () => {
   })
 
   test.describe('SA-11 — Desktop: Firefox UA redirects to /unsupported', () => {
-    test('Firefox UA redirects /interview/fake-token to /unsupported', async ({ page }) => {
-      // Set Firefox User-Agent header for the request
-      await page.setExtraHTTPHeaders({ 'user-agent': FIREFOX_UA })
-      await page.goto('/interview/fake-token')
+    // UA spoofing technique: use browser.newContext({ userAgent }) to correctly
+    // override the User-Agent for the SSR request. page.setExtraHTTPHeaders()
+    // only injects an extra header and does NOT replace Chromium's UA for SSR.
+    test('Firefox UA redirects /interview/fake-token to /unsupported', async ({
+      browser,
+    }: {
+      browser: Browser
+    }) => {
+      const ctx = await browser.newContext({ userAgent: FIREFOX_UA })
+      const page = await ctx.newPage()
 
-      // Browser-gate middleware should redirect Firefox to /unsupported
-      await expect(page).toHaveURL(/\/unsupported/)
-      await expect(page.getByTestId('unsupported-gate')).toBeVisible()
+      try {
+        await page.goto('/interview/fake-token')
+
+        // Browser-gate middleware should redirect Firefox to /unsupported
+        await expect(page).toHaveURL(/\/unsupported/)
+        await expect(page.getByTestId('unsupported-gate')).toBeVisible()
+      } finally {
+        await ctx.close()
+      }
     })
 
-    test('Firefox UA redirects /en/interview/fake-token to /en/unsupported', async ({ page }) => {
-      await page.setExtraHTTPHeaders({ 'user-agent': FIREFOX_UA })
-      await page.goto('/en/interview/fake-token')
+    test('Firefox UA redirects /en/interview/fake-token to /en/unsupported', async ({
+      browser,
+    }: {
+      browser: Browser
+    }) => {
+      const ctx = await browser.newContext({ userAgent: FIREFOX_UA })
+      const page = await ctx.newPage()
 
-      // Should redirect to the locale-prefixed unsupported page
-      await expect(page).toHaveURL(/\/unsupported/)
-      await expect(page.getByTestId('unsupported-gate')).toBeVisible()
+      try {
+        await page.goto('/en/interview/fake-token')
+
+        // Should redirect to the locale-prefixed unsupported page
+        await expect(page).toHaveURL(/\/unsupported/)
+        await expect(page.getByTestId('unsupported-gate')).toBeVisible()
+      } finally {
+        await ctx.close()
+      }
     })
   })
 })
