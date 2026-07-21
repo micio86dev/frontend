@@ -69,6 +69,64 @@ describe('createProvider factory', () => {
     expect(typeof provider.emitFinalPhrase).toBe('function')
   })
 
+  // ---- Mock provider behavior ----
+
+  it('mock provider emitEndPhrase() emits complete state', async () => {
+    const provider = createProvider('heygen', true) as InterviewProvider & {
+      emitEndPhrase: () => void
+    }
+    const states: string[] = []
+    provider.on('state', (s) => states.push(s as string))
+
+    const el = document.createElement('div')
+    await provider.start(el, {
+      dbSessionId: 1,
+      endPhrase: 'End phrase.',
+      finalPhrase: 'Final phrase.',
+    })
+
+    provider.emitEndPhrase()
+    expect(states).toContain('complete')
+  })
+
+  it('mock provider emitFinalPhrase() emits complete state', async () => {
+    const provider = createProvider('heygen', true) as InterviewProvider & {
+      emitFinalPhrase: () => void
+    }
+    const states: string[] = []
+    provider.on('state', (s) => states.push(s as string))
+
+    const el = document.createElement('div')
+    await provider.start(el, {
+      dbSessionId: 1,
+      endPhrase: 'End phrase.',
+      finalPhrase: 'Final phrase.',
+    })
+
+    provider.emitFinalPhrase()
+    expect(states).toContain('complete')
+  })
+
+  it('mock provider emitToolCall() emits complete state', async () => {
+    const provider = createProvider('tavus', true) as InterviewProvider & {
+      emitToolCall: () => void
+    }
+    const states: string[] = []
+    provider.on('state', (s) => states.push(s as string))
+
+    provider.emitToolCall()
+    expect(states).toContain('complete')
+  })
+
+  it('mock provider stop() emits stopped state', async () => {
+    const provider = createProvider('heygen', true)
+    const states: string[] = []
+    provider.on('state', (s) => states.push(s as string))
+
+    await provider.stop()
+    expect(states).toContain('stopped')
+  })
+
   // ---- Unknown provider defensive guard ----
 
   it('throws a descriptive error for unknown provider name', () => {

@@ -9,7 +9,15 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { matchesEndPhrase } from '~/app/utils/proctor-config'
+import {
+  matchesEndPhrase,
+  summarizeIntegrity,
+  INTEGRITY_KINDS,
+  FLUSH_INTERVAL_MS,
+  SNAPSHOT_INTERVAL_MS,
+  SAMPLE_FPS,
+} from '~/app/utils/proctor-config'
+import type { IntegrityEventInternal } from '~/app/utils/proctor-config'
 
 const IT_END_PHRASE = 'Passiamo alla prossima domanda.'
 const IT_FINAL_PHRASE = 'Grazie per il tuo tempo.'
@@ -149,5 +157,61 @@ describe('matchesEndPhrase', () => {
     // If this test runs without throwing, module scope is clean
     expect(matchesEndPhrase).toBeDefined()
     expect(typeof matchesEndPhrase).toBe('function')
+  })
+})
+
+describe('proctor-config constants', () => {
+  it('exports INTEGRITY_KINDS frozen array with 13 kinds', () => {
+    expect(INTEGRITY_KINDS).toHaveLength(13)
+    expect(Object.isFrozen(INTEGRITY_KINDS)).toBe(true)
+    expect(INTEGRITY_KINDS).toContain('tab_hidden')
+    expect(INTEGRITY_KINDS).toContain('face_absent')
+    expect(INTEGRITY_KINDS).toContain('devtools_open')
+  })
+
+  it('exports FLUSH_INTERVAL_MS as 10000', () => {
+    expect(FLUSH_INTERVAL_MS).toBe(10_000)
+  })
+
+  it('exports SNAPSHOT_INTERVAL_MS as 10000', () => {
+    expect(SNAPSHOT_INTERVAL_MS).toBe(10_000)
+  })
+
+  it('exports SAMPLE_FPS as 3', () => {
+    expect(SAMPLE_FPS).toBe(3)
+  })
+})
+
+describe('summarizeIntegrity', () => {
+  it('returns empty object for empty events array', () => {
+    expect(summarizeIntegrity([])).toEqual({})
+  })
+
+  it('counts single event kind correctly', () => {
+    const events: IntegrityEventInternal[] = [{ type: 'tab_hidden', ts: '2025-01-01T00:00:00Z' }]
+    expect(summarizeIntegrity(events)).toEqual({ tab_hidden: 1 })
+  })
+
+  it('counts multiple events of the same kind', () => {
+    const events: IntegrityEventInternal[] = [
+      { type: 'focus_lost', ts: '2025-01-01T00:00:00Z' },
+      { type: 'focus_lost', ts: '2025-01-01T00:00:01Z' },
+      { type: 'focus_lost', ts: '2025-01-01T00:00:02Z' },
+    ]
+    expect(summarizeIntegrity(events)).toEqual({ focus_lost: 3 })
+  })
+
+  it('counts mixed event kinds correctly', () => {
+    const events: IntegrityEventInternal[] = [
+      { type: 'tab_hidden', ts: '2025-01-01T00:00:00Z' },
+      { type: 'face_absent', ts: '2025-01-01T00:00:01Z' },
+      { type: 'tab_hidden', ts: '2025-01-01T00:00:02Z' },
+      { type: 'looking_away', ts: '2025-01-01T00:00:03Z' },
+    ]
+    expect(summarizeIntegrity(events)).toEqual({
+      tab_hidden: 2,
+      face_absent: 1,
+      looking_away: 1,
+    })
   })
 })

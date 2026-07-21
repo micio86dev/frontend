@@ -21,7 +21,14 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['app/**', 'components/**', 'composables/**', 'pages/**', 'server/**'],
-      exclude: ['.nuxt/**', 'types/api.ts', '*.config.*'],
+      exclude: [
+        '.nuxt/**',
+        'types/api.ts',
+        '*.config.*',
+        // Exclude pure TypeScript type definition files — they contain no runtime code
+        // (only interface/type declarations) so v8 reports them as 0% covered.
+        'app/types/**',
+      ],
       thresholds: {
         lines: 85,
       },
