@@ -17,7 +17,8 @@
     "format:check": "prettier --check .",
     "format:write": "prettier --write .",
     "codegen": "bunx openapi-typescript openapi.json -o types/api.ts",
-    "codegen:check": "bash scripts/check-client-drift.sh"
+    "codegen:check": "bash scripts/check-client-drift.sh",
+    "proctor:assets": "node scripts/proctor-assets.mjs"
   },
   "dependencies": {
     "@daily-co/daily-js": "^0.91.0",
