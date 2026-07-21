@@ -4,6 +4,13 @@ import { resolve } from 'node:path'
 
 export default defineConfig({
   plugins: [vue()],
+  // Define import.meta.client as true in Vitest (mirrors Nuxt client-side bundle context).
+  // Provider code uses `import.meta.client` to guard browser-only SDK imports from SSR.
+  // Unit tests run in happy-dom (client-like environment) so this is the correct default.
+  define: {
+    'import.meta.client': true,
+    'import.meta.server': false,
+  },
   test: {
     globals: true,
     environment: 'happy-dom',
