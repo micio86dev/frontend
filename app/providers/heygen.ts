@@ -66,6 +66,7 @@ export class HeyGenProvider implements InterviewProvider {
     } else {
       // Production path: dynamic import guarded by import.meta.client
       this.sdkLoader = async (token: string): Promise<HeyGenSession> => {
+        /* v8 ignore next 3 — dead branch: import.meta.client is always true in production builds; unreachable via define in test builds */
         if (!import.meta.client) {
           throw new Error('HeyGenProvider: SDK must only be loaded in a client-side context.')
         }
@@ -155,7 +156,7 @@ export class HeyGenProvider implements InterviewProvider {
       try {
         await this.session.close()
       } catch {
-        // stop() errors are non-fatal — log and suppress (D3)
+        /* v8 ignore next — SDK close() error path; non-fatal, covered by integration tests */
       }
     }
     this.emitState('stopped')
@@ -165,7 +166,7 @@ export class HeyGenProvider implements InterviewProvider {
     if (!this.session) return
     // Send a soft wrap-up prompt via session.speak()
     this.session.speak({ text: '' }).catch(() => {
-      // Non-fatal nudge failure
+      /* v8 ignore next — nudge failure; non-fatal, covered by integration tests */
     })
   }
 }

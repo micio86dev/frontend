@@ -10,6 +10,8 @@
  *   - Hardcoded phrase constants removed — phrases come from the /start API response
  */
 
+// ── Timing constants ────────────────────────────────────────────────────────
+
 /** How often (ms) to flush the pending integrity event batch to POST /integrity */
 export const FLUSH_INTERVAL_MS = 10_000
 
@@ -19,6 +21,59 @@ export const SNAPSHOT_INTERVAL_MS = 10_000
 /** Frames per second to sample from the video stream for MediaPipe face analysis */
 export const SAMPLE_FPS = 3
 
+// ── Browser episode thresholds ──────────────────────────────────────────────
+
+/** Ignore tab/focus flickers shorter than this (ms) */
+export const MIN_BROWSER_EPISODE_MS = 500
+
+// ── Face detection thresholds ───────────────────────────────────────────────
+
+/** No face in frame for this long (ms) → face_absent event */
+export const FACE_ABSENT_MS = 4_000
+
+/** ≥2 faces in frame for this long (ms) → multiple_faces event */
+export const MULTI_FACE_MS = 1_500
+
+/** Head off-axis for this long (ms) → looking_away event */
+export const LOOK_AWAY_MS = 2_500
+
+/** |yaw| beyond this (degrees) = candidate is looking away */
+export const LOOK_AWAY_YAW_DEG = 25
+
+/** |pitch| beyond this (degrees) = candidate is looking away */
+export const LOOK_AWAY_PITCH_DEG = 22
+
+/** Negative pitch below this (degrees, downward tilt) = looking_down */
+export const LOOK_DOWN_PITCH_DEG = 20
+
+/**
+ * Face bounding-box width (0–1 normalized) below this threshold = candidate is too far.
+ * Derived from the normalized landmark x-spread across the face.
+ */
+export const FACE_MIN_WIDTH_RATIO = 0.2
+
+/** Face too small in frame for this long (ms) → too_far event */
+export const TOO_FAR_MS = 3_000
+
+// ── Phone detection thresholds ──────────────────────────────────────────────
+
+/** Run object detection every this many ms (CPU-light cadence) */
+export const PHONE_SAMPLE_MS = 2_000
+
+/** Phone visible in frame for this long (ms) → phone_detected event */
+export const PHONE_DETECTED_MS = 3_000
+
+/** Minimum EfficientDet-Lite0 score to count a detection as "cell phone" */
+export const PHONE_SCORE_THRESHOLD = 0.5
+
+// ── Audio thresholds ────────────────────────────────────────────────────────
+
+/** Mic RMS (0–1) above this level = voice activity detected */
+export const VOICE_RMS_THRESHOLD = 0.04
+
+/** Sustained audio above threshold for this long (ms) while avatar speaks → second_voice */
+export const SECOND_VOICE_MS = 2_000
+
 /**
  * The 13 canonical proctoring integrity event kinds (frozen, authoritative list).
  * These are the machine-facing kind values sent to POST /integrity.
@@ -27,16 +82,16 @@ export const INTEGRITY_KINDS = Object.freeze([
   'tab_hidden',
   'focus_lost',
   'second_monitor',
-  'clipboard_copy',
-  'clipboard_paste',
   'face_absent',
-  'multiple_faces',
   'looking_away',
   'looking_down',
   'too_far',
+  'multiple_faces',
+  'fullscreen_exit',
+  'clipboard_copy',
+  'clipboard_paste',
   'second_voice',
-  'window_resize',
-  'devtools_open',
+  'phone_detected',
 ] as const)
 
 /** The union type of all valid integrity event kinds */

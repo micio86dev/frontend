@@ -194,4 +194,33 @@ describe('TavusProvider', () => {
     const err = emittedErrors[0] as { code: string }
     expect(err.code).toBe('sdk_error')
   })
+
+  it('joined-meeting event → emits ready state (alternative to fallback path)', async () => {
+    // Simulate the Daily.co frame emitting 'joined-meeting' before join() resolves.
+    // This covers the handler registered on line 105 in tavus.ts.
+    const { provider } = makeProvider()
+    const el = document.createElement('div')
+
+    // The join() mock resolves immediately, but we need joined-meeting to fire first.
+    // We do this by making join() emit joined-meeting as a side-effect.
+    mockFrame.join.mockImplementation(async () => {
+      mockFrame._emit('joined-meeting', {})
+    })
+
+    await provider.start(el, { dbSessionId: 1, conversationUrl: CONVERSATION_URL, ...PHRASES })
+
+    // Both the joined-meeting handler AND the emittedReady fallback should have tried
+    // to emit ready — but emittedReady flag prevents double emission.
+    expect(emittedStates.filter((s) => s === 'ready')).toHaveLength(1)
+  })
+
+  it('stop() emits stopped even when callFrame.leave() rejects', async () => {
+    const { provider } = makeProvider()
+    mockFrame.leave.mockRejectedValue(new Error('network error'))
+    const el = document.createElement('div')
+    await provider.start(el, { dbSessionId: 1, conversationUrl: CONVERSATION_URL, ...PHRASES })
+
+    await expect(provider.stop()).resolves.not.toThrow()
+    expect(emittedStates).toContain('stopped')
+  })
 })

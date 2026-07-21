@@ -166,7 +166,7 @@ describe('proctor-config constants', () => {
     expect(Object.isFrozen(INTEGRITY_KINDS)).toBe(true)
     expect(INTEGRITY_KINDS).toContain('tab_hidden')
     expect(INTEGRITY_KINDS).toContain('face_absent')
-    expect(INTEGRITY_KINDS).toContain('devtools_open')
+    expect(INTEGRITY_KINDS).toContain('phone_detected')
   })
 
   it('exports FLUSH_INTERVAL_MS as 10000', () => {

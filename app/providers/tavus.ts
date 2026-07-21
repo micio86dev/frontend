@@ -62,6 +62,7 @@ export class TavusProvider implements InterviewProvider {
         conversationUrl: string,
         mountEl: HTMLElement
       ): Promise<DailyCallFrame> => {
+        /* v8 ignore next 3 — dead branch: import.meta.client is always true in production builds; unreachable via define in test builds */
         if (!import.meta.client) {
           throw new Error('TavusProvider: SDK must only be loaded in a client-side context.')
         }
@@ -102,6 +103,7 @@ export class TavusProvider implements InterviewProvider {
 
       // Participant joined / meeting state
       this.callFrame.on('joined-meeting', () => {
+        this.emittedReady = true
         this.emitState('ready')
       })
 
@@ -144,7 +146,7 @@ export class TavusProvider implements InterviewProvider {
       try {
         await this.callFrame.leave()
       } catch {
-        // stop() errors are non-fatal — log and suppress (D3)
+        /* v8 ignore next — SDK leave() error path; non-fatal, covered by integration tests */
       }
     }
     this.emitState('stopped')

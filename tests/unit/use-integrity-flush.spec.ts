@@ -118,6 +118,14 @@ describe('useIntegrityFlush', () => {
         expect(event).toHaveProperty('kind')
       }
     })
+
+    it('flush([]) → no-op; $fetch is NOT called (early return guard)', async () => {
+      const { flush } = useIntegrityFlush({ sessionId: 99 })
+
+      await flush([])
+
+      expect(mockFlushFetch).not.toHaveBeenCalled()
+    })
   })
 
   describe('flushViaBeacon() — navigator.sendBeacon', () => {
