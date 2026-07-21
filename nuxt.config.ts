@@ -17,6 +17,26 @@ export default defineNuxtConfig({
           'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
         },
       },
+      // Per-route override for the interview flow (D6 — Nitro REPLACES headers, never merges).
+      // All four security headers must be restated explicitly; omitting any drops it silently.
+      // Covers the default locale (no prefix, strategy: prefix_except_default) and the English
+      // non-default locale prefix. Add a new entry for each additional locale (es/fr/de/pt).
+      '/interview/**': {
+        headers: {
+          'Permissions-Policy': 'camera=(self) microphone=(self) geolocation=()',
+          'X-Frame-Options': 'DENY',
+          'X-Content-Type-Options': 'nosniff',
+          'Referrer-Policy': 'strict-origin-when-cross-origin',
+        },
+      },
+      '/en/interview/**': {
+        headers: {
+          'Permissions-Policy': 'camera=(self) microphone=(self) geolocation=()',
+          'X-Frame-Options': 'DENY',
+          'X-Content-Type-Options': 'nosniff',
+          'Referrer-Policy': 'strict-origin-when-cross-origin',
+        },
+      },
     },
   },
 
@@ -53,6 +73,8 @@ export default defineNuxtConfig({
     public: {
       apiBase: '',
       appEnv: 'local',
+      // Set NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK=true in E2E to inject the mock provider (D2, W3)
+      interviewProviderMock: '',
     },
   },
 })
