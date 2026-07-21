@@ -3,14 +3,24 @@
  * Unit tests for HeyGenProvider (app/providers/heygen.ts)
  *
  * The SDK is injected as a mock factory — no real WebRTC/WebSocket connections.
+ *
+ * Real SDK API (LiveAvatarSession from @heygen/liveavatar-web-sdk@0.0.18):
+ *   - Constructor: new LiveAvatarSession(sessionAccessToken: string)
+ *   - Events (AgentEventsEnum string values):
+ *       "avatar.transcription" — avatar speech with payload { text: string }
+ *       "user.transcription"   — candidate speech with payload { text: string }
+ *   - Methods: start(), stop(), attach(el), startListening(), stopListening(),
+ *              interrupt(), message(text)
+ *
  * Tests verify:
  *   - start() emits correct state transitions: connecting → ready → listening
- *   - avatar_talking_message events fire the 'transcript' event
- *   - matchesEndPhrase match on transcript → 'state' 'complete' emitted
+ *   - "avatar.transcription" SDK event fires the 'transcript' event with role 'avatar'
+ *   - "user.transcription" SDK event fires the 'transcript' event with role 'user'
+ *   - matchesEndPhrase match on avatar transcript → 'state' 'complete' emitted
  *   - Absent endPhrase → 'error' emitted before SDK init; state never reaches 'connecting'
  *   - Absent finalPhrase → same error path
- *   - stop() → 'state' 'stopped' emitted; SDK close() called
- *   - toggleMic() → SDK muteInputAudio called
+ *   - stop() → 'state' 'stopped' emitted; SDK stop() called
+ *   - toggleMic() → SDK stopListening() / startListening() called
  *   - SSR path: when sdkLoader throws (mimics SSR guard), provider emits 'error'
  */
 
@@ -20,14 +30,17 @@ import { HeyGenProvider } from '~/app/providers/heygen'
 // ---- Mock SDK session factory ----
 // This pattern replaces vi.mock + dynamic-import complexities.
 // We inject a mock sdkLoader directly into the HeyGenProvider constructor.
+// The mock matches the REAL LiveAvatarSession API shape.
 
 interface MockSession {
   on: ReturnType<typeof vi.fn>
-  connect: ReturnType<typeof vi.fn>
-  close: ReturnType<typeof vi.fn>
-  startVoiceChat: ReturnType<typeof vi.fn>
-  muteInputAudio: ReturnType<typeof vi.fn>
-  speak: ReturnType<typeof vi.fn>
+  start: ReturnType<typeof vi.fn>
+  stop: ReturnType<typeof vi.fn>
+  attach: ReturnType<typeof vi.fn>
+  startListening: ReturnType<typeof vi.fn>
+  stopListening: ReturnType<typeof vi.fn>
+  interrupt: ReturnType<typeof vi.fn>
+  message: ReturnType<typeof vi.fn>
   // Internal helper to simulate SDK emitting an event
   _emit: (eventName: string, data: unknown) => void
 }
@@ -40,11 +53,13 @@ function createMockSession(): MockSession {
       const list = handlers.get(event) ?? []
       handlers.set(event, [...list, cb])
     }),
-    connect: vi.fn().mockResolvedValue(undefined),
-    close: vi.fn().mockResolvedValue(undefined),
-    startVoiceChat: vi.fn().mockResolvedValue(undefined),
-    muteInputAudio: vi.fn().mockResolvedValue(undefined),
-    speak: vi.fn().mockResolvedValue(undefined),
+    start: vi.fn().mockResolvedValue(undefined),
+    stop: vi.fn().mockResolvedValue(undefined),
+    attach: vi.fn(),
+    startListening: vi.fn().mockReturnValue(''),
+    stopListening: vi.fn().mockReturnValue(''),
+    interrupt: vi.fn(),
+    message: vi.fn().mockReturnValue(''),
     _emit: (eventName: string, data: unknown) => {
       for (const cb of handlers.get(eventName) ?? []) {
         cb(data)
@@ -95,27 +110,24 @@ describe('HeyGenProvider', () => {
     expect(emittedStates.indexOf('ready')).toBeLessThan(emittedStates.indexOf('listening'))
   })
 
-  it('calls SDK connect and startVoiceChat on start()', async () => {
+  it('calls SDK start() and startListening() on start()', async () => {
     const { provider } = makeProvider()
     const el = document.createElement('div')
 
     await provider.start(el, { dbSessionId: 1, ...PHRASES })
 
-    expect(mockSession.connect).toHaveBeenCalledOnce()
-    expect(mockSession.startVoiceChat).toHaveBeenCalledOnce()
+    expect(mockSession.start).toHaveBeenCalledOnce()
+    expect(mockSession.startListening).toHaveBeenCalledOnce()
   })
 
   // ---- Transcript events ----
 
-  it('fires transcript event on avatar_talking_message SDK event', async () => {
+  it('fires transcript event with role "avatar" on "avatar.transcription" SDK event', async () => {
     const { provider } = makeProvider()
     const el = document.createElement('div')
     await provider.start(el, { dbSessionId: 1, ...PHRASES })
 
-    mockSession._emit('avatar_talking_message', {
-      role: 'avatar',
-      message: 'Buongiorno, iniziamo.',
-    })
+    mockSession._emit('avatar.transcription', { text: 'Buongiorno, iniziamo.' })
 
     expect(emittedTranscripts).toHaveLength(1)
     const entry = emittedTranscripts[0] as { role: string; text: string }
@@ -123,15 +135,16 @@ describe('HeyGenProvider', () => {
     expect(entry.text).toBe('Buongiorno, iniziamo.')
   })
 
-  it('sets role to "user" when avatar_talking_message.role is "user"', async () => {
+  it('fires transcript event with role "user" on "user.transcription" SDK event', async () => {
     const { provider } = makeProvider()
     const el = document.createElement('div')
     await provider.start(el, { dbSessionId: 1, ...PHRASES })
 
-    mockSession._emit('avatar_talking_message', { role: 'user', message: 'Ciao.' })
+    mockSession._emit('user.transcription', { text: 'Ciao.' })
 
-    const entry = emittedTranscripts[0] as { role: string }
+    const entry = emittedTranscripts[0] as { role: string; text: string }
     expect(entry.role).toBe('user')
+    expect(entry.text).toBe('Ciao.')
   })
 
   // ---- Completion detection ----
@@ -141,10 +154,7 @@ describe('HeyGenProvider', () => {
     const el = document.createElement('div')
     await provider.start(el, { dbSessionId: 1, ...PHRASES })
 
-    mockSession._emit('avatar_talking_message', {
-      role: 'avatar',
-      message: PHRASES.endPhrase,
-    })
+    mockSession._emit('avatar.transcription', { text: PHRASES.endPhrase })
 
     expect(emittedStates).toContain('complete')
   })
@@ -154,10 +164,7 @@ describe('HeyGenProvider', () => {
     const el = document.createElement('div')
     await provider.start(el, { dbSessionId: 1, ...PHRASES })
 
-    mockSession._emit('avatar_talking_message', {
-      role: 'avatar',
-      message: PHRASES.finalPhrase,
-    })
+    mockSession._emit('avatar.transcription', { text: PHRASES.finalPhrase })
 
     expect(emittedStates).toContain('complete')
   })
@@ -167,24 +174,20 @@ describe('HeyGenProvider', () => {
     const el = document.createElement('div')
     await provider.start(el, { dbSessionId: 1, ...PHRASES })
 
-    mockSession._emit('avatar_talking_message', {
-      role: 'avatar',
-      message: 'Parliamo della tua esperienza professionale.',
+    mockSession._emit('avatar.transcription', {
+      text: 'Parliamo della tua esperienza professionale.',
     })
 
     expect(emittedStates).not.toContain('complete')
   })
 
   it('does NOT emit complete for user transcript matching the phrase', async () => {
-    // Completion detection only applies to avatar role transcripts
+    // Completion detection only applies to avatar.transcription events
     const { provider } = makeProvider()
     const el = document.createElement('div')
     await provider.start(el, { dbSessionId: 1, ...PHRASES })
 
-    mockSession._emit('avatar_talking_message', {
-      role: 'user',
-      message: PHRASES.endPhrase,
-    })
+    mockSession._emit('user.transcription', { text: PHRASES.endPhrase })
 
     expect(emittedStates).not.toContain('complete')
   })
@@ -232,7 +235,7 @@ describe('HeyGenProvider', () => {
 
   // ---- stop() ----
 
-  it('stop() emits state stopped and calls SDK close()', async () => {
+  it('stop() emits state stopped and calls SDK stop()', async () => {
     const { provider } = makeProvider()
     const el = document.createElement('div')
     await provider.start(el, { dbSessionId: 1, ...PHRASES })
@@ -240,32 +243,45 @@ describe('HeyGenProvider', () => {
     await provider.stop()
 
     expect(emittedStates).toContain('stopped')
-    expect(mockSession.close).toHaveBeenCalledOnce()
+    expect(mockSession.stop).toHaveBeenCalledOnce()
   })
 
   it('stop() emits stopped even when called before start()', async () => {
     const { provider } = makeProvider()
     await provider.stop()
     expect(emittedStates).toContain('stopped')
-    expect(mockSession.close).not.toHaveBeenCalled()
+    expect(mockSession.stop).not.toHaveBeenCalled()
   })
 
   // ---- toggleMic() ----
 
-  it('toggleMic() calls SDK muteInputAudio', async () => {
+  it('toggleMic() calls SDK stopListening() when muting (first toggle)', async () => {
     const { provider } = makeProvider()
     const el = document.createElement('div')
     await provider.start(el, { dbSessionId: 1, ...PHRASES })
 
     await provider.toggleMic()
 
-    expect(mockSession.muteInputAudio).toHaveBeenCalledOnce()
+    expect(mockSession.stopListening).toHaveBeenCalledOnce()
+  })
+
+  it('toggleMic() calls SDK startListening() when unmuting (second toggle)', async () => {
+    const { provider } = makeProvider()
+    const el = document.createElement('div')
+    await provider.start(el, { dbSessionId: 1, ...PHRASES })
+
+    await provider.toggleMic() // mute
+    await provider.toggleMic() // unmute
+
+    // startListening called once on start() + once on second toggle
+    expect(mockSession.startListening).toHaveBeenCalledTimes(2)
   })
 
   it('toggleMic() does nothing before start()', async () => {
     const { provider } = makeProvider()
     await provider.toggleMic()
-    expect(mockSession.muteInputAudio).not.toHaveBeenCalled()
+    expect(mockSession.stopListening).not.toHaveBeenCalled()
+    expect(mockSession.startListening).not.toHaveBeenCalled()
   })
 
   // ---- SSR guard ----

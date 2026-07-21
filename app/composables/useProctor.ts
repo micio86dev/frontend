@@ -185,7 +185,7 @@ export function useProctor(): UseProctorReturn {
   // Audio handles
   let audioCtx: AudioContext | null = null
   let analyserNode: AnalyserNode | null = null
-  let audioDataArray: Uint8Array | null = null
+  let audioDataArray: Uint8Array<ArrayBuffer> | null = null
 
   // Bound listener references (for removal)
   let onVisibilityBound: (() => void) | null = null

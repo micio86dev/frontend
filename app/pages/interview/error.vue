@@ -30,7 +30,7 @@ import { Alert, AlertTitle } from '~/components/ui/alert'
 import { Button } from '~/components/ui/button'
 
 definePageMeta({ ssr: false })
-useHead({ robots: 'noindex, nofollow' })
+useHead({ meta: [{ name: 'robots', content: 'noindex, nofollow' }] })
 
 const router = useRouter()
 

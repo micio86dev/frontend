@@ -52,7 +52,7 @@
 import { computed } from 'vue'
 
 definePageMeta({ ssr: false })
-useHead({ robots: 'noindex, nofollow' })
+useHead({ meta: [{ name: 'robots', content: 'noindex, nofollow' }] })
 
 const route = useRoute()
 

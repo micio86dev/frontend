@@ -27,5 +27,5 @@
 import { Separator } from '~/components/ui/separator'
 
 definePageMeta({ ssr: false })
-useHead({ robots: 'noindex, nofollow' })
+useHead({ meta: [{ name: 'robots', content: 'noindex, nofollow' }] })
 </script>

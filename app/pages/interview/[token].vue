@@ -90,7 +90,7 @@
         {{ $t('interview.end_of_question.title') }}
       </h1>
       <InterviewProgressBar
-        :current="session.currentCompetencyIndex.value + 1"
+        :current="(session.currentCompetencyIndex.value ?? 0) + 1"
         :total="competencies.length"
       />
       <div class="flex gap-3">
@@ -201,7 +201,7 @@ import type { InterviewProvider, StartConfig } from '~/types/interview-provider'
 import type { IntegrityEventInternal } from '~/utils/proctor-config'
 
 definePageMeta({ ssr: false })
-useHead({ robots: 'noindex, nofollow' })
+useHead({ meta: [{ name: 'robots', content: 'noindex, nofollow' }] })
 
 // ---------------------------------------------------------------------------
 // Route + config

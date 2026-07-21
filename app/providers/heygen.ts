@@ -11,6 +11,15 @@
  *
  * Testability: the SSR guard is extracted into a lazily-evaluated check so that
  * unit tests can verify behavior without a real browser context.
+ *
+ * SDK: @heygen/liveavatar-web-sdk@0.0.18 — exports LiveAvatarSession.
+ * Constructor: new LiveAvatarSession(sessionAccessToken: string, config?: SessionConfig)
+ * Lifecycle: start() → attach(el) → stop()
+ * Mic control: startListening() / stopListening()
+ * Send message: message(text: string)
+ * Interrupt barge-in: interrupt()
+ * Events (AgentEventsEnum): AVATAR_TRANSCRIPTION, USER_TRANSCRIPTION,
+ *   AVATAR_SPEAK_STARTED, AVATAR_SPEAK_ENDED
  */
 
 import type {
@@ -24,15 +33,21 @@ import { matchesEndPhrase } from '~/app/utils/proctor-config'
 
 type EventCallback = (payload: unknown) => void
 
-// Minimal shape of the StreamingAvatar session used by this provider.
-// Typed loosely so we can mock it in tests without importing the full SDK.
+/**
+ * Minimal shape of the LiveAvatarSession used by this provider.
+ * Typed to the real SDK API (AgentEventsEnum string values as event names).
+ * Kept as a local interface to avoid importing the full SDK at module scope
+ * and to allow injection of a mock in tests.
+ */
 interface HeyGenSession {
   on(event: string, handler: (data: Record<string, unknown>) => void): void
-  connect(opts: Record<string, unknown>): Promise<void>
-  close(): Promise<void>
-  startVoiceChat(opts: Record<string, unknown>): Promise<void>
-  muteInputAudio(muted: boolean): Promise<void>
-  speak(opts: Record<string, unknown>): Promise<void>
+  start(): Promise<void>
+  stop(): Promise<void>
+  attach(element: HTMLMediaElement): void
+  startListening(): string
+  stopListening(): string
+  interrupt(): void
+  message(text: string): string
 }
 
 /**
@@ -71,7 +86,7 @@ export class HeyGenProvider implements InterviewProvider {
           throw new Error('HeyGenProvider: SDK must only be loaded in a client-side context.')
         }
         const sdk = await import('@heygen/liveavatar-web-sdk')
-        return new sdk.StreamingAvatar({ token }) as unknown as HeyGenSession
+        return new sdk.LiveAvatarSession(token) as unknown as HeyGenSession
       }
     }
   }
@@ -111,32 +126,50 @@ export class HeyGenProvider implements InterviewProvider {
       // Load the SDK session (either real SDK or injected mock)
       this.session = await this.sdkLoader(cfg.sessionToken ?? '')
 
-      // Wire SDK event handlers for transcript capture
-      this.session.on('avatar_talking_message', (data) => {
-        const text = String(data?.message ?? '')
-        const role: 'user' | 'avatar' = data?.role === 'user' ? 'user' : 'avatar'
+      // Wire SDK event handlers for transcript capture.
+      // AgentEventsEnum values (from @heygen/liveavatar-web-sdk):
+      //   "avatar.transcription" — avatar speech text
+      //   "user.transcription"   — candidate speech text
+      this.session.on('avatar.transcription', (data) => {
+        const text = String(data?.['text'] ?? '')
 
         const entry: TranscriptEntry = {
-          role,
+          role: 'avatar',
           text,
           ts: Date.now(),
         }
         this.emit('transcript', entry)
 
         // Completion detection: check avatar speech against the project-language phrases
-        if (role === 'avatar' && this.phrases && matchesEndPhrase(text, this.phrases)) {
+        if (this.phrases && matchesEndPhrase(text, this.phrases)) {
           this.emitState('complete')
         }
       })
 
-      // Connect to the HeyGen avatar session
-      await this.session.connect({ quality: 'high', avatarName: cfg.sessionToken ?? '' })
+      this.session.on('user.transcription', (data) => {
+        const text = String(data?.['text'] ?? '')
+
+        const entry: TranscriptEntry = {
+          role: 'user',
+          text,
+          ts: Date.now(),
+        }
+        this.emit('transcript', entry)
+      })
+
+      // Start the LiveAvatar session (connects to HeyGen via LiveKit/WebRTC)
+      await this.session.start()
+
+      // Attach the media stream to the provided mount element
+      if (mountEl instanceof HTMLMediaElement) {
+        this.session.attach(mountEl)
+      }
 
       this.emitState('ready')
       this.emitState('listening')
 
-      // Start voice chat so the candidate can speak
-      await this.session.startVoiceChat({ useSilencePrompt: false })
+      // Start listening so the candidate can speak
+      this.session.startListening()
 
       return {}
     } catch (err) {
@@ -148,15 +181,19 @@ export class HeyGenProvider implements InterviewProvider {
   async toggleMic(): Promise<void> {
     if (!this.session) return
     this.micMuted = !this.micMuted
-    await this.session.muteInputAudio(this.micMuted)
+    if (this.micMuted) {
+      this.session.stopListening()
+    } else {
+      this.session.startListening()
+    }
   }
 
   async stop(): Promise<void> {
     if (this.session) {
       try {
-        await this.session.close()
+        await this.session.stop()
       } catch {
-        /* v8 ignore next — SDK close() error path; non-fatal, covered by integration tests */
+        /* v8 ignore next — SDK stop() error path; non-fatal, covered by integration tests */
       }
     }
     this.emitState('stopped')
@@ -164,9 +201,11 @@ export class HeyGenProvider implements InterviewProvider {
 
   nudgeWrapUp(): void {
     if (!this.session) return
-    // Send a soft wrap-up prompt via session.speak()
-    this.session.speak({ text: '' }).catch(() => {
-      /* v8 ignore next — nudge failure; non-fatal, covered by integration tests */
-    })
+    // Send a soft wrap-up prompt via session.message()
+    try {
+      this.session.message('')
+    } catch {
+      /* v8 ignore next — nudge failure; non-fatal */
+    }
   }
 }
