@@ -18,7 +18,7 @@
  */
 
 import { defineNuxtRouteMiddleware, navigateTo, useRequestHeaders } from '#imports'
-import { isSupportedBrowser } from '~/app/utils/browser-gate'
+import { isSupportedBrowser } from '~/utils/browser-gate'
 
 export default defineNuxtRouteMiddleware((to) => {
   // Skip for the /unsupported page itself (covers both /unsupported and /en/unsupported)

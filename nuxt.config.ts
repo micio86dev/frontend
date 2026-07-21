@@ -1,5 +1,6 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 import tailwindcss from '@tailwindcss/vite'
+import { resolve } from 'node:path'
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
@@ -56,6 +57,17 @@ export default defineNuxtConfig({
   // Tailwind CSS v4 via Vite plugin
   vite: {
     plugins: [tailwindcss()],
+    resolve: {
+      alias: [
+        // `~/app/` shim: PRs 1-4 authored imports as `~/app/utils/...` with ~ = project root.
+        // In Nuxt 4, `~` = app/ (srcDir), so ~/app/ would resolve to app/app/ (wrong).
+        // This alias MUST come before the built-in `~` entry so Vite matches the longer
+        // prefix first and routes ~/app/foo → <projectRoot>/app/foo.
+        { find: /^~\/app\/(.*)$/, replacement: `${resolve(__dirname, 'app')}/$1` },
+        // Same for @/app/ (less common but consistent)
+        { find: /^@\/app\/(.*)$/, replacement: `${resolve(__dirname, 'app')}/$1` },
+      ],
+    },
   },
 
   // Global CSS
@@ -66,6 +78,14 @@ export default defineNuxtConfig({
     head: {
       htmlAttrs: { lang: 'it' },
     },
+  },
+
+  // Alias: remap ~/app → project root's app/ directory.
+  // Composables/providers use `~/app/` paths authored with Vitest's alias (~ = project root).
+  // In Nuxt 4 build, `~` = srcDir (app/), so `~/app/` → app/app/ (wrong).
+  // Adding this alias fixes the build without changing 20+ import statements.
+  alias: {
+    '~/app': resolve(__dirname, 'app'),
   },
 
   // Runtime config

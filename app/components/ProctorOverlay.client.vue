@@ -18,9 +18,9 @@
  *   getPendingEvents    — callback from useInterviewSession to supply events for beacon flush
  */
 import { onMounted, onUnmounted, ref } from 'vue'
-import { useProctor } from '~/app/composables/useProctor'
-import IntegrityToast from '~/app/components/IntegrityToast.vue'
-import type { IntegrityEventInternal } from '~/app/utils/proctor-config'
+import { useProctor } from '~/composables/useProctor'
+import IntegrityToast from '~/components/IntegrityToast.vue'
+import type { IntegrityEventInternal } from '~/utils/proctor-config'
 
 const props = defineProps<{
   stream: MediaStream

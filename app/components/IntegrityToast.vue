@@ -16,7 +16,7 @@
  */
 import { watch } from 'vue'
 import { toast } from 'vue-sonner'
-import type { IntegrityEventInternal } from '~/app/utils/proctor-config'
+import type { IntegrityEventInternal } from '~/utils/proctor-config'
 
 const props = defineProps<{
   events: IntegrityEventInternal[]

@@ -50,9 +50,16 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: {
-      '~': resolve(__dirname, '.'),
-      '@': resolve(__dirname, '.'),
-    },
+    alias: [
+      // `~/app/` shim MUST come first (more specific pattern wins over `~` catch-all).
+      // PRs 1-4 authored imports as `~/app/utils/...` with ~ = project root (old convention).
+      // Regex alias ensures Vite matches the longer prefix before the shorter `~` entry.
+      { find: /^~\/app\/(.*)$/, replacement: `${resolve(__dirname, 'app')}/$1` },
+      { find: /^@\/app\/(.*)$/, replacement: `${resolve(__dirname, 'app')}/$1` },
+      // Match Nuxt 4 alias: `~` and `@` resolve to the `app/` srcDir.
+      // Must come AFTER the `~/app/` regex entries above.
+      { find: '~', replacement: resolve(__dirname, 'app') },
+      { find: '@', replacement: resolve(__dirname, 'app') },
+    ],
   },
 })

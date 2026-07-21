@@ -106,10 +106,10 @@
  * .client.vue enforces SSR isolation — this component is never server-rendered.
  */
 import { ref, onMounted } from 'vue'
-import { useDeviceCheck } from '~/app/composables/useDeviceCheck'
-import { Alert, AlertTitle, AlertDescription } from '~/app/components/ui/alert'
-import { Button } from '~/app/components/ui/button'
-import { Skeleton } from '~/app/components/ui/skeleton'
+import { useDeviceCheck } from '~/composables/useDeviceCheck'
+import { Alert, AlertTitle, AlertDescription } from '~/components/ui/alert'
+import { Button } from '~/components/ui/button'
+import { Skeleton } from '~/components/ui/skeleton'
 
 const emit = defineEmits<{
   confirmed: [stream: MediaStream]

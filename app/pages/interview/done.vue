@@ -24,7 +24,7 @@
  * No further API calls are made from this page.
  * noindex: session-gated page.
  */
-import { Separator } from '~/app/components/ui/separator'
+import { Separator } from '~/components/ui/separator'
 
 definePageMeta({ ssr: false })
 useHead({ robots: 'noindex, nofollow' })

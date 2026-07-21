@@ -26,8 +26,8 @@
  * Retry resets the attempt counter via useInterviewSession.retry().
  * noindex: session-gated page.
  */
-import { Alert, AlertTitle } from '~/app/components/ui/alert'
-import { Button } from '~/app/components/ui/button'
+import { Alert, AlertTitle } from '~/components/ui/alert'
+import { Button } from '~/components/ui/button'
 
 definePageMeta({ ssr: false })
 useHead({ robots: 'noindex, nofollow' })

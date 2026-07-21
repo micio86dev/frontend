@@ -193,15 +193,15 @@
  * noindex: this route is session-gated and must never be indexed.
  */
 import { ref, onUnmounted } from 'vue'
-import { useInterviewSession } from '~/app/composables/useInterviewSession'
-import { Button } from '~/app/components/ui/button'
-import { Alert, AlertTitle } from '~/app/components/ui/alert'
-import { Skeleton } from '~/app/components/ui/skeleton'
-import InterviewTimer from '~/app/components/InterviewTimer.vue'
-import InterviewCaption from '~/app/components/InterviewCaption.vue'
-import InterviewProgressBar from '~/app/components/ProgressBar.vue'
-import type { InterviewProvider, StartConfig } from '~/app/types/interview-provider'
-import type { IntegrityEventInternal } from '~/app/utils/proctor-config'
+import { useInterviewSession } from '~/composables/useInterviewSession'
+import { Button } from '~/components/ui/button'
+import { Alert, AlertTitle } from '~/components/ui/alert'
+import { Skeleton } from '~/components/ui/skeleton'
+import InterviewTimer from '~/components/InterviewTimer.vue'
+import InterviewCaption from '~/components/InterviewCaption.vue'
+import InterviewProgressBar from '~/components/ProgressBar.vue'
+import type { InterviewProvider, StartConfig } from '~/types/interview-provider'
+import type { IntegrityEventInternal } from '~/utils/proctor-config'
 
 definePageMeta({ ssr: false })
 useHead({ robots: 'noindex, nofollow' })

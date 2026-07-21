@@ -40,13 +40,13 @@
  *   error      — provider errors
  */
 import { ref, onMounted, onUnmounted } from 'vue'
-import { Skeleton } from '~/app/components/ui/skeleton'
+import { Skeleton } from '~/components/ui/skeleton'
 import type {
   InterviewProvider,
   StartConfig,
   ProviderState,
   TranscriptEntry,
-} from '~/app/types/interview-provider'
+} from '~/types/interview-provider'
 
 const props = defineProps<{
   provider: InterviewProvider
