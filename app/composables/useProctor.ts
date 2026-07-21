@@ -119,6 +119,30 @@ export interface UseProctorReturn {
   triggerFaceSample(_input: ProctoFaceSampleInput): void
   /** Test escape hatch: directly trigger voice RMS evaluation */
   triggerVoiceSample(_aboveThreshold: boolean): void
+  /** Test escape hatch: inject a selfView video element directly (bypasses DOM/initCamera) */
+  injectSelfView(_video: HTMLVideoElement): void
+  /** Test escape hatch: inject a FaceLandmarker-like mock directly */
+  injectLandmarker(_lm: {
+    detectForVideo(_v: HTMLVideoElement, _ts: number): unknown
+    close(): void
+  }): void
+  /** Test escape hatch: inject an ObjectDetector-like mock directly */
+  injectObjectDetector(_od: {
+    detectForVideo(_v: HTMLVideoElement, _ts: number): unknown
+    close(): void
+  }): void
+  /** Test escape hatch: call sampleOnce() synchronously */
+  triggerSampleOnce(): void
+  /** Test escape hatch: call samplePhone() synchronously */
+  triggerSamplePhone(): void
+  /** Test escape hatch: call takeSnapshot() synchronously */
+  triggerSnapshot(): void
+  /** Test escape hatch: call initCamera() and return the async promise (for awaiting in tests) */
+  triggerInitCamera(): Promise<void>
+  /** Test escape hatch: call ensureLandmarker() and return the promise */
+  triggerEnsureLandmarker(): Promise<unknown>
+  /** Test escape hatch: call ensureObjectDetector() and return the promise */
+  triggerEnsureObjectDetector(): Promise<unknown>
 }
 
 // ---------------------------------------------------------------------------
@@ -636,6 +660,24 @@ export function useProctor(): UseProctorReturn {
     }
   }
 
+  function injectSelfView(video: HTMLVideoElement): void {
+    selfView = video
+  }
+
+  function injectLandmarker(lm: {
+    detectForVideo(v: HTMLVideoElement, ts: number): unknown
+    close(): void
+  }): void {
+    landmarker = lm as FaceLandmarkerLike
+  }
+
+  function injectObjectDetector(od: {
+    detectForVideo(v: HTMLVideoElement, ts: number): unknown
+    close(): void
+  }): void {
+    objectDetector = od as ObjectDetectorLike
+  }
+
   return {
     start,
     stop,
@@ -643,5 +685,14 @@ export function useProctor(): UseProctorReturn {
     getPendingEvents,
     triggerFaceSample,
     triggerVoiceSample,
+    injectSelfView,
+    injectLandmarker,
+    injectObjectDetector,
+    triggerSampleOnce: sampleOnce,
+    triggerSamplePhone: samplePhone,
+    triggerSnapshot: takeSnapshot,
+    triggerInitCamera: initCamera,
+    triggerEnsureLandmarker: ensureLandmarker,
+    triggerEnsureObjectDetector: ensureObjectDetector,
   }
 }
