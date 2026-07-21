@@ -31,6 +31,18 @@ export default defineConfig({
         // Middleware is excluded from Vitest threshold (integration concern).
         // SSR-path coverage is Playwright's responsibility (spec Coverage Note).
         'app/middleware/**',
+        // shadcn-vue installed UI primitives — third-party components, not project logic.
+        // Covered by shadcn-vue's own test suite; excluded from project coverage threshold.
+        'app/components/ui/**',
+        // app/lib — shadcn-vue utility (cn helper); third-party scaffolding.
+        'app/lib/**',
+        // Interview pages — ssr:false container pages; covered by Playwright E2E.
+        // Unit tests for business logic live in composable specs.
+        'app/pages/interview/**',
+        // Client-only browser-SDK components — covered by Playwright E2E (no VTU required).
+        'app/components/AvatarPlayer.client.vue',
+        'app/components/DeviceCheck.client.vue',
+        'app/components/ProctorOverlay.client.vue',
       ],
       thresholds: {
         lines: 85,
