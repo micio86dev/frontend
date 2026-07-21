@@ -20,6 +20,7 @@
     "codegen:check": "bash scripts/check-client-drift.sh"
   },
   "dependencies": {
+    "@fontsource/open-sans": "^5.3.0",
     "@nuxtjs/i18n": "^9.0",
     "nuxt": "^4.4.8",
     "vue": "^3.5.39",
