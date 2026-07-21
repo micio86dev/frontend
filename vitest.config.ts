@@ -28,6 +28,9 @@ export default defineConfig({
         // Exclude pure TypeScript type definition files — they contain no runtime code
         // (only interface/type declarations) so v8 reports them as 0% covered.
         'app/types/**',
+        // Middleware is excluded from Vitest threshold (integration concern).
+        // SSR-path coverage is Playwright's responsibility (spec Coverage Note).
+        'app/middleware/**',
       ],
       thresholds: {
         lines: 85,
