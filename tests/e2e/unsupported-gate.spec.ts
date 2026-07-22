@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import type { Browser } from '@playwright/test'
 import { checkA11y } from './fixtures/a11y'
 
 /**
@@ -13,10 +14,14 @@ import { checkA11y } from './fixtures/a11y'
  * - The gate element with data-testid="unsupported-gate" is visible
  * - Full app features are NOT shown (the gate blocks them)
  *
- * Note: In C1 the mobile detection / redirect logic is scaffolded structurally.
- * The actual middleware that detects mobile and redirects → /unsupported
- * will be implemented in C7 (interview port).
+ * Task 5.8: Extended with SA-11 middleware redirect assertions.
+ *   - Mobile project: navigate to /interview/fake-token → asserts redirect to /unsupported
+ *   - Desktop chromium/webkit: Firefox UA header → redirect to /unsupported
  */
+
+const FIREFOX_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0'
+
 test.describe('SA-11 — Unsupported experience gate', () => {
   test('unsupported page renders the gate element', async ({ page }) => {
     // Navigate directly to the unsupported page
@@ -43,5 +48,69 @@ test.describe('SA-11 — Unsupported experience gate', () => {
     await expect(page.getByTestId('unsupported-gate')).toBeVisible()
     // Visual regression: overlay against the committed baseline to catch UI changes.
     await expect(page).toHaveScreenshot('unsupported-gate.png', { fullPage: true })
+  })
+
+  test.describe('SA-11 — Mobile: interview route redirects to /unsupported', () => {
+    test('mobile viewport navigating to /interview/fake-token redirects to /unsupported', async ({
+      page,
+      isMobile,
+    }) => {
+      // This test is meaningful only on the mobile project (viewport < 1024)
+      // On desktop projects it verifies the interview page does NOT redirect
+      if (isMobile) {
+        await page.goto('/interview/fake-token')
+        // Should redirect to /unsupported (mobile UA or viewport < 1024)
+        await expect(page).toHaveURL(/\/unsupported/)
+        await expect(page.getByTestId('unsupported-gate')).toBeVisible()
+      } else {
+        // Desktop: no redirect; interview page should be reachable
+        // (may show an error/loading state, but not redirect to /unsupported)
+        await page.goto('/interview/fake-token')
+        await expect(page).not.toHaveURL(/\/unsupported/)
+      }
+    })
+  })
+
+  test.describe('SA-11 — Desktop: Firefox UA redirects to /unsupported', () => {
+    // UA spoofing technique: use browser.newContext({ userAgent }) to correctly
+    // override the User-Agent for the SSR request. page.setExtraHTTPHeaders()
+    // only injects an extra header and does NOT replace Chromium's UA for SSR.
+    test('Firefox UA redirects /interview/fake-token to /unsupported', async ({
+      browser,
+    }: {
+      browser: Browser
+    }) => {
+      const ctx = await browser.newContext({ userAgent: FIREFOX_UA })
+      const page = await ctx.newPage()
+
+      try {
+        await page.goto('/interview/fake-token')
+
+        // Browser-gate middleware should redirect Firefox to /unsupported
+        await expect(page).toHaveURL(/\/unsupported/)
+        await expect(page.getByTestId('unsupported-gate')).toBeVisible()
+      } finally {
+        await ctx.close()
+      }
+    })
+
+    test('Firefox UA redirects /en/interview/fake-token to /en/unsupported', async ({
+      browser,
+    }: {
+      browser: Browser
+    }) => {
+      const ctx = await browser.newContext({ userAgent: FIREFOX_UA })
+      const page = await ctx.newPage()
+
+      try {
+        await page.goto('/en/interview/fake-token')
+
+        // Should redirect to the locale-prefixed unsupported page
+        await expect(page).toHaveURL(/\/unsupported/)
+        await expect(page.getByTestId('unsupported-gate')).toBeVisible()
+      } finally {
+        await ctx.close()
+      }
+    })
   })
 })

@@ -14,5 +14,53 @@
     "decline": "Rifiuto",
     "accept_aria": "Accetto i termini e accedo al colloquio",
     "decline_aria": "Rifiuto e non accedo al colloquio"
+  },
+  "interview": {
+    "consent": {
+      "title": "Informativa sulla privacy e consenso",
+      "body": "Per partecipare al colloquio video è necessario acconsentire alla registrazione audio/video e al trattamento dei dati personali ai fini della valutazione. La registrazione viene utilizzata esclusivamente per l'analisi delle competenze. Puoi ritirare il consenso in qualsiasi momento.",
+      "accept": "Accetto e continuo"
+    },
+    "device_check": {
+      "title": "Verifica dispositivi",
+      "camera_ok": "Fotocamera operativa",
+      "mic_ok": "Microfono operativo",
+      "camera_error": "Fotocamera non rilevata o non accessibile. Controlla le autorizzazioni del browser.",
+      "mic_error": "Microfono non rilevato o il livello audio è troppo basso. Prova a parlare.",
+      "continue": "Continua al colloquio"
+    },
+    "live": {
+      "timer_label": "Tempo rimanente",
+      "skip": "Salta domanda",
+      "pause": "Pausa"
+    },
+    "end_of_question": {
+      "title": "Domanda completata",
+      "next": "Prossima domanda",
+      "pause": "Pausa"
+    },
+    "paused": {
+      "title": "Colloquio in pausa",
+      "resume": "Riprendi"
+    },
+    "done": {
+      "title": "Colloquio completato",
+      "body": "Grazie per aver partecipato. La tua valutazione è in elaborazione e riceverai i risultati a breve."
+    },
+    "error": {
+      "title": "Si è verificato un errore",
+      "retry": "Riprova"
+    },
+    "terminal": {
+      "403": {
+        "title": "Sessione non autorizzata",
+        "body": "La sessione di colloquio è scaduta o non è più disponibile. Se ritieni che sia un errore, contatta il responsabile della selezione."
+      },
+      "absent_phrase": {
+        "title": "Servizio temporaneamente non disponibile",
+        "body": "Si è verificato un problema tecnico con il servizio di colloquio. Per favore contatta il supporto per ricevere assistenza.",
+        "contact": "Contatta il supporto"
+      }
+    }
   }
 }
