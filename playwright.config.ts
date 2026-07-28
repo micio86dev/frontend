@@ -54,7 +54,16 @@ export default defineConfig({
   webServer: {
     command: 'bun run build && node .output/server/index.mjs',
     url: 'http://127.0.0.1:3000/api/health',
-    env: { HOST: '0.0.0.0', PORT: '3000', NITRO_PORT: '3000' },
+    env: {
+      HOST: '0.0.0.0',
+      PORT: '3000',
+      NITRO_PORT: '3000',
+      // C10 PR7: wires the W3-documented mock injection point (factory.ts) so E2E
+      // specs can drive the interview state machine to `live`/`done` without a
+      // real HeyGen/Tavus SDK connection. See app/providers/factory.ts and
+      // tests/e2e/fixtures/interview-provider.ts.
+      NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK: 'true',
+    },
     reuseExistingServer: !process.env['CI'],
     timeout: 180_000,
   },

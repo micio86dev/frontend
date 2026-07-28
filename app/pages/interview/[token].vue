@@ -189,8 +189,9 @@
  *
  * noindex: this route is session-gated and must never be indexed.
  */
-import { ref, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useInterviewSession } from '~/composables/useInterviewSession'
+import { useExitRedirect } from '~/composables/useExitRedirect'
 import { Button } from '~/components/ui/button'
 import { Alert, AlertTitle } from '~/components/ui/alert'
 import { Skeleton } from '~/components/ui/skeleton'
@@ -201,7 +202,12 @@ import type { InterviewProvider, StartConfig } from '~/types/interview-provider'
 import type { IntegrityEventInternal } from '~/utils/proctor-config'
 
 definePageMeta({ ssr: false })
-useHead({ meta: [{ name: 'robots', content: 'noindex, nofollow' }] })
+useHead({
+  meta: [
+    { name: 'robots', content: 'noindex, nofollow' },
+    { name: 'referrer', content: 'no-referrer' },
+  ],
+})
 
 // ---------------------------------------------------------------------------
 // Route + config
@@ -224,6 +230,29 @@ const pendingIntegrityEvents = ref<IntegrityEventInternal[]>([])
 const session = useInterviewSession({
   competencies,
   getPendingIntegrityEvents: () => pendingIntegrityEvents.value,
+})
+
+// ---------------------------------------------------------------------------
+// Exit redirect (D10, C10) — GET /api/candidate/session fetched once on mount
+// (not at `done`), so a network failure at the very end cannot strand the
+// candidate on a blank screen. Redirect fires only once BOTH the session has
+// reached `done` AND exit_redirect_url has resolved — whichever happens last.
+// ---------------------------------------------------------------------------
+
+const exitRedirect = useExitRedirect()
+
+onMounted(() => {
+  void exitRedirect.fetchSession()
+})
+
+watch([() => session.state.value, exitRedirect.exitRedirectUrl], async ([currentState, url]) => {
+  if (currentState === 'done' && url) {
+    // Flush pending integrity events / stop the provider before navigating
+    // away — precedent: the unsupported-gate resize handler at
+    // useInterviewSession.ts:130-158 (flush-then-stop-then-navigate).
+    await session.teardown()
+    exitRedirect.redirect()
+  }
 })
 
 // ---------------------------------------------------------------------------
