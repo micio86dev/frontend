@@ -105,7 +105,7 @@
  *
  * .client.vue enforces SSR isolation — this component is never server-rendered.
  */
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useDeviceCheck } from '~/composables/useDeviceCheck'
 import { Alert, AlertTitle, AlertDescription } from '~/components/ui/alert'
 import { Button } from '~/components/ui/button'
@@ -131,11 +131,24 @@ onMounted(async () => {
   }
 })
 
-// Stream lifecycle: the stream is handed to ProctorOverlay and managed there.
+// Stream lifecycle: on confirmation the stream is handed to ProctorOverlay and managed
+// there (D5, single getUserMedia). If this component unmounts WITHOUT a handoff, nothing
+// else owns the stream — release it here rather than leaving the camera hot.
+let handedOff = false
 
 function handleContinue(): void {
   if (deviceCheck.stream.value) {
+    handedOff = true
     emit('confirmed', deviceCheck.stream.value)
   }
 }
+
+onUnmounted(() => {
+  if (handedOff) {
+    // Mic RMS polling is this component's concern only; the stream is not ours to stop.
+    deviceCheck.stopMicSampling()
+  } else {
+    deviceCheck.release()
+  }
+})
 </script>
