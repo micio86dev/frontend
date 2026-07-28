@@ -266,6 +266,30 @@ describe('useInterviewSession', () => {
     })
   })
 
+  describe('isMock() env-var coercion (C10 PR7 regression)', () => {
+    it('NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK as a real boolean true (Nitro destr coercion) → mock provider used', async () => {
+      // Nuxt/Nitro coerces NUXT_PUBLIC_* env values via destr at runtime, so a real
+      // deployment exposes the BOOLEAN `true` here, not the string 'true' the
+      // Vitest stubs elsewhere in this file use. A strict `=== 'true'` string
+      // comparison silently never activates the mock provider in a real build.
+      vi.stubGlobal(
+        'useRuntimeConfig',
+        vi.fn(() => ({
+          public: { apiBase: 'https://api.test', interviewProviderMock: true },
+        }))
+      )
+
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+      session.acceptConsent()
+      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+
+      session.confirmDevices()
+      await nextTick()
+
+      expect(mockCreateProvider).toHaveBeenCalledWith('heygen', true)
+    })
+  })
+
   describe('end_phrase / final_phrase nested path consumption (D4 critical)', () => {
     it('reads end_phrase from question_context NOT from top-level response', async () => {
       const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })

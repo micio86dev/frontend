@@ -34,7 +34,9 @@ export function createProvider(name: ProviderName, mock: boolean): InterviewProv
     // The mock is a lightweight in-memory implementation — no real SDK deps.
     // NOTE: In Vitest unit tests this import resolves synchronously from the test module.
     // In E2E (Playwright), NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK=true activates this path.
-    return createMockProvider()
+    const provider = createMockProvider()
+    exposeMockProviderForE2E(provider)
+    return provider
   }
 
   switch (name) {
@@ -113,4 +115,23 @@ function createMockProvider(): InterviewProvider & {
       emitState('complete')
     },
   }
+}
+
+/**
+ * C10 PR7 addition — E2E completion hook.
+ *
+ * `createMockProvider()`'s `emitEndPhrase`/`emitFinalPhrase`/`emitToolCall` methods
+ * have no external handle once returned into `useInterviewSession`, so a Playwright
+ * test running in the browser has no way to drive the state machine to `done`
+ * (the only path is a provider `'complete'` state event). This exposes the SAME
+ * instance `createProvider()` already returns on `window`, browser-only, and only
+ * on the already-mock-gated path (`NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK === 'true'`,
+ * itself never set outside test builds) — no new production code path, no change
+ * to any existing mock behavior.
+ */
+function exposeMockProviderForE2E(
+  provider: InterviewProvider & { emitEndPhrase: () => void; emitFinalPhrase: () => void }
+): void {
+  if (typeof window === 'undefined') return
+  ;(window as unknown as Record<string, unknown>).__mockInterviewProvider = provider
 }
