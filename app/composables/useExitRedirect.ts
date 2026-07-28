@@ -13,6 +13,7 @@
 
 import { ref } from 'vue'
 import { $fetch } from 'ofetch'
+import { apiUrl } from '~/app/utils/api-url'
 
 export interface UseExitRedirectReturn {
   /** Cached `project.exit_redirect_url` from the candidate session, or null. */
@@ -30,16 +31,11 @@ export interface UseExitRedirectReturn {
 export function useExitRedirect(): UseExitRedirectReturn {
   const exitRedirectUrl = ref<string | null>(null)
 
-  function getApiBase(): string {
-    const config = useRuntimeConfig()
-    return config.public.apiBase as string
-  }
-
   async function fetchSession(): Promise<void> {
     try {
       const response = await $fetch<{
         project: { exit_redirect_url: string | null } | null
-      }>(`${getApiBase()}/api/candidate/session`, { method: 'GET' })
+      }>(apiUrl('/candidate/session'), { method: 'GET' })
 
       exitRedirectUrl.value = response.project?.exit_redirect_url ?? null
     } catch (err) {
