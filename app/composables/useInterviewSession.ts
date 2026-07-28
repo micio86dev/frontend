@@ -97,7 +97,13 @@ export function useInterviewSession(
 
   function isMock(): boolean {
     const config = useRuntimeConfig()
-    return (config.public as Record<string, unknown>).interviewProviderMock === 'true'
+    const value = (config.public as Record<string, unknown>).interviewProviderMock
+    // C10 PR7 regression: Nuxt/Nitro coerces NUXT_PUBLIC_* env values via destr at
+    // runtime, so a real deployment exposes the BOOLEAN `true`, not the string
+    // 'true' — despite the string default ('') suggesting otherwise. A strict
+    // `=== 'true'` comparison silently never activated the mock provider outside
+    // of Vitest (which stubs useRuntimeConfig with literal strings).
+    return value === true || value === 'true'
   }
 
   function transitionTo(next: SessionState) {
