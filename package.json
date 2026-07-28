@@ -59,5 +59,11 @@
     "typescript": "^5.8",
     "vitest": "^3.0",
     "vue-tsc": "^3.3.7"
+  },
+  "overrides": {
+    "@hono/node-server": "^2.0.5",
+    "js-yaml": "^4.3.0",
+    "minimatch": "^10.0.1",
+    "tar": "^7.5.22"
   }
 }
