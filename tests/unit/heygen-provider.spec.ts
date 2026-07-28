@@ -284,6 +284,46 @@ describe('HeyGenProvider', () => {
     expect(mockSession.startListening).not.toHaveBeenCalled()
   })
 
+  // ---- nudgeWrapUp ----
+
+  it('nudgeWrapUp(message) sends the CALLER-supplied text via session.message()', async () => {
+    // The text is avatar speech, so it must come from i18n in the project language.
+    // The provider has no i18n access and must never author or hardcode it.
+    const { provider } = makeProvider()
+    await provider.start(document.createElement('div'), { dbSessionId: 1, ...PHRASES })
+
+    provider.nudgeWrapUp('Per favore, concludi la tua risposta.')
+
+    expect(mockSession.message).toHaveBeenCalledWith('Per favore, concludi la tua risposta.')
+  })
+
+  it('nudgeWrapUp never sends an empty message', async () => {
+    // `session.message('')` inside a swallowing try/catch did nothing at all while
+    // reading as a working wrap-up nudge.
+    const { provider } = makeProvider()
+    await provider.start(document.createElement('div'), { dbSessionId: 1, ...PHRASES })
+
+    provider.nudgeWrapUp('')
+
+    expect(mockSession.message).not.toHaveBeenCalled()
+  })
+
+  it('nudgeWrapUp never sends a whitespace-only message', async () => {
+    const { provider } = makeProvider()
+    await provider.start(document.createElement('div'), { dbSessionId: 1, ...PHRASES })
+
+    provider.nudgeWrapUp('   ')
+
+    expect(mockSession.message).not.toHaveBeenCalled()
+  })
+
+  it('nudgeWrapUp does nothing before start()', () => {
+    const { provider } = makeProvider()
+
+    expect(() => provider.nudgeWrapUp('wrap up')).not.toThrow()
+    expect(mockSession.message).not.toHaveBeenCalled()
+  })
+
   // ---- SSR guard ----
 
   it('emits error when sdkLoader throws (mimics SSR guard or SDK error)', async () => {
