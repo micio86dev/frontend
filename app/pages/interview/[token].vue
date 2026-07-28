@@ -31,9 +31,9 @@
       </ClientOnly>
     </section>
 
-    <!-- Connecting / loading screen -->
+    <!-- Connecting / loading screen — shown until the provider handles are published -->
     <section
-      v-else-if="session.state.value === 'connecting'"
+      v-else-if="session.state.value === 'connecting' && !avatarMounted"
       class="flex flex-col items-center gap-4"
       aria-live="polite"
       aria-busy="true"
@@ -42,17 +42,25 @@
       <Skeleton class="h-4 w-48 rounded" />
     </section>
 
-    <!-- Live interview screen -->
+    <!--
+      Avatar + live interview screen.
+
+      Rendered from `connecting` (as soon as useInterviewSession publishes the provider)
+      through `live`, so AvatarPlayer mounts EXACTLY ONCE per question and the provider
+      is started against a stable <video> element. Gating this on `state === 'live'`
+      alone was unreachable: the session only becomes live once the provider emits
+      'ready', which it cannot do until it has been started by the player.
+    -->
     <section
-      v-else-if="session.state.value === 'live'"
+      v-else-if="avatarMounted"
       class="flex w-full max-w-3xl flex-col gap-4"
       aria-label="Live interview"
     >
       <div class="relative w-full rounded-xl overflow-hidden shadow-avatar">
-        <ClientOnly v-if="activeProvider && activeConfig">
+        <ClientOnly v-if="avatarProvider && avatarConfig">
           <AvatarPlayer
-            :provider="activeProvider"
-            :config="activeConfig"
+            :provider="avatarProvider"
+            :config="avatarConfig"
             @state="onProviderState"
             @transcript="onTranscript"
             @error="onProviderError"
@@ -60,24 +68,30 @@
         </ClientOnly>
       </div>
 
-      <InterviewCaption :text="currentCaption" />
+      <template v-if="session.state.value === 'live'">
+        <InterviewCaption :text="currentCaption" />
 
-      <div class="flex items-center justify-between">
-        <InterviewTimer :seconds="questionTimeLimit" @expired="onTimerExpired" />
-        <div class="flex gap-2">
-          <Button variant="outline" size="sm" @click="session.pause()">
-            {{ $t('interview.live.pause') }}
-          </Button>
-          <Button variant="ghost" size="sm" @click="skipQuestion">
-            {{ $t('interview.live.skip') }}
-          </Button>
+        <div class="flex items-center justify-between">
+          <InterviewTimer :seconds="questionTimeLimit" @expired="onTimerExpired" />
+          <div class="flex gap-2">
+            <Button variant="outline" size="sm" @click="session.pause()">
+              {{ $t('interview.live.pause') }}
+            </Button>
+            <Button variant="ghost" size="sm" @click="skipQuestion">
+              {{ $t('interview.live.skip') }}
+            </Button>
+          </div>
         </div>
-      </div>
 
-      <!-- Invisible proctoring overlay -->
-      <ClientOnly v-if="confirmedStream">
-        <ProctorOverlay :stream="confirmedStream" :on-events-updated="onIntegrityEventsUpdated" />
-      </ClientOnly>
+        <!-- Invisible proctoring overlay -->
+        <ClientOnly v-if="confirmedStream">
+          <ProctorOverlay
+            :stream="confirmedStream"
+            :session-id="session.sessionId.value"
+            :on-events-updated="onIntegrityEventsUpdated"
+          />
+        </ClientOnly>
+      </template>
     </section>
 
     <!-- End of Question screen -->
@@ -189,7 +203,7 @@
  *
  * noindex: this route is session-gated and must never be indexed.
  */
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useInterviewSession } from '~/composables/useInterviewSession'
 import { useExitRedirect } from '~/composables/useExitRedirect'
 import { Button } from '~/components/ui/button'
@@ -198,7 +212,6 @@ import { Skeleton } from '~/components/ui/skeleton'
 import InterviewTimer from '~/components/InterviewTimer.vue'
 import InterviewCaption from '~/components/InterviewCaption.vue'
 import InterviewProgressBar from '~/components/ProgressBar.vue'
-import type { InterviewProvider, StartConfig } from '~/types/interview-provider'
 import type { IntegrityEventInternal } from '~/utils/proctor-config'
 
 definePageMeta({ ssr: false })
@@ -227,9 +240,24 @@ const competencies: string[] = []
 
 const pendingIntegrityEvents = ref<IntegrityEventInternal[]>([])
 
+/**
+ * Supplied by ProctorOverlay alongside each event batch. Events are dropped from the
+ * proctor's buffer only once a flush has actually succeeded — never on read — so a
+ * refused beacon leaves them pending instead of discarding them.
+ */
+let acknowledgeIntegrityEvents:
+  // eslint-disable-next-line no-unused-vars
+  ((acknowledged: IntegrityEventInternal[]) => void) | null = null
+
 const session = useInterviewSession({
   competencies,
   getPendingIntegrityEvents: () => pendingIntegrityEvents.value,
+  onIntegrityEventsFlushed: (flushed) => {
+    acknowledgeIntegrityEvents?.(flushed)
+    pendingIntegrityEvents.value = pendingIntegrityEvents.value.filter(
+      (event) => !flushed.includes(event)
+    )
+  },
 })
 
 // ---------------------------------------------------------------------------
@@ -260,7 +288,6 @@ watch([() => session.state.value, exitRedirect.exitRedirectUrl], async ([current
 // ---------------------------------------------------------------------------
 
 const confirmedStream = ref<MediaStream | null>(null)
-const avatarMountEl = ref<HTMLElement | null>(null)
 
 function onDevicesConfirmed(stream: MediaStream): void {
   confirmedStream.value = stream
@@ -271,10 +298,13 @@ function onDevicesConfirmed(stream: MediaStream): void {
 // Provider / AvatarPlayer wiring
 // ---------------------------------------------------------------------------
 
-// These are populated by useInterviewSession internally.
-// AvatarPlayer receives them as props.
-const activeProvider = ref<InterviewProvider | null>(null)
-const activeConfig = ref<StartConfig | null>(null)
+// useInterviewSession creates the provider and publishes it here once POST /start has
+// resolved; AvatarPlayer mounts it onto the real <video> element and calls
+// provider.start(). These are NOT page-local state — the page only reads them.
+const avatarProvider = computed(() => session.activeProvider.value)
+const avatarConfig = computed(() => session.activeConfig.value)
+const avatarMounted = computed(() => avatarProvider.value !== null && avatarConfig.value !== null)
+
 const currentCaption = ref('')
 const questionTimeLimit = 300 // 5 minutes default
 
@@ -292,20 +322,14 @@ function onProviderError(): void {}
 // Timer / skip
 // ---------------------------------------------------------------------------
 
+// Both affordances dispatch POST /end through the session machine. They used to call a
+// local stub with an empty body, so the 5-minute timer and the Skip button did nothing.
 async function onTimerExpired(): Promise<void> {
-  // Timer expiry treated as skip (timeout)
-  await callEnd('timeout')
+  await session.endQuestion('timeout')
 }
 
 async function skipQuestion(): Promise<void> {
-  await callEnd('skipped')
-}
-
-async function callEnd(reason: 'completed' | 'timeout' | 'skipped'): Promise<void> {
-  void reason
-  // useInterviewSession handles /end internally on provider 'complete' events.
-  // Timer expiry / skip navigate via the session API.
-  // This is a simplified wiring point; full /end dispatch lives in the composable.
+  await session.endQuestion('skipped')
 }
 
 // ---------------------------------------------------------------------------
@@ -313,7 +337,7 @@ async function callEnd(reason: 'completed' | 'timeout' | 'skipped'): Promise<voi
 // ---------------------------------------------------------------------------
 
 function onNextCompetency(): void {
-  session.nextCompetency(avatarMountEl.value ?? undefined)
+  session.nextCompetency()
 }
 
 // ---------------------------------------------------------------------------
@@ -328,8 +352,13 @@ function onRetry(): void {
 // Proctoring events
 // ---------------------------------------------------------------------------
 
-function onIntegrityEventsUpdated(events: IntegrityEventInternal[]): void {
+function onIntegrityEventsUpdated(
+  events: IntegrityEventInternal[],
+  // eslint-disable-next-line no-unused-vars
+  acknowledge: (acknowledged: IntegrityEventInternal[]) => void
+): void {
   pendingIntegrityEvents.value = events
+  acknowledgeIntegrityEvents = acknowledge
 }
 
 // ---------------------------------------------------------------------------

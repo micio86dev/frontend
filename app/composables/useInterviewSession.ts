@@ -1,11 +1,22 @@
 /**
  * useInterviewSession — Interview session state machine composable (Task 3.2 GREEN)
  *
- * Orchestrates the 5-endpoint per-competency interview loop:
- *   POST /start → POST /utterance → POST /integrity → POST /snapshot → POST /end
+ * Orchestrates the per-competency interview loop:
+ *   POST /start → POST /utterance → POST /integrity → POST /end
+ *
+ * POST /snapshot is NOT owned here: the periodic proctoring snapshot is captured
+ * from the camera video element, which only `useProctor` holds. `useProctor.takeSnapshot()`
+ * is the single authoritative snapshot path; this composable supplies it with the
+ * session id via the `sessionId` ref.
  *
  * State machine:
  *   idle → device_check → connecting → live → end_of_question → paused → done | error | terminal
+ *
+ * Provider ownership: this composable CREATES the provider and wires its events, then
+ * publishes it via `activeProvider`/`activeConfig`. `AvatarPlayer` mounts it and calls
+ * `provider.start(videoEl, config)` — the provider must be attached to the real <video>
+ * element, which does not exist until the page renders the player. Starting the provider
+ * here against a detached element left the interviewer's media unattached.
  *
  * SSR invariant: NO module-scope browser globals. All window/navigator access is inside
  * functions guarded by import.meta.client or callback context.
@@ -13,11 +24,12 @@
  * Design refs: D3, D4, D5 (resize listener ownership), D10 (testing strategy)
  */
 
-import { ref } from 'vue'
+import { ref, shallowRef, type ShallowRef } from 'vue'
 import { $fetch } from 'ofetch'
 import { createProvider } from '~/app/providers/factory'
-import type { InterviewProvider } from '~/app/types/interview-provider'
+import type { InterviewProvider, StartConfig } from '~/app/types/interview-provider'
 import type { IntegrityEventInternal } from '~/app/utils/proctor-config'
+import { apiUrl } from '~/app/utils/api-url'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,11 +48,21 @@ export type SessionState =
 
 export type TerminalReason = '403' | 'absent_phrase'
 
+/** Reason passed to POST /end when the candidate (or the timer) cuts a question short. */
+export type EndQuestionReason = 'timeout' | 'skipped'
+
 export interface UseInterviewSessionOptions {
   /** Ordered list of competency codes from C6 bootstrap (used for last-competency detection). */
   competencies: string[]
   /** Pending integrity events for sendBeacon flush on resize. Managed externally by useProctor. */
   getPendingIntegrityEvents?: () => IntegrityEventInternal[]
+  /**
+   * Called with the exact events that were successfully handed to sendBeacon, so the
+   * owner of the buffer can acknowledge (drop) them. NOT called when the beacon fails —
+   * unacknowledged events stay pending rather than being silently lost.
+   */
+  // eslint-disable-next-line no-unused-vars
+  onIntegrityEventsFlushed?: (events: IntegrityEventInternal[]) => void
 }
 
 export interface UseInterviewSessionReturn {
@@ -48,12 +70,25 @@ export interface UseInterviewSessionReturn {
   retryAttemptCount: ReturnType<typeof ref<number>>
   currentCompetencyIndex: ReturnType<typeof ref<number>>
   terminalReason: ReturnType<typeof ref<TerminalReason | null>>
+  /** DB session id from the latest /start response — null until the first /start succeeds. */
+  sessionId: ReturnType<typeof ref<number | null>>
+  /**
+   * Provider awaiting mount by AvatarPlayer; null whenever no question is in flight.
+   * shallowRef, not ref: providers hold SDK/WebRTC handles that must never be wrapped
+   * in a reactive proxy.
+   */
+  activeProvider: ShallowRef<InterviewProvider | null>
+  /** StartConfig for `activeProvider`; published together with it, never separately. */
+  activeConfig: ShallowRef<StartConfig | null>
   acceptConsent: () => void
-  confirmDevices: (mountEl?: HTMLElement) => void // eslint-disable-line no-unused-vars
+  confirmDevices: () => void
   pause: () => void
   resume: () => void
   retry: () => void
-  nextCompetency: (mountEl?: HTMLElement) => void // eslint-disable-line no-unused-vars
+  nextCompetency: () => void
+  /** End the current question early (5-minute timer expiry, or the candidate skipping). */
+  // eslint-disable-next-line no-unused-vars
+  endQuestion: (reason: EndQuestionReason) => Promise<void>
   teardown: () => Promise<void>
 }
 
@@ -63,7 +98,27 @@ export interface UseInterviewSessionReturn {
 
 const MAX_ATTEMPTS = 3
 const RETRY_DELAY_MS = 3000
-const SNAPSHOT_INTERVAL_MS = 10_000
+
+// ---------------------------------------------------------------------------
+// Provider error normalisation
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the machine-readable error code from a provider 'error' payload.
+ *
+ * Providers emit `{ code, message }` objects (heygen.ts / tavus.ts); the mock and
+ * some tests emit a bare string. Reading the payload as a string unconditionally
+ * meant `absent_phrase` was never matched against a real provider, and the state
+ * fallback below silently absorbed every other failure under the same reason.
+ */
+function providerErrorCode(payload: unknown): string | null {
+  if (typeof payload === 'string') return payload
+  if (payload && typeof payload === 'object') {
+    const code = (payload as { code?: unknown }).code
+    if (typeof code === 'string') return code
+  }
+  return null
+}
 
 // ---------------------------------------------------------------------------
 // Composable
@@ -79,6 +134,9 @@ export function useInterviewSession(
   const retryAttemptCount = ref(0)
   const currentCompetencyIndex = ref(0)
   const terminalReason = ref<TerminalReason | null>(null)
+  const sessionId = ref<number | null>(null)
+  const activeProvider = shallowRef<InterviewProvider | null>(null)
+  const activeConfig = shallowRef<StartConfig | null>(null)
 
   // ---- Internal refs -------------------------------------------------------
   let provider: InterviewProvider | null = null
@@ -86,14 +144,8 @@ export function useInterviewSession(
   let currentQuestionIndex: number = 0
   let isResuming = false
   let resizeListener: (() => void) | null = null
-  let snapshotIntervalId: ReturnType<typeof setInterval> | null = null
 
   // ---- Helpers -------------------------------------------------------------
-
-  function getApiBase(): string {
-    const config = useRuntimeConfig()
-    return config.public.apiBase as string
-  }
 
   function isMock(): boolean {
     const config = useRuntimeConfig()
@@ -112,21 +164,24 @@ export function useInterviewSession(
     // Remove resize listener on terminal states
     if (next === 'done' || next === 'terminal' || next === 'error') {
       removeResizeListener()
-      clearSnapshotInterval()
     }
+
+    // The provider only exists for the duration of a question. Unpublishing it here
+    // unmounts AvatarPlayer, which releases the media session on its way out.
+    if (next === 'end_of_question' || next === 'done' || next === 'error' || next === 'terminal') {
+      clearActiveProvider()
+    }
+  }
+
+  function clearActiveProvider() {
+    activeProvider.value = null
+    activeConfig.value = null
   }
 
   function removeResizeListener() {
     if (resizeListener && typeof window !== 'undefined') {
       window.removeEventListener('resize', resizeListener)
       resizeListener = null
-    }
-  }
-
-  function clearSnapshotInterval() {
-    if (snapshotIntervalId !== null) {
-      clearInterval(snapshotIntervalId)
-      snapshotIntervalId = null
     }
   }
 
@@ -138,19 +193,22 @@ export function useInterviewSession(
         // Flush integrity via sendBeacon before navigating
         const pending = options.getPendingIntegrityEvents?.() ?? []
         if (pending.length > 0) {
-          const apiBase = getApiBase()
-          const url = `${apiBase}/api/candidate/interview/integrity`
+          const url = apiUrl('/candidate/interview/integrity')
           const payload = {
             session_id: currentSessionId,
             events: pending.map((e) => ({ kind: e.type, ts: e.ts, payload: e.meta ?? null })),
           }
           try {
-            navigator.sendBeacon(
+            const sent = navigator.sendBeacon(
               url,
               new Blob([JSON.stringify(payload)], { type: 'application/json' })
             )
+            // Acknowledge ONLY what the browser actually accepted. sendBeacon returns
+            // false when the payload is refused (Safari's 64 KB cap), and dropping the
+            // buffer on a refused flush would lose the events outright.
+            if (sent !== false) options.onIntegrityEventsFlushed?.(pending)
           } catch {
-            // Non-fatal
+            // Non-fatal — events stay pending (unacknowledged).
           }
         }
 
@@ -170,7 +228,7 @@ export function useInterviewSession(
   async function sendUtterance(text: string, speaker: 'candidate' | 'avatar') {
     if (!currentSessionId) return
     try {
-      await $fetch(`${getApiBase()}/api/candidate/interview/utterance`, {
+      await $fetch(apiUrl('/candidate/interview/utterance'), {
         method: 'POST',
         body: {
           session_id: currentSessionId,
@@ -189,32 +247,11 @@ export function useInterviewSession(
     }
   }
 
-  async function sendSnapshot() {
-    if (!currentSessionId) return
-    // In production this would capture a frame from the video element.
-    // The composable delegates the actual capture to the caller; here we
-    // accept an optional image_base64 from the mount element context.
-    // For now we skip if no image source is wired.
-  }
-
-  function startSnapshotInterval() {
-    clearSnapshotInterval()
-    snapshotIntervalId = setInterval(() => {
-      sendSnapshot().catch((err) => {
-        const status =
-          (err as Record<string, unknown>)?.status ?? (err as Record<string, unknown>)?.statusCode
-        if (status === 413 || status === 422) {
-          console.warn('[useInterviewSession] /snapshot non-fatal error:', status)
-        }
-      })
-    }, SNAPSHOT_INTERVAL_MS)
-  }
-
-  async function callEnd(endedReason: 'completed' | 'timeout' | 'skipped') {
+  async function callEnd(endedReason: 'completed' | EndQuestionReason) {
     if (!currentSessionId) return
 
     try {
-      await $fetch(`${getApiBase()}/api/candidate/interview/end`, {
+      await $fetch(apiUrl('/candidate/interview/end'), {
         method: 'POST',
         body: {
           session_id: currentSessionId,
@@ -248,7 +285,6 @@ export function useInterviewSession(
         if (state.value === 'connecting') {
           transitionTo('live')
           attachResizeListener()
-          startSnapshotInterval()
         }
       }
 
@@ -264,37 +300,52 @@ export function useInterviewSession(
     })
 
     provider.on('error', (payload) => {
-      const reason = payload as string
-      // absent_phrase or any provider error → terminal (not retryable)
-      if (reason === 'absent_phrase' || state.value === 'live' || state.value === 'connecting') {
+      const code = providerErrorCode(payload)
+
+      // `absent_phrase` is a DOMAIN verdict: the avatar never spoke the configured
+      // end/final phrase, so the interview's validity is in question. It is terminal
+      // and NOT retryable. Every other provider failure (WebRTC drop, SDK error,
+      // provider timeout) is an infrastructure failure — it gets the retryable error
+      // screen. Reporting those as `absent_phrase` told candidates they had failed a
+      // presence check when the connection had simply died.
+      if (code === 'absent_phrase') {
         terminalReason.value = 'absent_phrase'
         transitionTo('terminal')
-        if (provider) {
-          provider.stop().catch(() => {})
-        }
+        stopProvider()
+        return
+      }
+
+      if (state.value === 'live' || state.value === 'connecting') {
+        transitionTo('error')
+        stopProvider()
       }
     })
+  }
+
+  function stopProvider() {
+    if (provider) {
+      provider.stop().catch(() => {})
+    }
+  }
+
+  /** Transition out of a finished question: done on the last competency, else end_of_question. */
+  function advanceAfterQuestion() {
+    // Check current state — it may have been set to terminal by a 403 from /end
+    if (state.value === 'terminal') return
+
+    // Last-competency detection: question_index is 0-based
+    const isLastCompetency = currentQuestionIndex + 1 >= competencies.length
+    transitionTo(isLastCompetency ? 'done' : 'end_of_question')
   }
 
   function handleProviderComplete() {
     // Avatar signalled completion → call /end with 'completed'
     callEnd('completed')
-      .then(() => {
-        // Check current state — it may have been set to terminal by a 403 from /end
-        if (state.value === 'terminal') return
-
-        // Last-competency detection: question_index is 0-based
-        const isLastCompetency = currentQuestionIndex + 1 >= competencies.length
-        if (isLastCompetency) {
-          transitionTo('done')
-        } else {
-          transitionTo('end_of_question')
-        }
-      })
+      .then(advanceAfterQuestion)
       .catch(() => {})
   }
 
-  async function startSession(mountEl?: HTMLElement, attemptNumber = 0) {
+  async function startSession(attemptNumber = 0) {
     transitionTo('connecting')
 
     try {
@@ -309,21 +360,25 @@ export function useInterviewSession(
           end_phrase: string
           final_phrase: string
         }
-      }>(`${getApiBase()}/api/candidate/interview/start`, {
+      }>(apiUrl('/candidate/interview/start'), {
         method: 'POST',
       })
 
       // D4: end_phrase and final_phrase come from NESTED question_context — NOT top-level
       const { end_phrase, final_phrase } = response.question_context
       currentSessionId = Number(response.session_id)
+      sessionId.value = currentSessionId
       currentQuestionIndex = Number(response.question_context.question_index)
 
       // Create provider
       provider = createProvider(response.provider as 'heygen' | 'tavus', isMock())
 
+      // Wire BEFORE publishing: AvatarPlayer mounts and starts the provider as soon as
+      // activeProvider/activeConfig are set, and the very first event it can emit
+      // (absent_phrase) must already have a listener.
       wireProviderEvents()
 
-      const startConfig = {
+      const startConfig: StartConfig = {
         dbSessionId: currentSessionId,
         sessionToken: response.provider_token ?? undefined,
         conversationUrl: response.conversation_url ?? undefined,
@@ -331,8 +386,10 @@ export function useInterviewSession(
         finalPhrase: final_phrase,
       }
 
-      const el = mountEl ?? document.createElement('div')
-      await provider.start(el, startConfig)
+      // Publish for AvatarPlayer. provider.start() is deliberately NOT called here:
+      // it must receive the real <video> element the player owns.
+      activeConfig.value = startConfig
+      activeProvider.value = provider
     } catch (err) {
       isResuming = false
       const status =
@@ -349,7 +406,7 @@ export function useInterviewSession(
         const nextAttempt = attemptNumber + 1
         if (nextAttempt < MAX_ATTEMPTS) {
           await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
-          await startSession(mountEl, nextAttempt)
+          await startSession(nextAttempt)
         } else {
           // Exhausted all attempts → retryable error
           retryAttemptCount.value = 0
@@ -371,7 +428,7 @@ export function useInterviewSession(
     transitionTo('device_check')
   }
 
-  function confirmDevices(_mountEl?: HTMLElement) {
+  function confirmDevices() {
     if (isResuming) return
     isResuming = true
 
@@ -380,8 +437,9 @@ export function useInterviewSession(
       provider.stop().catch(() => {})
       provider = null
     }
+    clearActiveProvider()
 
-    startSession(_mountEl, 0)
+    startSession(0)
   }
 
   function pause() {
@@ -401,16 +459,31 @@ export function useInterviewSession(
     confirmDevices()
   }
 
-  function nextCompetency(_mountEl?: HTMLElement) {
+  function nextCompetency() {
     if (state.value === 'end_of_question') {
       currentCompetencyIndex.value += 1
-      confirmDevices(_mountEl)
+      confirmDevices()
     }
+  }
+
+  /**
+   * End the current question early — the 5-minute timer expired, or the candidate
+   * pressed Skip. Both were previously inert affordances on the interview page.
+   *
+   * Unlike the `completed` path (the avatar signalled its own completion), the
+   * provider is cut off mid-turn here, so it is stopped explicitly.
+   */
+  async function endQuestion(reason: EndQuestionReason): Promise<void> {
+    if (state.value !== 'live') return
+
+    await callEnd(reason)
+    stopProvider()
+    advanceAfterQuestion()
   }
 
   async function teardown() {
     removeResizeListener()
-    clearSnapshotInterval()
+    clearActiveProvider()
     if (provider) {
       await provider.stop().catch(() => {})
       provider = null
@@ -422,12 +495,16 @@ export function useInterviewSession(
     retryAttemptCount,
     currentCompetencyIndex,
     terminalReason,
+    sessionId,
+    activeProvider,
+    activeConfig,
     acceptConsent,
     confirmDevices,
     pause,
     resume,
     retry,
     nextCompetency,
+    endQuestion,
     teardown,
   }
 }

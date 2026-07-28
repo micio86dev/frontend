@@ -259,8 +259,11 @@ describe('useInterviewSession', () => {
       session.confirmDevices()
       await nextTick()
 
+      // Full resolved URL, not stringContaining: a substring assertion passes
+      // just as happily against the doubled-prefix '/api/api/candidate/interview/start',
+      // which is exactly the URL the app used to build and which routes nowhere.
       expect(mockFetchImpl).toHaveBeenCalledWith(
-        expect.stringContaining('/candidate/interview/start'),
+        'https://api.test/candidate/interview/start',
         expect.any(Object)
       )
     })
@@ -315,13 +318,12 @@ describe('useInterviewSession', () => {
       session.confirmDevices()
       await nextTick()
 
-      expect(currentMockProvider._startMock).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-          endPhrase: 'Nested phrase correct.',
-          finalPhrase: 'Grazie per il tuo tempo.',
-        })
-      )
+      // The composable publishes the StartConfig; AvatarPlayer is what calls
+      // provider.start() with it, against the real <video> element.
+      expect(session.activeConfig.value).toMatchObject({
+        endPhrase: 'Nested phrase correct.',
+        finalPhrase: 'Grazie per il tuo tempo.',
+      })
     })
 
     it('absent end_phrase (provider emits error) → terminal state', async () => {
@@ -345,8 +347,8 @@ describe('useInterviewSession', () => {
       currentMockProvider._emit('state', 'complete')
       await flushPromises()
 
-      const endCall = mockFetchImpl.mock.calls.find((c) =>
-        String(c[0]).includes('/candidate/interview/end')
+      const endCall = mockFetchImpl.mock.calls.find(
+        (c) => c[0] === 'https://api.test/candidate/interview/end'
       )
       expect(endCall).toBeDefined()
       expect((endCall![1] as { body: { ended_reason: string } }).body.ended_reason).toBe(
@@ -403,20 +405,23 @@ describe('useInterviewSession', () => {
     })
   })
 
-  describe('/snapshot error handling', () => {
-    it('413 from /snapshot → logged, session continues', async () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      await createLiveSession()
+  describe("/snapshot is NOT this composable's responsibility", () => {
+    it('never issues a /snapshot request, at any point in the session', async () => {
+      const session = await createLiveSession()
 
-      // advance 10s to trigger snapshot interval
-      // snapshot call returns 413
-      // (since sendSnapshot is a no-op stub currently, this just ensures state stays live)
-      await vi.advanceTimersByTimeAsync(10_000)
+      // The old implementation scheduled sendSnapshot() every 10s for the whole
+      // session. sendSnapshot()'s body was entirely comments, so the interval, its
+      // 413/422 catch handler and the docblock's "5-endpoint loop" claim were all
+      // machinery around a call that could never happen — the composable holds no
+      // video element to capture from. useProctor.takeSnapshot() is the real path.
+      await vi.advanceTimersByTimeAsync(SNAPSHOT_INTERVAL_MS_TEST * 6)
       await nextTick()
 
-      // State must remain live (snapshot errors non-fatal)
-      // We verify by checking no terminal/error transition happened
-      warnSpy.mockRestore()
+      const snapshotCalls = mockFetchImpl.mock.calls.filter((c) =>
+        String(c[0]).includes('/candidate/interview/snapshot')
+      )
+      expect(snapshotCalls).toHaveLength(0)
+      expect(session.state.value).toBe('live')
     })
   })
 
@@ -573,8 +578,8 @@ describe('useInterviewSession', () => {
       await flushPromises()
 
       // /start should only have been called ONCE despite two confirmDevices() calls
-      const startCalls = mockFetchImpl.mock.calls.filter((c) =>
-        String(c[0]).includes('/candidate/interview/start')
+      const startCalls = mockFetchImpl.mock.calls.filter(
+        (c) => c[0] === 'https://api.test/candidate/interview/start'
       )
       expect(startCalls.length).toBe(1)
     })
@@ -660,8 +665,8 @@ describe('useInterviewSession', () => {
 
       expect(session.state.value).toBe('connecting')
 
-      const startCalls = mockFetchImpl.mock.calls.filter((c) =>
-        String(c[0]).includes('/candidate/interview/start')
+      const startCalls = mockFetchImpl.mock.calls.filter(
+        (c) => c[0] === 'https://api.test/candidate/interview/start'
       )
       expect(startCalls.length).toBe(2) // one per competency
     })
@@ -716,7 +721,7 @@ describe('useInterviewSession', () => {
 
       // sendBeacon should have been called with absolute URL containing /integrity
       expect(navigator.sendBeacon).toHaveBeenCalledWith(
-        expect.stringContaining('/api/candidate/interview/integrity'),
+        'https://api.test/candidate/interview/integrity',
         expect.any(Blob)
       )
     })
@@ -839,46 +844,6 @@ describe('useInterviewSession', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // Branch coverage: snapshot interval error-logging branches (C4 RED→GREEN)
-  // ---------------------------------------------------------------------------
-
-  describe('snapshot interval — error logging branches (413/422)', () => {
-    it('413 from snapshot interval catch handler → console.warn logged', async () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-
-      // We need sendSnapshot to actually reject. Since sendSnapshot is a no-op
-      // (returns early if no imageSource), we test the catch path by patching
-      // setInterval to fire a rejecting callback directly.
-      // Instead, we verify that advancing the timer does NOT break the session
-      // (the catch handler swallows 413/422 without transitioning state).
-      await createLiveSession()
-
-      // Advance past the snapshot interval
-      await vi.advanceTimersByTimeAsync(SNAPSHOT_INTERVAL_MS_TEST)
-      await nextTick()
-
-      // State must remain live — the snapshot no-op resolves without error
-      // The 413/422 warn branch would fire if sendSnapshot actually threw —
-      // that path is exercised by the startSnapshotInterval catch block.
-      // We verify the interval fires and doesn't break the state machine.
-      expect(
-        [
-          'live',
-          // If sendSnapshot resolves OK (it does here since it's a no-op)
-          // the state stays live
-        ].includes(
-          (() => {
-            // Just verify state is still valid — not transitioned to error
-            return 'live'
-          })()
-        )
-      ).toBe(true)
-
-      warnSpy.mockRestore()
-    })
-  })
-
-  // ---------------------------------------------------------------------------
   // Branch coverage: /utterance non-409 warning branch (C4 RED→GREEN)
   // ---------------------------------------------------------------------------
 
@@ -939,6 +904,299 @@ describe('useInterviewSession', () => {
       expect(session.state.value).toBe('end_of_question')
 
       warnSpy.mockRestore()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // activeProvider / activeConfig publication — the live screen's render gate
+  // ---------------------------------------------------------------------------
+
+  describe('activeProvider / activeConfig publication', () => {
+    it('both are null before /start resolves', () => {
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+
+      expect(session.activeProvider.value).toBeNull()
+      expect(session.activeConfig.value).toBeNull()
+    })
+
+    it('publishes the created provider and its StartConfig once /start resolves', async () => {
+      // The interview page renders AvatarPlayer only when BOTH are non-null. They were
+      // page-local refs initialised to null and never assigned, so the gate was
+      // permanently false and the live interview screen could never render.
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+      session.acceptConsent()
+      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+
+      session.confirmDevices()
+      await nextTick()
+
+      expect(session.activeProvider.value).toBe(currentMockProvider)
+      expect(session.activeConfig.value).toMatchObject({
+        dbSessionId: 42,
+        sessionToken: 'tok-123',
+        endPhrase: 'Passiamo alla prossima domanda.',
+        finalPhrase: 'Grazie per il tuo tempo.',
+      })
+    })
+
+    it('does NOT start the provider itself — AvatarPlayer owns the mount element', async () => {
+      // provider.start(mountEl) attaches media ONLY when mountEl is an HTMLMediaElement.
+      // Starting here against a detached <div> meant the interviewer's video/audio was
+      // never attached to anything.
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+      session.acceptConsent()
+      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+
+      session.confirmDevices()
+      await nextTick()
+
+      expect(currentMockProvider._startMock).not.toHaveBeenCalled()
+      expect(session.activeProvider.value).toBe(currentMockProvider)
+    })
+
+    it('exposes the DB session id from the /start response', async () => {
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+      session.acceptConsent()
+      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+
+      session.confirmDevices()
+      await nextTick()
+
+      expect(session.sessionId.value).toBe(42)
+    })
+
+    it('unpublishes both when the question ends (end_of_question)', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      expect(session.activeProvider.value).toBe(currentMockProvider)
+
+      mockFetchImpl.mockResolvedValueOnce(undefined) // /end 200
+      currentMockProvider._emit('state', 'complete')
+      await flushPromises()
+
+      expect(session.state.value).toBe('end_of_question')
+      expect(session.activeProvider.value).toBeNull()
+      expect(session.activeConfig.value).toBeNull()
+    })
+
+    it('unpublishes both on a terminal transition', async () => {
+      const session = await createLiveSession()
+
+      currentMockProvider._emit('error', 'absent_phrase')
+      await flushPromises()
+
+      expect(session.state.value).toBe('terminal')
+      expect(session.activeProvider.value).toBeNull()
+      expect(session.activeConfig.value).toBeNull()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // endQuestion() — timer expiry and skip (both were inert affordances)
+  // ---------------------------------------------------------------------------
+
+  describe('endQuestion()', () => {
+    it("timeout → POST /end with ended_reason 'timeout'", async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      mockFetchImpl.mockResolvedValueOnce(undefined) // /end 200
+
+      await session.endQuestion('timeout')
+      await flushPromises()
+
+      const endCall = mockFetchImpl.mock.calls.find(
+        (c) => c[0] === 'https://api.test/candidate/interview/end'
+      )
+      expect(endCall).toBeDefined()
+      expect((endCall![1] as { body: { ended_reason: string } }).body.ended_reason).toBe('timeout')
+    })
+
+    it("skip → POST /end with ended_reason 'skipped'", async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      mockFetchImpl.mockResolvedValueOnce(undefined) // /end 200
+
+      await session.endQuestion('skipped')
+      await flushPromises()
+
+      const endCall = mockFetchImpl.mock.calls.find(
+        (c) => c[0] === 'https://api.test/candidate/interview/end'
+      )
+      expect((endCall![1] as { body: { ended_reason: string } }).body.ended_reason).toBe('skipped')
+    })
+
+    it('advances to end_of_question when competencies remain', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      mockFetchImpl.mockResolvedValueOnce(undefined)
+
+      await session.endQuestion('timeout')
+      await flushPromises()
+
+      expect(session.state.value).toBe('end_of_question')
+    })
+
+    it('advances to done on the last competency', async () => {
+      const session = await createLiveSession('4', DEFAULT_COMPETENCIES)
+      mockFetchImpl.mockResolvedValueOnce(undefined)
+
+      await session.endQuestion('skipped')
+      await flushPromises()
+
+      expect(session.state.value).toBe('done')
+    })
+
+    it('stops the provider — it is cut off mid-turn, unlike the completed path', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      mockFetchImpl.mockResolvedValueOnce(undefined)
+
+      await session.endQuestion('timeout')
+      await flushPromises()
+
+      expect(currentMockProvider._stopMock).toHaveBeenCalled()
+    })
+
+    it('403 from /end → terminal, and does NOT advance to end_of_question', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      mockFetchImpl.mockRejectedValueOnce(makeFetchError(403))
+
+      await session.endQuestion('timeout')
+      await flushPromises()
+
+      expect(session.state.value).toBe('terminal')
+      expect(session.terminalReason.value).toBe('403')
+    })
+
+    it('is a no-op outside the live state (no /end call)', async () => {
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+      session.acceptConsent()
+
+      await session.endQuestion('timeout')
+
+      expect(session.state.value).toBe('device_check')
+      expect(mockFetchImpl).not.toHaveBeenCalled()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Provider error classification (domain-sensitive)
+  // ---------------------------------------------------------------------------
+
+  describe("provider 'error' events — absent_phrase vs infrastructure failure", () => {
+    it("object payload { code: 'absent_phrase' } → terminal with reason absent_phrase", async () => {
+      // Real providers emit { code, message } objects; reading the payload as a bare
+      // string meant the genuine absent_phrase code was never matched.
+      const session = await createLiveSession()
+
+      currentMockProvider._emit('error', {
+        code: 'absent_phrase',
+        message: 'endPhrase and finalPhrase must both be non-empty strings',
+      })
+      await flushPromises()
+
+      expect(session.state.value).toBe('terminal')
+      expect(session.terminalReason.value).toBe('absent_phrase')
+    })
+
+    it('sdk_error while live → retryable error screen, NOT the absent_phrase verdict', async () => {
+      // absent_phrase relates to interview VALIDITY. A dropped WebRTC connection is
+      // not a failed presence check and must never be reported as one.
+      const session = await createLiveSession()
+
+      currentMockProvider._emit('error', { code: 'sdk_error', message: 'connection lost' })
+      await flushPromises()
+
+      expect(session.state.value).toBe('error')
+      expect(session.terminalReason.value).toBeNull()
+    })
+
+    it('sdk_error while connecting → retryable error screen', async () => {
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+      session.acceptConsent()
+      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+      session.confirmDevices()
+      await nextTick()
+      expect(session.state.value).toBe('connecting')
+
+      currentMockProvider._emit('error', { code: 'sdk_error', message: 'ICE failed' })
+      await flushPromises()
+
+      expect(session.state.value).toBe('error')
+      expect(session.terminalReason.value).toBeNull()
+    })
+
+    it('a payload with no recognisable code while live → retryable error', async () => {
+      const session = await createLiveSession()
+
+      currentMockProvider._emit('error', { message: 'something went wrong' })
+      await flushPromises()
+
+      expect(session.state.value).toBe('error')
+      expect(session.terminalReason.value).toBeNull()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Integrity flush acknowledgement (FINDING 4 — buffer was append-only)
+  // ---------------------------------------------------------------------------
+
+  describe('integrity beacon flush acknowledgement', () => {
+    async function liveSessionWithPending(pendingEvents: { type: string; ts: number }[]) {
+      const flushed: unknown[][] = []
+      const session = useInterviewSession({
+        competencies: DEFAULT_COMPETENCIES,
+        getPendingIntegrityEvents: () =>
+          pendingEvents as unknown as Parameters<
+            NonNullable<Parameters<typeof useInterviewSession>[0]['onIntegrityEventsFlushed']>
+          >[0],
+        onIntegrityEventsFlushed: (events) => {
+          flushed.push(events as unknown[])
+        },
+      })
+      session.acceptConsent()
+      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+      session.confirmDevices()
+      await nextTick()
+      currentMockProvider._emit('state', 'ready')
+      await nextTick()
+
+      const addCalls = (window.addEventListener as ReturnType<typeof vi.fn>).mock.calls
+      const resizeCall = addCalls.find((c: unknown[]) => c[0] === 'resize')
+      return { session, flushed, resizeHandler: resizeCall![1] as () => void }
+    }
+
+    it('acknowledges exactly the flushed events when sendBeacon accepts them', async () => {
+      const pendingEvents = [{ type: 'tab_hidden', ts: 1000, meta: null }]
+      const { flushed, resizeHandler } = await liveSessionWithPending(pendingEvents)
+
+      ;(window as Record<string, unknown>).innerWidth = 900
+      resizeHandler()
+
+      expect(flushed).toHaveLength(1)
+      expect(flushed[0]).toEqual(pendingEvents)
+    })
+
+    it('does NOT acknowledge when sendBeacon refuses the payload (returns false)', async () => {
+      // sendBeacon returns false past Safari's 64 KB cap. Dropping the buffer on a
+      // refused flush would lose those events outright.
+      const pendingEvents = [{ type: 'tab_hidden', ts: 1000, meta: null }]
+      const { flushed, resizeHandler } = await liveSessionWithPending(pendingEvents)
+      ;(navigator.sendBeacon as ReturnType<typeof vi.fn>).mockReturnValueOnce(false)
+
+      ;(window as Record<string, unknown>).innerWidth = 900
+      resizeHandler()
+
+      expect(navigator.sendBeacon).toHaveBeenCalled()
+      expect(flushed).toHaveLength(0)
+    })
+
+    it('does NOT acknowledge when sendBeacon throws', async () => {
+      const pendingEvents = [{ type: 'focus_lost', ts: 2000, meta: null }]
+      const { flushed, resizeHandler } = await liveSessionWithPending(pendingEvents)
+      ;(navigator.sendBeacon as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+        throw new Error('sendBeacon not available')
+      })
+
+      ;(window as Record<string, unknown>).innerWidth = 900
+      expect(() => resizeHandler()).not.toThrow()
+
+      expect(flushed).toHaveLength(0)
     })
   })
 })
