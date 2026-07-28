@@ -26,7 +26,6 @@
 import {
   FACE_ABSENT_MS,
   FACE_MIN_WIDTH_RATIO,
-  FLUSH_INTERVAL_MS,
   LOOK_AWAY_MS,
   LOOK_AWAY_PITCH_DEG,
   LOOK_AWAY_YAW_DEG,
@@ -43,6 +42,7 @@ import {
   type IntegrityEventInternal,
   type IntegrityType,
 } from '~/app/utils/proctor-config'
+import { apiUrl } from '~/app/utils/api-url'
 
 // ---------------------------------------------------------------------------
 // Minimal structural types for @mediapipe/tasks-vision (dynamically imported)
@@ -110,11 +110,32 @@ export interface ProctoFaceSampleInput {
   closeEpisode?: boolean
 }
 
+export interface UseProctorOptions {
+  /**
+   * Supplies the DB session id for POST /snapshot. A getter, not a value: the id
+   * changes between competencies. Returning null suppresses the POST — the endpoint
+   * requires `session_id` and rejects the request without it.
+   */
+  getSessionId?: () => number | null
+  /**
+   * Called synchronously for each integrity event as it is recorded, so consumers
+   * can react instead of polling getPendingEvents() on an interval.
+   */
+  onEvent?: (event: IntegrityEventInternal) => void
+}
+
 export interface UseProctorReturn {
   start(_stream: MediaStream): void
   stop(): void
   setAvatarSpeaking(_speaking: boolean): void
+  /** Non-destructive read of the events awaiting flush. */
   getPendingEvents(): IntegrityEventInternal[]
+  /**
+   * Drop the given events from the pending buffer — call ONLY after they have been
+   * successfully flushed. Matching is by object identity, so events recorded while a
+   * flush was in flight are never dropped along with it.
+   */
+  acknowledgeEvents(_events: IntegrityEventInternal[]): void
   /** Test escape hatch: directly trigger face evaluation (bypasses timer/MediaPipe) */
   triggerFaceSample(_input: ProctoFaceSampleInput): void
   /** Test escape hatch: directly trigger voice RMS evaluation */
@@ -149,7 +170,7 @@ export interface UseProctorReturn {
 // Composable factory
 // ---------------------------------------------------------------------------
 
-export function useProctor(): UseProctorReturn {
+export function useProctor(options: UseProctorOptions = {}): UseProctorReturn {
   // Per-instance state (no module singletons)
   const buffer: IntegrityEventInternal[] = []
   let active = false
@@ -172,7 +193,6 @@ export function useProctor(): UseProctorReturn {
   // Timer handles
   let sampleTimer: ReturnType<typeof setInterval> | null = null
   let phoneSampleTimer: ReturnType<typeof setInterval> | null = null
-  let flushTimer: ReturnType<typeof setInterval> | null = null
   let snapshotTimer: ReturnType<typeof setInterval> | null = null
   let audioSampleTimer: ReturnType<typeof setInterval> | null = null
 
@@ -204,7 +224,13 @@ export function useProctor(): UseProctorReturn {
   }
 
   function push(type: IntegrityType, meta?: Record<string, unknown>): void {
-    buffer.push({ type, ts: new Date().toISOString(), meta: meta ?? null })
+    const event: IntegrityEventInternal = {
+      type,
+      ts: new Date().toISOString(),
+      meta: meta ?? null,
+    }
+    buffer.push(event)
+    options.onEvent?.(event)
   }
 
   function closeEpisode(
@@ -468,8 +494,20 @@ export function useProctor(): UseProctorReturn {
   // Snapshot (periodic)
   // -------------------------------------------------------------------------
 
+  /**
+   * Capture a frame and POST it to /snapshot.
+   *
+   * This is the SINGLE authoritative snapshot path. useInterviewSession also carried a
+   * snapshot interval, but its send function was empty and it holds no video element,
+   * so it could never have captured anything; it has been removed.
+   */
   function takeSnapshot(): void {
     if (!selfView || selfView.readyState < 2) return
+
+    // POST /snapshot requires session_id — without it the request is rejected outright.
+    const snapshotSessionId = options.getSessionId?.() ?? null
+    if (snapshotSessionId === null) return
+
     const canvas = document.createElement('canvas')
     canvas.width = selfView.videoWidth || 320
     canvas.height = selfView.videoHeight || 240
@@ -478,12 +516,14 @@ export function useProctor(): UseProctorReturn {
     ctx.drawImage(selfView, 0, 0)
     const jpeg = canvas.toDataURL('image/jpeg', 0.7)
     // Best-effort POST to /snapshot; errors are silent
-    const config = useRuntimeConfig()
-    const apiBase = config.public.apiBase as string
-    fetch(`${apiBase}/api/candidate/interview/snapshot`, {
+    fetch(apiUrl('/candidate/interview/snapshot'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image_base64: jpeg, ts: new Date().toISOString() }),
+      body: JSON.stringify({
+        session_id: snapshotSessionId,
+        image_base64: jpeg,
+        ts: new Date().toISOString(),
+      }),
       keepalive: true,
     }).catch(() => {
       // 413/422 → log, continue interval
@@ -520,18 +560,6 @@ export function useProctor(): UseProctorReturn {
         phoneSampleTimer = setInterval(samplePhone, PHONE_SAMPLE_MS)
       })
     }
-  }
-
-  // -------------------------------------------------------------------------
-  // Periodic flush
-  // -------------------------------------------------------------------------
-
-  function flushToIntegrityFlush(): void {
-    // Periodic flush: the parent composable (useInterviewSession or component) owns
-    // the useIntegrityFlush instance. useProctor exposes getPendingEvents() so the
-    // parent can drain events and pass them to useIntegrityFlush.flush().
-    // The FLUSH_INTERVAL_MS timer here is intentionally kept for future direct-flush
-    // support but the current design relies on the parent draining getPendingEvents().
   }
 
   // -------------------------------------------------------------------------
@@ -572,8 +600,9 @@ export function useProctor(): UseProctorReturn {
       void initCamera()
     }
 
-    // Periodic flush timer
-    flushTimer = setInterval(flushToIntegrityFlush, FLUSH_INTERVAL_MS)
+    // No periodic flush timer here: flushing is the consumer's job, driven by the
+    // `onEvent` subscription plus getPendingEvents()/acknowledgeEvents(). A timer
+    // firing an empty function read as working machinery and was removed.
   }
 
   function stop(): void {
@@ -591,12 +620,10 @@ export function useProctor(): UseProctorReturn {
     // Clear timers
     if (sampleTimer != null) clearInterval(sampleTimer)
     if (phoneSampleTimer != null) clearInterval(phoneSampleTimer)
-    if (flushTimer != null) clearInterval(flushTimer)
     if (snapshotTimer != null) clearInterval(snapshotTimer)
     if (audioSampleTimer != null) clearInterval(audioSampleTimer)
     sampleTimer = null
     phoneSampleTimer = null
-    flushTimer = null
     snapshotTimer = null
     audioSampleTimer = null
 
@@ -624,6 +651,22 @@ export function useProctor(): UseProctorReturn {
 
   function getPendingEvents(): IntegrityEventInternal[] {
     return [...buffer]
+  }
+
+  /**
+   * Remove already-flushed events from the buffer.
+   *
+   * The buffer used to be append-only, so every flush re-sent the entire session's
+   * history. Acknowledging is by object identity rather than draining on read: a
+   * flush can fail (sendBeacon refuses oversized payloads, a POST can 5xx), and a
+   * destructive read would discard those events with no way to retry them.
+   */
+  function acknowledgeEvents(events: IntegrityEventInternal[]): void {
+    if (events.length === 0) return
+    const acknowledged = new Set<IntegrityEventInternal>(events)
+    for (let i = buffer.length - 1; i >= 0; i--) {
+      if (acknowledged.has(buffer[i]!)) buffer.splice(i, 1)
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -683,6 +726,7 @@ export function useProctor(): UseProctorReturn {
     stop,
     setAvatarSpeaking,
     getPendingEvents,
+    acknowledgeEvents,
     triggerFaceSample,
     triggerVoiceSample,
     injectSelfView,

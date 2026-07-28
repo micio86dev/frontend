@@ -989,7 +989,7 @@ describe('useProctor', () => {
     vi.stubGlobal('fetch', fetchSpy)
 
     const { useProctor } = await import('~/app/composables/useProctor')
-    const proctor = useProctor()
+    const proctor = useProctor({ getSessionId: () => 42 })
     proctor.start(makeStream())
 
     const videoEl = makeVideoElement()
@@ -998,10 +998,156 @@ describe('useProctor', () => {
     proctor.triggerSnapshot()
     await Promise.resolve() // settle fetch
 
+    // FULL resolved URL. `stringContaining('/api/candidate/interview/snapshot')`
+    // passed just as happily against the doubled-prefix URL the app actually built
+    // under Docker ('http://localhost:8000/api' + '/api/candidate/...'), which is a
+    // hard 404. apiBase is stubbed to 'http://localhost:8000' in beforeEach.
     expect(fetchSpy).toHaveBeenCalledWith(
-      expect.stringContaining('/api/candidate/interview/snapshot'),
+      'http://localhost:8000/candidate/interview/snapshot',
       expect.objectContaining({ method: 'POST' })
     )
+    proctor.stop()
+  })
+
+  it('triggerSnapshot: includes session_id — the endpoint rejects a body without it', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const { useProctor } = await import('~/app/composables/useProctor')
+    const proctor = useProctor({ getSessionId: () => 7 })
+    proctor.start(makeStream())
+    proctor.injectSelfView(makeVideoElement())
+
+    proctor.triggerSnapshot()
+    await Promise.resolve()
+
+    const body = JSON.parse((fetchSpy.mock.calls[0]![1] as { body: string }).body) as Record<
+      string,
+      unknown
+    >
+    expect(body['session_id']).toBe(7)
+    expect(body['image_base64']).toBe('data:image/jpeg;base64,test')
+    proctor.stop()
+  })
+
+  it('triggerSnapshot: no session id yet → no POST at all (never sends a rejectable body)', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const { useProctor } = await import('~/app/composables/useProctor')
+    const proctor = useProctor({ getSessionId: () => null })
+    proctor.start(makeStream())
+    proctor.injectSelfView(makeVideoElement())
+
+    proctor.triggerSnapshot()
+    await Promise.resolve()
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+    proctor.stop()
+  })
+
+  // -------------------------------------------------------------------------
+  // acknowledgeEvents — the buffer used to be append-only
+  // -------------------------------------------------------------------------
+
+  it('acknowledgeEvents removes exactly the flushed events from the pending buffer', async () => {
+    const { useProctor } = await import('~/app/composables/useProctor')
+    const proctor = useProctor()
+    proctor.start(makeStream())
+
+    proctor.triggerFaceSample({ faceCount: 0 })
+    vi.advanceTimersByTime(5000)
+    proctor.triggerFaceSample({ faceCount: 0, closeEpisode: true })
+
+    const firstBatch = proctor.getPendingEvents()
+    expect(firstBatch.length).toBeGreaterThan(0)
+
+    proctor.acknowledgeEvents(firstBatch)
+
+    expect(proctor.getPendingEvents()).toHaveLength(0)
+    proctor.stop()
+  })
+
+  it('acknowledgeEvents keeps events recorded AFTER the batch was read', async () => {
+    // Identity-based acknowledgement, not drain-on-read: an event recorded while a
+    // flush is in flight must not be dropped along with the flushed batch.
+    const { useProctor } = await import('~/app/composables/useProctor')
+    const proctor = useProctor()
+    proctor.start(makeStream())
+
+    proctor.triggerFaceSample({ faceCount: 0 })
+    vi.advanceTimersByTime(5000)
+    proctor.triggerFaceSample({ faceCount: 0, closeEpisode: true })
+    const inFlight = proctor.getPendingEvents()
+
+    // A second episode closes while the flush of `inFlight` is still pending
+    proctor.triggerFaceSample({ faceCount: 2 })
+    vi.advanceTimersByTime(5000)
+    proctor.triggerFaceSample({ faceCount: 0, closeEpisode: true })
+
+    proctor.acknowledgeEvents(inFlight)
+
+    const remaining = proctor.getPendingEvents()
+    expect(remaining.length).toBeGreaterThan(0)
+    expect(remaining.some((e) => inFlight.includes(e))).toBe(false)
+    proctor.stop()
+  })
+
+  it('a second read after a flush no longer re-sends the acknowledged events', async () => {
+    const { useProctor } = await import('~/app/composables/useProctor')
+    const proctor = useProctor()
+    proctor.start(makeStream())
+
+    proctor.triggerFaceSample({ faceCount: 0 })
+    vi.advanceTimersByTime(5000)
+    proctor.triggerFaceSample({ faceCount: 0, closeEpisode: true })
+
+    const batchOne = proctor.getPendingEvents()
+    proctor.acknowledgeEvents(batchOne)
+
+    proctor.triggerFaceSample({ faceCount: 2 })
+    vi.advanceTimersByTime(5000)
+    proctor.triggerFaceSample({ faceCount: 0, closeEpisode: true })
+
+    const batchTwo = proctor.getPendingEvents()
+    // Previously getPendingEvents() returned every event since session start, so
+    // batchTwo would have contained batchOne all over again.
+    expect(batchTwo).not.toEqual(expect.arrayContaining(batchOne))
+    proctor.stop()
+  })
+
+  it('acknowledgeEvents([]) is a no-op', async () => {
+    const { useProctor } = await import('~/app/composables/useProctor')
+    const proctor = useProctor()
+    proctor.start(makeStream())
+
+    proctor.triggerFaceSample({ faceCount: 0 })
+    vi.advanceTimersByTime(5000)
+    proctor.triggerFaceSample({ faceCount: 0, closeEpisode: true })
+    const before = proctor.getPendingEvents()
+
+    proctor.acknowledgeEvents([])
+
+    expect(proctor.getPendingEvents()).toHaveLength(before.length)
+    proctor.stop()
+  })
+
+  // -------------------------------------------------------------------------
+  // onEvent subscription — replaces the consumer-side 1s polling interval
+  // -------------------------------------------------------------------------
+
+  it('onEvent fires synchronously for each recorded event', async () => {
+    const { useProctor } = await import('~/app/composables/useProctor')
+    const seen: { type: string }[] = []
+    const proctor = useProctor({ onEvent: (event) => seen.push(event) })
+    proctor.start(makeStream())
+
+    proctor.triggerFaceSample({ faceCount: 0 })
+    vi.advanceTimersByTime(5000)
+    proctor.triggerFaceSample({ faceCount: 0, closeEpisode: true })
+
+    expect(seen.map((e) => e.type)).toContain('face_absent')
+    expect(seen).toHaveLength(proctor.getPendingEvents().length)
     proctor.stop()
   })
 
