@@ -187,3 +187,33 @@
     @apply font-sans;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Clickable affordance — PROJECT CONVENTION, see DESIGN.md.
+
+   Tailwind v4's Preflight no longer sets `cursor: pointer` on <button>; it
+   inherits `cursor: default`. Without this rule every newly built component
+   silently loses the affordance signal and interactive elements read as static
+   text. The rule is global on purpose: it must hold for vendored shadcn-vue
+   source too, which is not exempt.
+--------------------------------------------------------------------------- */
+@layer base {
+  button,
+  [role='button'],
+  a[href],
+  label[for],
+  summary,
+  select,
+  [tabindex]:not([tabindex='-1']) {
+    cursor: pointer;
+  }
+
+  /* Disabled states keep a distinct, non-misleading cursor. */
+  button:disabled,
+  select:disabled,
+  input:disabled,
+  [aria-disabled='true'],
+  [role='button'][aria-disabled='true'] {
+    cursor: not-allowed;
+  }
+}
