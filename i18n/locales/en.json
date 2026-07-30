@@ -1,5 +1,9 @@
 {
   "welcome": "Welcome",
+  "root": {
+    "title": "Access through your personal link",
+    "message": "To take your interview, use the link sent to you by whoever invited you. This page cannot let you in directly."
+  },
   "unsupported": {
     "title": "Unsupported Browser",
     "message": "This application requires a supported desktop browser (Chrome, Edge, Safari). Please access from a desktop computer."
