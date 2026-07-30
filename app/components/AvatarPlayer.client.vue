@@ -5,12 +5,17 @@
     style="aspect-ratio: 16/9"
     aria-live="off"
   >
+    <!--
+      NEVER bind `muted` here. This element carries the INTERVIEWER's audio; the
+      candidate's microphone is a separate channel controlled through
+      provider.toggleMic(). Muting this video muted the interviewer whenever the
+      candidate muted their own mic.
+    -->
     <video
       ref="videoEl"
       class="size-full object-cover"
       autoplay
       playsinline
-      :muted="micMuted"
       :aria-label="$t ? $t('interview.live.timer_label') : 'Avatar video'"
     />
     <div v-if="!isReady" class="absolute inset-0 flex items-center justify-center">
@@ -30,9 +35,8 @@
  * rendered on the server.
  *
  * Props:
- *   provider   — the InterviewProvider instance (from createProvider())
+ *   provider   — the InterviewProvider instance (published by useInterviewSession)
  *   config     — StartConfig to pass to provider.start()
- *   micMuted   — whether the mic is muted (drives <video muted>)
  *
  * Emits:
  *   state      — provider state changes
@@ -51,7 +55,6 @@ import type {
 const props = defineProps<{
   provider: InterviewProvider
   config: StartConfig
-  micMuted?: boolean
 }>()
 
 const emit = defineEmits<{

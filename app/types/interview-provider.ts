@@ -105,8 +105,13 @@ export interface InterviewProvider {
 
   /**
    * Optional: ~20s before the question timer expires, nudge the avatar to wrap up.
-   * HeyGen: calls session.message() with a wrap-up prompt.
+   * HeyGen: calls session.message() with the given wrap-up prompt.
    * Tavus: no-op (relies on server-side hard cap).
+   *
+   * First param: the wrap-up prompt to speak. It is USER-FACING avatar speech, so the
+   * caller MUST supply it from i18n in the project language — providers have no i18n
+   * access and must never invent or hardcode the text. A blank message is a no-op:
+   * sending an empty string to the SDK was a silent no-op dressed up as a feature.
    */
-  nudgeWrapUp?(): void
+  nudgeWrapUp?(message: string): void
 }

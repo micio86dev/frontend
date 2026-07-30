@@ -34,11 +34,26 @@ export interface UseDeviceCheckReturn {
   /** The getUserMedia stream — handed to useProctor.start(stream) on confirmation */
   stream: Ref<MediaStream | null>
   /**
-   * Runs the device check. Idempotent — a second call while a check is in progress
-   * (or already completed) is a no-op. Resolves when the camera verdict is known;
-   * mic verdict continues polling in the background via a setInterval.
+   * Runs the device check.
+   *
+   * Idempotent while a check is in flight, and after one that SUCCEEDED. A check
+   * that failed (permission denied, no device, no live video track) leaves the
+   * composable retryable: the candidate grants the permission in browser settings
+   * and presses retry. Latching on entry made that a permanent dead end on the
+   * entry path to the product.
    */
   check(): Promise<void>
+  /**
+   * Stop the mic RMS polling interval. Safe to call at any time; does NOT touch the
+   * stream, whose ownership transfers to useProctor on confirmation (D5).
+   */
+  stopMicSampling(): void
+  /**
+   * Stop mic polling AND stop every track of the acquired stream, resetting the
+   * composable so `check()` can run again. Call ONLY when the stream was not handed
+   * off — stopping a handed-off stream kills the proctoring feed.
+   */
+  release(): void
 }
 
 // ── Factory ─────────────────────────────────────────────────────────────────
@@ -48,23 +63,51 @@ export function useDeviceCheck(): UseDeviceCheckReturn {
   const micOk = ref(false)
   const stream = ref<MediaStream | null>(null)
 
-  let checked = false
+  /** Set only after a check that actually produced a usable camera. */
+  let succeeded = false
+  /** The in-flight check, so concurrent calls share one getUserMedia. */
+  let inFlight: Promise<void> | null = null
 
   // Internal state for mic polling (so it can be cleaned up if needed)
   let micSampleTimer: ReturnType<typeof setInterval> | null = null
 
-  async function check(): Promise<void> {
-    // Idempotent — only run once
-    if (checked) return
-    checked = true
+  function stopMicSampling(): void {
+    if (micSampleTimer != null) {
+      clearInterval(micSampleTimer)
+      micSampleTimer = null
+    }
+  }
 
+  function release(): void {
+    stopMicSampling()
+    for (const track of stream.value?.getTracks() ?? []) {
+      track.stop()
+    }
+    stream.value = null
+    cameraOk.value = false
+    micOk.value = false
+    succeeded = false
+  }
+
+  function check(): Promise<void> {
+    if (succeeded) return Promise.resolve()
+    if (inFlight) return inFlight
+
+    inFlight = runCheck().finally(() => {
+      inFlight = null
+    })
+    return inFlight
+  }
+
+  async function runCheck(): Promise<void> {
     let acquired: MediaStream
 
     try {
       acquired = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
     } catch {
       // NotFoundError, NotAllowedError, OverconstrainedError, etc.
-      // cameraOk and micOk stay false; stream stays null
+      // cameraOk and micOk stay false; stream stays null. `succeeded` stays false so
+      // the candidate can grant the permission and retry.
       return
     }
 
@@ -74,6 +117,15 @@ export function useDeviceCheck(): UseDeviceCheckReturn {
     // A live video track is the only reliable proof the camera is working.
     const videoTracks = acquired.getVideoTracks()
     cameraOk.value = videoTracks.length > 0 && videoTracks.some((t) => t.readyState === 'live')
+
+    if (!cameraOk.value) {
+      // Nothing can be handed off, so release the tracks instead of leaving the
+      // camera hot for the rest of the session, and stay retryable.
+      release()
+      return
+    }
+
+    succeeded = true
 
     // ── Microphone check (async, polling via AudioContext RMS) ─────────────
     // We reuse the audio tracks from the same acquired stream — no second getUserMedia.
@@ -97,10 +149,7 @@ export function useDeviceCheck(): UseDeviceCheckReturn {
 
           if (rms > MIC_SPEAK_THRESHOLD) {
             micOk.value = true
-            if (micSampleTimer != null) {
-              clearInterval(micSampleTimer)
-              micSampleTimer = null
-            }
+            stopMicSampling()
           }
         }, MIC_SAMPLE_INTERVAL_MS)
       } catch {
@@ -109,5 +158,5 @@ export function useDeviceCheck(): UseDeviceCheckReturn {
     }
   }
 
-  return { cameraOk, micOk, stream, check }
+  return { cameraOk, micOk, stream, check, stopMicSampling, release }
 }

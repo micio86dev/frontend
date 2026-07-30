@@ -15,9 +15,10 @@
  * Design refs: D3 (sendBeacon + type→kind), spec Coverage Note (sendBeacon via Playwright)
  */
 
-import { ref } from 'vue'
+import { getCurrentScope, onScopeDispose, ref } from 'vue'
 import { $fetch } from 'ofetch'
 import type { IntegrityEventInternal } from '~/app/utils/proctor-config'
+import { apiUrl } from '~/app/utils/api-url'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,6 +43,12 @@ export interface UseIntegrityFlushReturn {
   flushViaBeacon: (events: IntegrityEventInternal[]) => void // eslint-disable-line no-unused-vars
   /** Flush the pending internal batch via sendBeacon (convenience for pagehide). */
   flushPendingViaBeacon: () => void
+  /**
+   * Remove the `pagehide` listener registered at construction. Called automatically
+   * when the owning effect scope is disposed; exposed for callers created outside one.
+   * Idempotent.
+   */
+  dispose: () => void
   /** The pending event batch (reactive). */
   pendingEvents: ReturnType<typeof ref<IntegrityEventInternal[]>>
 }
@@ -66,15 +73,8 @@ export function useIntegrityFlush(options: UseIntegrityFlushOptions): UseIntegri
   const { sessionId } = options
   const pendingEvents = ref<IntegrityEventInternal[]>([])
 
-  function getApiBase(): string {
-    const config = useRuntimeConfig()
-    return config.public.apiBase as string
-  }
-
   function buildBeaconUrl(): string {
-    const base = getApiBase()
-    // Ensure absolute URL (base may include trailing slash or not)
-    return `${base}/api/candidate/interview/integrity`
+    return apiUrl('/candidate/interview/integrity')
   }
 
   function addEvent(event: IntegrityEventInternal): void {
@@ -84,8 +84,7 @@ export function useIntegrityFlush(options: UseIntegrityFlushOptions): UseIntegri
   async function flush(events: IntegrityEventInternal[]): Promise<void> {
     if (events.length === 0) return
 
-    const apiBase = getApiBase()
-    await $fetch(`${apiBase}/api/candidate/interview/integrity`, {
+    await $fetch(apiUrl('/candidate/interview/integrity'), {
       method: 'POST',
       body: {
         session_id: sessionId,
@@ -121,9 +120,21 @@ export function useIntegrityFlush(options: UseIntegrityFlushOptions): UseIntegri
     }
   }
 
-  // Register pagehide listener to flush pending events on page unload
+  // Register pagehide listener to flush pending events on page unload.
+  // Every call registered one and removed none, so each invocation leaked a listener
+  // holding this whole closure. The teardown is bound to the caller's effect scope.
+  let listening = false
+
+  function dispose(): void {
+    if (!listening) return
+    listening = false
+    window.removeEventListener('pagehide', flushPendingViaBeacon)
+  }
+
   if (typeof window !== 'undefined') {
     window.addEventListener('pagehide', flushPendingViaBeacon)
+    listening = true
+    if (getCurrentScope()) onScopeDispose(dispose)
   }
 
   return {
@@ -131,6 +142,7 @@ export function useIntegrityFlush(options: UseIntegrityFlushOptions): UseIntegri
     flush,
     flushViaBeacon,
     flushPendingViaBeacon,
+    dispose,
     pendingEvents,
   }
 }

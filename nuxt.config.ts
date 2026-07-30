@@ -91,6 +91,10 @@ export default defineNuxtConfig({
   // Runtime config
   runtimeConfig: {
     public: {
+      // NUXT_PUBLIC_API_BASE. The value INCLUDES the /api suffix (e.g.
+      // http://api:8000/api) — see app/utils/api-url.ts. Left empty here so a missing
+      // env var fails loudly against a same-origin URL instead of silently pointing
+      // somewhere plausible.
       apiBase: '',
       appEnv: 'local',
       // Set NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK=true in E2E to inject the mock provider (D2, W3)

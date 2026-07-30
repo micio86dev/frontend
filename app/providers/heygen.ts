@@ -199,11 +199,18 @@ export class HeyGenProvider implements InterviewProvider {
     this.emitState('stopped')
   }
 
-  nudgeWrapUp(): void {
+  /**
+   * Send a soft wrap-up prompt via session.message().
+   *
+   * The message is supplied by the caller from i18n in the project language — this
+   * provider must not author avatar speech. A blank message is dropped rather than
+   * sent: `session.message('')` inside a swallowing try/catch did nothing at all.
+   */
+  nudgeWrapUp(message: string): void {
     if (!this.session) return
-    // Send a soft wrap-up prompt via session.message()
+    if (!message.trim()) return
     try {
-      this.session.message('')
+      this.session.message(message)
     } catch {
       /* v8 ignore next — nudge failure; non-fatal */
     }

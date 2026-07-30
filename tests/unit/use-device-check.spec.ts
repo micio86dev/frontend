@@ -311,4 +311,151 @@ describe('useDeviceCheck', () => {
     expect(dc1).not.toBe(dc2)
     expect(dc1.cameraOk).not.toBe(dc2.cameraOk)
   })
+
+  // -------------------------------------------------------------------------
+  // Retry after a failed check (permission denied → granted → retry)
+  // -------------------------------------------------------------------------
+
+  describe('retry after failure', () => {
+    it('permission denied, then granted → a second check() re-runs getUserMedia and succeeds', async () => {
+      // `checked = true` was set BEFORE getUserMedia and never reset, so the retry
+      // button was a permanent dead end on the entry path to the product.
+      const deniedError = new DOMException('Permission denied', 'NotAllowedError')
+      getUserMediaSpy.mockRejectedValueOnce(deniedError)
+
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+
+      await dc.check()
+      expect(dc.cameraOk.value).toBe(false)
+
+      // Candidate grants the permission in browser settings and presses retry
+      getUserMediaSpy.mockResolvedValueOnce(makeStream([makeLiveVideoTrack()], [makeAudioTrack()]))
+      await dc.check()
+
+      expect(getUserMediaSpy).toHaveBeenCalledTimes(2)
+      expect(dc.cameraOk.value).toBe(true)
+      expect(dc.stream.value).not.toBeNull()
+    })
+
+    it('no live video track → retryable, and the dead stream is released', async () => {
+      const endedTrack = {
+        kind: 'video',
+        readyState: 'ended',
+        stop: vi.fn(),
+        enabled: true,
+        label: 'camera',
+      } as unknown as MediaStreamTrack
+      const audioTrack = makeAudioTrack()
+      getUserMediaSpy.mockResolvedValueOnce(makeStream([endedTrack], [audioTrack]))
+
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check()
+
+      expect(dc.cameraOk.value).toBe(false)
+      // Every track of the unusable stream is stopped — the camera light must not
+      // stay on for the rest of the session.
+      expect(endedTrack.stop).toHaveBeenCalled()
+      expect(audioTrack.stop).toHaveBeenCalled()
+      expect(dc.stream.value).toBeNull()
+
+      getUserMediaSpy.mockResolvedValueOnce(makeStream([makeLiveVideoTrack()], [makeAudioTrack()]))
+      await dc.check()
+
+      expect(getUserMediaSpy).toHaveBeenCalledTimes(2)
+      expect(dc.cameraOk.value).toBe(true)
+    })
+
+    it('a SUCCESSFUL check stays idempotent — no second getUserMedia', async () => {
+      getUserMediaSpy.mockResolvedValue(makeStream([makeLiveVideoTrack()], [makeAudioTrack()]))
+
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+
+      await dc.check()
+      await dc.check()
+      await dc.check()
+
+      expect(getUserMediaSpy).toHaveBeenCalledOnce()
+    })
+
+    it('concurrent check() calls share a single in-flight getUserMedia', async () => {
+      getUserMediaSpy.mockResolvedValue(makeStream([makeLiveVideoTrack()], [makeAudioTrack()]))
+
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+
+      await Promise.all([dc.check(), dc.check(), dc.check()])
+
+      expect(getUserMediaSpy).toHaveBeenCalledOnce()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Cleanup — the mic RMS interval used to run for the whole session
+  // -------------------------------------------------------------------------
+
+  describe('cleanup', () => {
+    it('stopMicSampling() halts the RMS polling for a silent candidate', async () => {
+      const audioContext = makeAudioContext(false)
+      const analyser = audioContext.createAnalyser()
+      const sampleSpy = analyser.getByteTimeDomainData as unknown as ReturnType<typeof vi.fn>
+      vi.stubGlobal(
+        'AudioContext',
+        vi.fn(() => audioContext)
+      )
+      getUserMediaSpy.mockResolvedValue(makeStream([makeLiveVideoTrack()], [makeAudioTrack()]))
+
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check()
+
+      vi.advanceTimersByTime(500)
+      const callsWhilePolling = sampleSpy.mock.calls.length
+      expect(callsWhilePolling).toBeGreaterThan(0)
+
+      dc.stopMicSampling()
+      vi.advanceTimersByTime(5000)
+
+      // Threshold never crossed, so nothing else would ever have cleared the interval.
+      expect(sampleSpy.mock.calls.length).toBe(callsWhilePolling)
+    })
+
+    it('stopMicSampling() does NOT stop the stream — ownership transfers to useProctor', async () => {
+      const videoTrack = makeLiveVideoTrack()
+      getUserMediaSpy.mockResolvedValue(makeStream([videoTrack], [makeAudioTrack()]))
+
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check()
+
+      dc.stopMicSampling()
+
+      expect(videoTrack.stop).not.toHaveBeenCalled()
+      expect(dc.stream.value).not.toBeNull()
+    })
+
+    it('release() stops every track and resets the composable for a fresh check', async () => {
+      const videoTrack = makeLiveVideoTrack()
+      const audioTrack = makeAudioTrack()
+      getUserMediaSpy.mockResolvedValueOnce(makeStream([videoTrack], [audioTrack]))
+
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check()
+      expect(dc.cameraOk.value).toBe(true)
+
+      dc.release()
+
+      expect(videoTrack.stop).toHaveBeenCalled()
+      expect(audioTrack.stop).toHaveBeenCalled()
+      expect(dc.stream.value).toBeNull()
+      expect(dc.cameraOk.value).toBe(false)
+
+      getUserMediaSpy.mockResolvedValueOnce(makeStream([makeLiveVideoTrack()], [makeAudioTrack()]))
+      await dc.check()
+      expect(getUserMediaSpy).toHaveBeenCalledTimes(2)
+    })
+  })
 })

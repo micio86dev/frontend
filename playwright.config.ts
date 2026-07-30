@@ -58,6 +58,11 @@ export default defineConfig({
       HOST: '0.0.0.0',
       PORT: '3000',
       NITRO_PORT: '3000',
+      // apiBase INCLUDES the /api suffix (AGENTS.md, .env.example, docker-compose.yml).
+      // Left unset, apiBase would be '' and every candidate call would resolve to a
+      // same-origin '/candidate/...' URL that the specs' '**/api/candidate/...' route
+      // globs do not match — the E2E would exercise a URL shape no environment uses.
+      NUXT_PUBLIC_API_BASE: 'http://127.0.0.1:3000/api',
       // C10 PR7: wires the W3-documented mock injection point (factory.ts) so E2E
       // specs can drive the interview state machine to `live`/`done` without a
       // real HeyGen/Tavus SDK connection. See app/providers/factory.ts and

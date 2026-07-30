@@ -63,8 +63,10 @@ describe('useExitRedirect', () => {
       const { fetchSession } = useExitRedirect()
       await fetchSession()
 
+      // Full resolved URL, not stringContaining: a substring assertion passes
+      // just as happily against the doubled-prefix '/api/api/candidate/session'.
       expect(mockFetchImpl).toHaveBeenCalledWith(
-        expect.stringContaining('/candidate/session'),
+        'https://api.test/candidate/session',
         expect.any(Object)
       )
     })

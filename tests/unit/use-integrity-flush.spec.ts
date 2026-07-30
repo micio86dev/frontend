@@ -11,6 +11,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { effectScope } from 'vue'
 import type { IntegrityEventInternal } from '~/app/utils/proctor-config'
 
 // Import after mocks are established
@@ -73,8 +74,10 @@ describe('useIntegrityFlush', () => {
 
       await flush(sampleEvents)
 
+      // Full resolved URL, not stringContaining: a substring assertion passes
+      // just as happily against the doubled-prefix '/api/api/...'.
       expect(mockFlushFetch).toHaveBeenCalledWith(
-        expect.stringContaining('/candidate/interview/integrity'),
+        'https://api.test/candidate/interview/integrity',
         expect.any(Object)
       )
     })
@@ -135,8 +138,7 @@ describe('useIntegrityFlush', () => {
       flushViaBeacon(sampleEvents)
 
       const [url] = mockSendBeacon.mock.calls[0] as [string, Blob]
-      expect(url).toMatch(/^https?:\/\//)
-      expect(url).toContain('/candidate/interview/integrity')
+      expect(url).toBe('https://api.test/candidate/interview/integrity')
     })
 
     it('sends a Blob with type application/json', () => {
@@ -212,7 +214,70 @@ describe('useIntegrityFlush', () => {
 
       expect(mockSendBeacon).toHaveBeenCalled()
       const [url] = mockSendBeacon.mock.calls[0] as [string, Blob]
-      expect(url).toContain('/candidate/interview/integrity')
+      expect(url).toBe('https://api.test/candidate/interview/integrity')
+    })
+  })
+
+  describe('pagehide listener lifecycle (no leaked listeners)', () => {
+    it('dispose() removes the pagehide listener it registered', () => {
+      const removeSpy = vi.spyOn(window, 'removeEventListener')
+
+      const { dispose } = useIntegrityFlush({ sessionId: 99 })
+      dispose()
+
+      expect(removeSpy).toHaveBeenCalledWith('pagehide', expect.any(Function))
+      removeSpy.mockRestore()
+    })
+
+    it('dispose() is idempotent — a second call removes nothing further', () => {
+      const { dispose } = useIntegrityFlush({ sessionId: 99 })
+      dispose()
+
+      const removeSpy = vi.spyOn(window, 'removeEventListener')
+      dispose()
+
+      expect(removeSpy).not.toHaveBeenCalled()
+      removeSpy.mockRestore()
+    })
+
+    it('a disposed instance no longer beacons on pagehide', () => {
+      let pagehideHandler: (() => void) | null = null
+      vi.spyOn(window, 'addEventListener').mockImplementation((evt, handler) => {
+        if (evt === 'pagehide') pagehideHandler = handler as () => void
+      })
+      const removed: unknown[] = []
+      vi.spyOn(window, 'removeEventListener').mockImplementation((evt, handler) => {
+        if (evt === 'pagehide' && handler === pagehideHandler) {
+          removed.push(handler)
+          pagehideHandler = null
+        }
+      })
+
+      const { addEvent, dispose } = useIntegrityFlush({ sessionId: 99 })
+      addEvent({ type: 'tab_hidden', ts: '2025-01-01T00:00:00Z', meta: null })
+
+      dispose()
+      expect(removed).toHaveLength(1)
+
+      // The listener is gone, so a pagehide can no longer reach this closure.
+      pagehideHandler?.()
+      expect(mockSendBeacon).not.toHaveBeenCalled()
+    })
+
+    it('the listener is torn down when the owning effect scope is disposed', () => {
+      const removeSpy = vi.spyOn(window, 'removeEventListener')
+      const scope = effectScope()
+
+      scope.run(() => {
+        useIntegrityFlush({ sessionId: 99 })
+      })
+      expect(removeSpy).not.toHaveBeenCalledWith('pagehide', expect.any(Function))
+
+      scope.stop()
+
+      // Every call used to add a listener and remove none, leaking one closure each.
+      expect(removeSpy).toHaveBeenCalledWith('pagehide', expect.any(Function))
+      removeSpy.mockRestore()
     })
   })
 

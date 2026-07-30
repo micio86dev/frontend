@@ -43,6 +43,12 @@ ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000
 
+# The /api suffix is PART OF THE BASE (AGENTS.md, .env.example, backoffice/Dockerfile,
+# docker-compose.yml). Composables append paths like /candidate/interview/start to it.
+# Read at runtime by Nitro, so docker-compose / Railway can override it per environment.
+ARG NUXT_PUBLIC_API_BASE=http://localhost:8000/api
+ENV NUXT_PUBLIC_API_BASE=${NUXT_PUBLIC_API_BASE}
+
 # Health check against the Nuxt health page
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD node -e "const h = require('http'); h.get('http://localhost:3000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
