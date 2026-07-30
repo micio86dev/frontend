@@ -1,5 +1,9 @@
 {
   "welcome": "Benvenuto",
+  "root": {
+    "title": "Accedi dal tuo link personale",
+    "message": "Per partecipare al colloquio usa il link che hai ricevuto da chi ti ha invitato. Questa pagina non permette di accedere direttamente."
+  },
   "unsupported": {
     "title": "Browser non supportato",
     "message": "Questa applicazione richiede un browser desktop supportato (Chrome, Edge, Safari). Per favore accedi da un computer."
