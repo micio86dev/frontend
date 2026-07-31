@@ -99,6 +99,13 @@ export default defineNuxtConfig({
       appEnv: 'local',
       // Set NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK=true in E2E to inject the mock provider (D2, W3)
       interviewProviderMock: '',
+      // C13 task 5.3 — analytics. EMPTY means the tool does not load at all,
+      // which is the correct default: these are per-deployment IDs, and a
+      // committed one would have every developer's local session reported into
+      // a production property. Consent gates them independently
+      // (app/utils/analytics-consent.ts) and defaults to denied.
+      gaMeasurementId: '',
+      clarityProjectId: '',
     },
   },
 })
