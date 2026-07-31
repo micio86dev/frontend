@@ -161,6 +161,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboard/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["dashboard.metrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/framework/roles": {
         parameters: {
             query?: never;
@@ -356,6 +372,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/participants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/participants
+         * @description Server-paginated (D5 — a fresh authorized query per page, never
+         *     fetch-all + client filter). Sort is fixed (created_at desc, id desc):
+         *     no client-specified sort column reaches the query builder.
+         */
+        get: operations["participant.index"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/participants/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/participants/{id}
+         * @description Summary scope (D2) — RBAC only, readable regardless of lifecycle status.
+         */
+        get: operations["participant.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/participants/{id}/transcript": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/participants/{id}/transcript
+         * @description Transcript scope (D2) — requires lifecycle >= in_valutazione; a
+         *     pre-threshold status raises LifecycleNotReadyException -> 409 (D4).
+         */
+        get: operations["participant.transcript"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/participants/{id}/evaluation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/participants/{id}/evaluation
+         * @description Evaluation scope (D2) — requires lifecycle === completato; anything
+         *     else raises LifecycleNotReadyException -> 409 (D4).
+         */
+        get: operations["participant.evaluation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/m2m/participants": {
         parameters: {
             query?: never;
@@ -368,7 +468,7 @@ export interface paths {
          * @description GET /api/m2m/participants
          *     Auth: auth:api-m2m + ability:participants:read
          */
-        get: operations["participant.index"];
+        get: operations["m2m.participant.index"];
         put?: never;
         /**
          * Create a new participant for a project in the caller's org
@@ -394,7 +494,41 @@ export interface paths {
          * @description GET /api/m2m/participants/{id}
          *     Auth: auth:api-m2m + ability:participants:read
          */
-        get: operations["participant.show"];
+        get: operations["m2m.participant.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/participants/{id}/transcript/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/participants/{id}/transcript/download */
+        get: operations["admin.participants.transcript.download"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/participants/{id}/evaluation/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/participants/{id}/evaluation/download */
+        get: operations["admin.participants.evaluation.download"];
         put?: never;
         post?: never;
         delete?: never;
@@ -457,6 +591,22 @@ export interface paths {
          *     Project is resolved manually — see class docblock.
          */
         delete: operations["projects.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["queueHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -601,7 +751,27 @@ export interface components {
             is_active: string;
             expires_at: string | null;
             last_used_at: string | null;
-            created_at: string | null;
+            created_at: string;
+        };
+        /** App.Http.Resources.ParticipantResource */
+        "App.Http.Resources.ParticipantResource": {
+            id: string;
+            candidate_ref: string;
+            display_name: string;
+            role_code: string;
+            language: string;
+            status: string;
+            started_at: string | null;
+            completed_at: string | null;
+            created_at: string;
+            project: {
+                id: string;
+                role_code: string;
+                language: string;
+                assessment_type: string;
+                exit_redirect_url: string;
+                error_redirect_url: string;
+            } | null;
         };
         /** BarsIndicatorResource */
         BarsIndicatorResource: {
@@ -620,6 +790,14 @@ export interface components {
             type: string;
             bars_available: boolean;
         };
+        /** DashboardMetricsResource */
+        DashboardMetricsResource: {
+            [key: string]: unknown;
+        };
+        /** EvaluationResource */
+        EvaluationResource: {
+            [key: string]: unknown;
+        };
         /** FrameworkVersionResource */
         FrameworkVersionResource: {
             id: number;
@@ -630,6 +808,38 @@ export interface components {
             created_at: string | null;
             updated_at: string | null;
         };
+        /** ParticipantDetailResource */
+        ParticipantDetailResource: {
+            id: string;
+            candidate_ref: string;
+            display_name: string;
+            role_code: string;
+            language: string;
+            status: string;
+            project_id: string;
+            timeline: {
+                started_at: string | null;
+                completed_at: string | null;
+                session_count: number;
+            };
+            files: {
+                transcript: {
+                    /** @constant */
+                    type: "text/plain";
+                    /** @constant */
+                    ref: "transcript";
+                    url: string;
+                };
+                evaluation_raw: {
+                    /** @constant */
+                    type: "application/json";
+                    /** @constant */
+                    ref: "evaluation";
+                    url: string;
+                };
+            };
+            created_at: string;
+        };
         /** ParticipantResource */
         ParticipantResource: {
             id: string;
@@ -638,16 +848,10 @@ export interface components {
             role_code: string;
             language: string;
             status: string;
+            project_id: string;
             started_at: string | null;
             completed_at: string | null;
-            created_at: string | null;
-            project: {
-                id: string;
-                role_code: string;
-                language: string;
-                assessment_type: string;
-                exit_redirect_url: string;
-            } | null;
+            created_at: string;
         };
         /** ProjectResource */
         ProjectResource: {
@@ -664,6 +868,7 @@ export interface components {
             nudge_min_chars: string;
             exit_redirect_url: string;
             webhook_url: string;
+            webhook_events: string;
             /** @description webhook_secret intentionally excluded (hidden + encrypted) */
             deadline_at: string | null;
             goes_live_at: string | null;
@@ -715,12 +920,23 @@ export interface components {
             /** Format: uri */
             exit_redirect_url?: string | null;
             /** Format: uri */
+            error_redirect_url?: string | null;
+            /** Format: uri */
             webhook_url?: string | null;
             webhook_secret?: string | null;
+            /**
+             * @description Closed event-type set (C10 D10) — not env-overridable, so Rule::in reads
+             *     the config, never a hardcoded list.
+             */
+            webhook_events?: ("progress" | "evaluation")[];
             /** Format: date-time */
             deadline_at?: string | null;
             /** Format: date-time */
             goes_live_at?: string | null;
+        };
+        /** TranscriptResource */
+        TranscriptResource: {
+            sessions: string;
         };
         /**
          * UpdateProjectRequest
@@ -1034,6 +1250,29 @@ export interface operations {
             401: components["responses"]["AuthenticationException"];
         };
     };
+    "dashboard.metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `DashboardMetricsResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DashboardMetricsResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
     "framework.index": {
         parameters: {
             query?: never;
@@ -1199,74 +1438,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            201: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        session_id: string;
-                        provider: string;
-                        /** @description HeyGen: token; Tavus: null */
-                        provider_token: string | null;
-                        /** @description Tavus: conversation_url; HeyGen: null */
-                        conversation_url: string | null;
-                        question_context: {
-                            competency_code: string;
-                            question_index: string;
-                            /** @description Machine-facing field names stay literal (snake_case); VALUES are localized. */
-                            end_phrase: string;
-                            final_phrase: string;
-                        };
-                    };
+                    "application/json": Record<string, never>;
                 };
             };
             401: components["responses"]["AuthenticationException"];
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @constant */
-                        error: "no_competency_remaining";
-                    };
-                };
-            };
-            /** @description (4c) 429 — retryable; DO NOT flip participant to errore; session stays pending */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @constant */
-                        error: "provider_busy";
-                    };
-                };
-            };
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @constant */
-                        error: "db_error";
-                    };
-                };
-            };
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @constant */
-                        error: "provider_error";
-                    };
-                };
-            };
         };
     };
     "interview.end": {
@@ -1345,6 +1525,129 @@ export interface operations {
             401: components["responses"]["AuthenticationException"];
         };
     };
+    "participant.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `ParticipantDetailResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ParticipantDetailResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "participant.transcript": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `TranscriptResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["TranscriptResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "participant.evaluation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `EvaluationResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["EvaluationResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "m2m.participant.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated set of `App.Http.Resources.ParticipantResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["App.Http.Resources.ParticipantResource"][];
+                        links: {
+                            first: string | null;
+                            last: string | null;
+                            prev: string | null;
+                            next: string | null;
+                        };
+                        meta: {
+                            current_page: number;
+                            from: number | null;
+                            last_page: number;
+                            /** @description Generated paginator links. */
+                            links: {
+                                url: string | null;
+                                label: string;
+                                active: boolean;
+                            }[];
+                            /** @description Base path for paginator generated URLs. */
+                            path: string | null;
+                            /** @description Number of items shown per page. */
+                            per_page: number;
+                            /** @description Number of the last item in the slice. */
+                            to: number | null;
+                            /** @description Total number of items being paginated. */
+                            total: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
     "participant.store": {
         parameters: {
             query?: never;
@@ -1365,20 +1668,20 @@ export interface operations {
             };
         };
         responses: {
-            /** @description `ParticipantResource` */
+            /** @description `App.Http.Resources.ParticipantResource` */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ParticipantResource"];
+                    "application/json": components["schemas"]["App.Http.Resources.ParticipantResource"];
                 };
             };
             401: components["responses"]["AuthenticationException"];
             422: components["responses"]["ValidationException"];
         };
     };
-    "participant.show": {
+    "m2m.participant.show": {
         parameters: {
             query?: never;
             header?: never;
@@ -1389,15 +1692,61 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description `ParticipantResource` */
+            /** @description `App.Http.Resources.ParticipantResource` */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        data: components["schemas"]["ParticipantResource"];
+                        data: components["schemas"]["App.Http.Resources.ParticipantResource"];
                     };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "admin.participants.transcript.download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain; charset=utf-8": string;
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "admin.participants.evaluation.download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string | Record<string, never>;
                 };
             };
             401: components["responses"]["AuthenticationException"];
@@ -1538,6 +1887,60 @@ export interface operations {
             403: components["responses"]["AuthorizationException"];
         };
     };
+    queueHealth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        status: "degraded" | "ok";
+                        worker: {
+                            alive: boolean;
+                            last_heartbeat_age_seconds: Record<string, never> | null;
+                        };
+                        queue: {
+                            depth: number;
+                            last_processed_age_seconds: Record<string, never> | null;
+                            stalled: string;
+                            oldest_reserved_age_seconds: number | null;
+                            reservation_stalled: string;
+                        };
+                        failed: {
+                            count: number;
+                            oldest_age_seconds: Record<string, never> | null;
+                        };
+                    };
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        status: "down";
+                        worker: {
+                            alive: boolean;
+                            last_heartbeat_age_seconds: Record<string, never> | null;
+                        };
+                        queue: null;
+                        failed: null;
+                    };
+                };
+            };
+        };
+    };
     "session.show": {
         parameters: {
             query?: never;
@@ -1547,14 +1950,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description `ParticipantResource` */
+            /** @description `App.Http.Resources.ParticipantResource` */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        data: components["schemas"]["ParticipantResource"];
+                        data: components["schemas"]["App.Http.Resources.ParticipantResource"];
                     };
                 };
             };
