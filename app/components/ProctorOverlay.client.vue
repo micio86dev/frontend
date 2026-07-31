@@ -4,7 +4,6 @@
 </template>
 
 <script setup lang="ts">
-/* eslint-disable no-unused-vars */
 /**
  * ProctorOverlay.client.vue — Invisible proctoring overlay.
  *

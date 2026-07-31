@@ -1,4 +1,4 @@
-/* eslint-disable no-empty-pattern, no-unused-vars */
+/* eslint-disable no-empty-pattern */
 import { test as base } from '@playwright/test'
 import type {
   InterviewProvider,

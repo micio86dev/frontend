@@ -36,11 +36,11 @@ export interface IntegrityEventPayload {
 
 export interface UseIntegrityFlushReturn {
   /** Add a single integrity event to the pending batch. */
-  addEvent: (event: IntegrityEventInternal) => void // eslint-disable-line no-unused-vars
+  addEvent: (event: IntegrityEventInternal) => void
   /** Flush a batch of events via POST /integrity using $fetch. */
-  flush: (events: IntegrityEventInternal[]) => Promise<void> // eslint-disable-line no-unused-vars
+  flush: (events: IntegrityEventInternal[]) => Promise<void>
   /** Flush events via navigator.sendBeacon (absolute URL, Blob/json). */
-  flushViaBeacon: (events: IntegrityEventInternal[]) => void // eslint-disable-line no-unused-vars
+  flushViaBeacon: (events: IntegrityEventInternal[]) => void
   /** Flush the pending internal batch via sendBeacon (convenience for pagehide). */
   flushPendingViaBeacon: () => void
   /**

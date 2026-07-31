@@ -1,7 +1,6 @@
 <template>
   <main
     class="flex min-h-screen flex-col items-center justify-center bg-background p-4"
-    role="main"
     :aria-label="$t('interview.consent.title')"
   >
     <!-- Consent screen -->
@@ -215,7 +214,20 @@ import InterviewProgressBar from '~/components/ProgressBar.vue'
 import type { IntegrityEventInternal } from '~/utils/proctor-config'
 
 definePageMeta({ ssr: false })
+
+const { t } = useI18n()
+
 useHead({
+  // WCAG 2.4.2 (Page Titled), Level A. This page had NO title at all — the one
+  // screen a candidate spends their entire session on, and the only one axe
+  // never ran against, because the a11y check was wired to /health and
+  // /unsupported and nothing else. Found the moment C13 wired it here.
+  //
+  // Localized rather than static: the candidate's whole session runs in their
+  // language, and a tab reading "Interview" to an Italian candidate is a small
+  // but real wart. (/unsupported and / still carry static titles — a
+  // consistency gap worth closing, but not by this fix.)
+  title: t('interview.document_title'),
   meta: [
     { name: 'robots', content: 'noindex, nofollow' },
     { name: 'referrer', content: 'no-referrer' },
@@ -245,9 +257,7 @@ const pendingIntegrityEvents = ref<IntegrityEventInternal[]>([])
  * proctor's buffer only once a flush has actually succeeded — never on read — so a
  * refused beacon leaves them pending instead of discarding them.
  */
-let acknowledgeIntegrityEvents:
-  // eslint-disable-next-line no-unused-vars
-  ((acknowledged: IntegrityEventInternal[]) => void) | null = null
+let acknowledgeIntegrityEvents: ((acknowledged: IntegrityEventInternal[]) => void) | null = null
 
 const session = useInterviewSession({
   competencies,
@@ -382,7 +392,7 @@ function onRetry(): void {
 
 function onIntegrityEventsUpdated(
   events: IntegrityEventInternal[],
-  // eslint-disable-next-line no-unused-vars
+
   acknowledge: (acknowledged: IntegrityEventInternal[]) => void
 ): void {
   pendingIntegrityEvents.value = events

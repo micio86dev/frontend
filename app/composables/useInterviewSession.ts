@@ -61,7 +61,7 @@ export interface UseInterviewSessionOptions {
    * owner of the buffer can acknowledge (drop) them. NOT called when the beacon fails —
    * unacknowledged events stay pending rather than being silently lost.
    */
-  // eslint-disable-next-line no-unused-vars
+
   onIntegrityEventsFlushed?: (events: IntegrityEventInternal[]) => void
 }
 
@@ -87,7 +87,7 @@ export interface UseInterviewSessionReturn {
   retry: () => void
   nextCompetency: () => void
   /** End the current question early (5-minute timer expiry, or the candidate skipping). */
-  // eslint-disable-next-line no-unused-vars
+
   endQuestion: (reason: EndQuestionReason) => Promise<void>
   teardown: () => Promise<void>
 }

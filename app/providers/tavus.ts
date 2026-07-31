@@ -1,4 +1,3 @@
-/* eslint-disable no-unused-vars */
 /**
  * Tavus provider implementation using Daily.co.
  *

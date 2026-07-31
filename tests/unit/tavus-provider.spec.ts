@@ -1,4 +1,3 @@
-/* eslint-disable no-unused-vars */
 /**
  * Unit tests for TavusProvider (app/providers/tavus.ts)
  *

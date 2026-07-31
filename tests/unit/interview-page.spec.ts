@@ -137,6 +137,13 @@ beforeEach(() => {
   })
   vi.stubGlobal('definePageMeta', vi.fn())
   vi.stubGlobal('useHead', vi.fn())
+  // Re-stubbed here because this spec's afterEach calls unstubAllGlobals(),
+  // which wipes the shared setup.ts stub. The page reads useI18n() to localize
+  // its document title (WCAG 2.4.2).
+  vi.stubGlobal(
+    'useI18n',
+    vi.fn(() => ({ t: (key: string) => key, locale: ref('it') }))
+  )
 })
 
 afterEach(() => {

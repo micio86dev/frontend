@@ -45,7 +45,6 @@ import { useInterviewSession } from '~/app/composables/useInterviewSession'
 // Mock provider type
 // ---------------------------------------------------------------------------
 
-// eslint-disable-next-line no-unused-vars
 type EventCallback = (payload: unknown) => void
 
 function createMockProvider() {

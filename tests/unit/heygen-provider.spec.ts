@@ -1,4 +1,3 @@
-/* eslint-disable no-unused-vars */
 /**
  * Unit tests for HeyGenProvider (app/providers/heygen.ts)
  *

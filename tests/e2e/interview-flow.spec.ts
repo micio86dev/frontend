@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { checkA11y } from './fixtures/a11y'
 
 /**
  * Playwright E2E — Full interview flow tests (Task 5.9 RED → GREEN)
@@ -175,6 +176,12 @@ test.describe('Interview flow — E2E', () => {
       // Accept button present (role-based locator — project convention, English locale)
       const acceptButton = page.getByRole('button', { name: /accept and continue/i })
       await expect(acceptButton).toBeVisible()
+
+      // C13: the consent screen is the FIRST thing a candidate sees and the
+      // one place they are asked to agree to recording. Until now axe ran only
+      // on /health and /unsupported — the two simplest pages in the app —
+      // while the screens that actually matter went unchecked.
+      await checkA11y(page)
     })
 
     test('consent acceptance transitions to device check', async ({ page }) => {
@@ -189,6 +196,10 @@ test.describe('Interview flow — E2E', () => {
       await expect(page.getByRole('heading', { level: 2, name: /device check/i })).toBeVisible({
         timeout: 5000,
       })
+
+      // Camera and microphone permission UI. A candidate who cannot operate
+      // this by keyboard cannot take the interview at all.
+      await checkA11y(page)
     })
 
     test('done screen shows after all competencies completed', async ({ page }) => {
