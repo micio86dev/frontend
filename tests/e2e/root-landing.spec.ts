@@ -55,10 +55,39 @@ test.describe('Root landing', () => {
     // The scope guard, asserted on the rendered document rather than the
     // component tree: this route has no flow behind it, so any control here
     // would promise something that does not exist.
-    await expect(page.locator('form')).toHaveCount(0)
-    await expect(page.locator('input')).toHaveCount(0)
-    await expect(page.locator('button')).toHaveCount(0)
-    await expect(page.locator('a[href^="mailto:"]')).toHaveCount(0)
+    //
+    // Scoped to the PAGE rather than the whole document, because the app shell
+    // now mounts a global analytics consent banner (C13 task 5.6) whose two
+    // buttons are chrome, not flow — they promise nothing about the interview.
+    // The invariant this test protects is "the landing page offers no flow",
+    // and narrowing the locator states that precisely instead of accidentally
+    // also forbidding every future piece of app-wide furniture.
+    const landing = page.getByTestId('root-landing')
+
+    await expect(landing.locator('form')).toHaveCount(0)
+    await expect(landing.locator('input')).toHaveCount(0)
+    await expect(landing.locator('button')).toHaveCount(0)
+    await expect(landing.locator('a[href^="mailto:"]')).toHaveCount(0)
+  })
+
+  test('the only controls anywhere on the page are the consent banner', async ({ page }) => {
+    await page.goto('/')
+
+    // The guard the narrowing above would otherwise have loosened. Scoping the
+    // previous test to the page means a stray document-level control would no
+    // longer be caught — so this names, exhaustively, what IS allowed to exist
+    // outside the landing region.
+    //
+    // Wait for the banner first: evaluateAll does not retry, so on a slower
+    // hydration it would run against a document without it and assert against
+    // an empty list — passing or failing for reasons unrelated to the guard.
+    await expect(page.getByTestId('analytics-consent')).toBeVisible()
+
+    const testIds = await page
+      .locator('button')
+      .evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-testid')))
+
+    expect(testIds.sort()).toEqual(['analytics-consent-accept', 'analytics-consent-reject'])
   })
 
   test('it passes WCAG 2.1 AA', async ({ page }) => {

@@ -1,5 +1,5 @@
 import { analyticsPlan, gaConfigPayload } from '~/app/utils/analytics'
-import { readAnalyticsConsent } from '~/app/utils/analytics-consent'
+import { ANALYTICS_CONSENT_EVENT, readAnalyticsConsent } from '~/app/utils/analytics-consent'
 import { redactAnalyticsPath } from '~/app/utils/analytics-path'
 
 /**
@@ -64,35 +64,44 @@ function startClarity(projectId: string): void {
   injectScript(`https://www.clarity.ms/tag/${projectId}`, 'beai-clarity')
 }
 
-export default defineNuxtPlugin((nuxtApp) => {
+export default defineNuxtPlugin(() => {
   const config = useRuntimeConfig()
   const router = useRouter()
 
   const gaMeasurementId = String(config.public.gaMeasurementId ?? '')
   const clarityProjectId = String(config.public.clarityProjectId ?? '')
 
-  // Read once at startup rather than per navigation. Consent changing mid-visit
-  // means a page reload in practice, and re-reading on every route change would
-  // let a tab that was granted consent start recording a page it entered before
-  // the grant.
-  const consentGranted = readAnalyticsConsent(
+  // Mutable, because consent can be granted mid-visit through the banner. It is
+  // never revoked here: withdrawing consent has to unload third-party scripts
+  // that are already running, which no SDK reliably supports, so that path is a
+  // reload. Flipping this to false without a reload would LOOK like it worked.
+  let consentGranted = readAnalyticsConsent(
     typeof window === 'undefined' ? undefined : window.localStorage
   )
 
-  const initial = analyticsPlan({
-    gaMeasurementId,
-    clarityProjectId,
-    consentGranted,
-    path: router.currentRoute.value.fullPath,
+  function startFor(path: string): void {
+    const plan = analyticsPlan({ gaMeasurementId, clarityProjectId, consentGranted, path })
+
+    if (plan.loadGa) {
+      startGa(gaMeasurementId, plan.pagePath)
+    }
+
+    if (plan.loadClarity) {
+      startClarity(clarityProjectId)
+    }
+  }
+
+  startFor(router.currentRoute.value.fullPath)
+
+  // The banner announces a grant rather than calling in here, so this plugin
+  // stays the single owner of script injection. Without it, consenting would do
+  // nothing visible until the next page load — which reads as a broken button,
+  // and is the sort of thing that gets "fixed" by making the banner reload the
+  // page over the user's work.
+  window.addEventListener(ANALYTICS_CONSENT_EVENT, () => {
+    consentGranted = true
+    startFor(router.currentRoute.value.fullPath)
   })
-
-  if (initial.loadGa) {
-    startGa(gaMeasurementId, initial.pagePath)
-  }
-
-  if (initial.loadClarity) {
-    startClarity(clarityProjectId)
-  }
 
   // Per-navigation page views, sent explicitly because gaConfigPayload turns
   // GA4's automatic ones off — those fire before the redaction can be applied
@@ -125,6 +134,4 @@ export default defineNuxtPlugin((nuxtApp) => {
       window.clarity('stop')
     }
   })
-
-  nuxtApp.provide('analyticsActive', initial.loadGa || initial.loadClarity)
 })

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { ANALYTICS_CONSENT_KEY, readAnalyticsConsent } from '~/app/utils/analytics-consent'
+import {
+  ANALYTICS_CONSENT_KEY,
+  hasAnalyticsDecision,
+  readAnalyticsConsent,
+  writeAnalyticsConsent,
+} from '~/app/utils/analytics-consent'
 
 /**
  * Consent defaults to DENIED (C13, task 5.3).
@@ -64,8 +69,102 @@ describe('readAnalyticsConsent', () => {
 
   it('uses a key that says what it is about', () => {
     // Namespaced and specific: this is consent for ANALYTICS, not the interview
-    // recording consent the ConsentBanner collects. Conflating the two would
-    // mean agreeing to be assessed also agreed to be tracked by Google.
+    // RECORDING consent the interview page collects before a session starts.
+    // Conflating the two would mean agreeing to be assessed also agreed to be
+    // tracked by Google — and one of those is required to use the service while
+    // the other must be freely refusable. Bundling them is precisely what makes
+    // a consent invalid.
     expect(ANALYTICS_CONSENT_KEY).toBe('beai.consent.analytics')
+  })
+})
+
+describe('hasAnalyticsDecision — has the visitor answered at all?', () => {
+  it('is false when nothing is stored', () => {
+    // Distinct from readAnalyticsConsent. "Not granted" and "never asked" are
+    // the same for tracking purposes and completely different for the banner:
+    // one means stay silent, the other means ask.
+    expect(hasAnalyticsDecision(storageWith(null))).toBe(false)
+  })
+
+  it('is true after either answer', () => {
+    expect(hasAnalyticsDecision(storageWith('granted'))).toBe(true)
+    expect(hasAnalyticsDecision(storageWith('denied'))).toBe(true)
+  })
+
+  it('is false for a value that is neither', () => {
+    // A corrupted or hand-edited value means asking again, not assuming. The
+    // cost of re-asking is a small annoyance; the cost of assuming is a
+    // decision attributed to somebody who never made it.
+    for (const value of ['true', '', 'GRANTED', 'maybe']) {
+      expect(hasAnalyticsDecision(storageWith(value))).toBe(false)
+    }
+  })
+
+  it('is false when storage is absent or throws', () => {
+    const hostile = {
+      getItem: () => {
+        throw new Error('SecurityError')
+      },
+    } as unknown as Storage
+
+    // Returning false means the banner shows and the choice is never persisted
+    // — mildly repetitive, and the only honest option when there is nowhere to
+    // record an answer.
+    expect(hasAnalyticsDecision(undefined)).toBe(false)
+    expect(hasAnalyticsDecision(hostile)).toBe(false)
+  })
+})
+
+describe('writeAnalyticsConsent', () => {
+  function recordingStorage(): { storage: Storage; written: Record<string, string> } {
+    const written: Record<string, string> = {}
+
+    return {
+      written,
+      storage: {
+        getItem: (k: string) => written[k] ?? null,
+        setItem: (k: string, v: string) => {
+          written[k] = v
+        },
+        removeItem: () => {},
+        clear: () => {},
+        key: () => null,
+        length: 0,
+      },
+    }
+  }
+
+  it('records a refusal explicitly rather than storing nothing', () => {
+    const { storage, written } = recordingStorage()
+
+    writeAnalyticsConsent(storage, false)
+
+    // Storing nothing would be indistinguishable from never having asked, so
+    // the banner would return on every visit — nagging somebody who already
+    // said no, which regulators treat as pressuring them into yes.
+    expect(written[ANALYTICS_CONSENT_KEY]).toBe('denied')
+    expect(readAnalyticsConsent(storage)).toBe(false)
+    expect(hasAnalyticsDecision(storage)).toBe(true)
+  })
+
+  it('records a grant that reads back as granted', () => {
+    const { storage } = recordingStorage()
+
+    writeAnalyticsConsent(storage, true)
+
+    expect(readAnalyticsConsent(storage)).toBe(true)
+  })
+
+  it('does not throw when storage refuses to write', () => {
+    const hostile = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error('QuotaExceededError')
+      },
+    } as unknown as Storage
+
+    // A banner that crashes the page because storage is full would be a far
+    // worse outcome than one that simply asks again next time.
+    expect(() => writeAnalyticsConsent(hostile, true)).not.toThrow()
   })
 })
