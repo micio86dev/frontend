@@ -418,6 +418,33 @@
         }
       }
     },
+    "/dashboard/metrics": {
+      "get": {
+        "operationId": "dashboard.metrics",
+        "tags": ["Dashboard"],
+        "responses": {
+          "200": {
+            "description": "`DashboardMetricsResource`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/DashboardMetricsResource"
+                    }
+                  },
+                  "required": ["data"]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationException"
+          }
+        }
+      }
+    },
     "/framework/roles": {
       "get": {
         "operationId": "framework.index",
@@ -686,127 +713,12 @@
         "summary": "Create or resume a provider session for the next competency interview",
         "tags": ["Interview"],
         "responses": {
-          "201": {
+          "200": {
             "description": "",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "session_id": {
-                      "type": "string"
-                    },
-                    "provider": {
-                      "type": "string"
-                    },
-                    "provider_token": {
-                      "type": ["string", "null"],
-                      "description": "HeyGen: token; Tavus: null"
-                    },
-                    "conversation_url": {
-                      "type": ["string", "null"],
-                      "description": "Tavus: conversation_url; HeyGen: null"
-                    },
-                    "question_context": {
-                      "type": "object",
-                      "properties": {
-                        "competency_code": {
-                          "type": "string"
-                        },
-                        "question_index": {
-                          "type": "string"
-                        },
-                        "end_phrase": {
-                          "type": "string",
-                          "description": "Machine-facing field names stay literal (snake_case); VALUES are localized."
-                        },
-                        "final_phrase": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "competency_code",
-                        "question_index",
-                        "end_phrase",
-                        "final_phrase"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "session_id",
-                    "provider",
-                    "provider_token",
-                    "conversation_url",
-                    "question_context"
-                  ]
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "const": "db_error"
-                    }
-                  },
-                  "required": ["error"]
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "const": "provider_error"
-                    }
-                  },
-                  "required": ["error"]
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "(4c) 429 \u2014 retryable; DO NOT flip participant to errore; session stays pending",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "const": "provider_busy"
-                    }
-                  },
-                  "required": ["error"]
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "const": "no_competency_remaining"
-                    }
-                  },
-                  "required": ["error"]
+                  "type": "object"
                 }
               }
             }
@@ -859,70 +771,11 @@
         }
       }
     },
-    "/m2m/participants": {
-      "post": {
-        "operationId": "participant.store",
-        "description": "POST /api/m2m/participants\nAuth: auth:api-m2m + ability:participants:create",
-        "summary": "Create a new participant for a project in the caller's org",
-        "tags": ["Participant"],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "project_id": {
-                    "type": "integer"
-                  },
-                  "candidate_ref": {
-                    "type": "string",
-                    "maxLength": 255
-                  },
-                  "display_name": {
-                    "type": "string",
-                    "maxLength": 255
-                  },
-                  "role_code": {
-                    "type": ["string", "null"],
-                    "maxLength": 50
-                  },
-                  "language": {
-                    "type": ["string", "null"],
-                    "maxLength": 10
-                  },
-                  "status": {
-                    "type": ["string", "null"]
-                  }
-                },
-                "required": ["project_id", "candidate_ref", "display_name"]
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "`ParticipantResource`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ParticipantResource"
-                }
-              }
-            }
-          },
-          "422": {
-            "$ref": "#/components/responses/ValidationException"
-          },
-          "401": {
-            "$ref": "#/components/responses/AuthenticationException"
-          }
-        }
-      },
+    "/participants": {
       "get": {
         "operationId": "participant.index",
-        "description": "GET /api/m2m/participants\nAuth: auth:api-m2m + ability:participants:read",
-        "summary": "List participants for the caller's organization",
+        "description": "Server-paginated (D5 \u2014 a fresh authorized query per page, never\nfetch-all + client filter). Sort is fixed (created_at desc, id desc):\nno client-specified sort column reaches the query builder.",
+        "summary": "GET /api/participants",
         "tags": ["Participant"],
         "responses": {
           "200": {
@@ -1033,9 +886,300 @@
         }
       }
     },
-    "/m2m/participants/{id}": {
+    "/participants/{id}": {
       "get": {
         "operationId": "participant.show",
+        "description": "Summary scope (D2) \u2014 RBAC only, readable regardless of lifecycle status.",
+        "summary": "GET /api/participants/{id}",
+        "tags": ["Participant"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`ParticipantDetailResource`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ParticipantDetailResource"
+                    }
+                  },
+                  "required": ["data"]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationException"
+          }
+        }
+      }
+    },
+    "/participants/{id}/transcript": {
+      "get": {
+        "operationId": "participant.transcript",
+        "description": "Transcript scope (D2) \u2014 requires lifecycle >= in_valutazione; a\npre-threshold status raises LifecycleNotReadyException -> 409 (D4).",
+        "summary": "GET /api/participants/{id}/transcript",
+        "tags": ["Participant"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`TranscriptResource`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/TranscriptResource"
+                    }
+                  },
+                  "required": ["data"]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationException"
+          }
+        }
+      }
+    },
+    "/participants/{id}/evaluation": {
+      "get": {
+        "operationId": "participant.evaluation",
+        "description": "Evaluation scope (D2) \u2014 requires lifecycle === completato; anything\nelse raises LifecycleNotReadyException -> 409 (D4).",
+        "summary": "GET /api/participants/{id}/evaluation",
+        "tags": ["Participant"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`EvaluationResource`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/EvaluationResource"
+                    }
+                  },
+                  "required": ["data"]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationException"
+          }
+        }
+      }
+    },
+    "/m2m/participants": {
+      "post": {
+        "operationId": "participant.store",
+        "description": "POST /api/m2m/participants\nAuth: auth:api-m2m + ability:participants:create",
+        "summary": "Create a new participant for a project in the caller's org",
+        "tags": ["Participant"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "project_id": {
+                    "type": "integer"
+                  },
+                  "candidate_ref": {
+                    "type": "string",
+                    "maxLength": 255
+                  },
+                  "display_name": {
+                    "type": "string",
+                    "maxLength": 255
+                  },
+                  "role_code": {
+                    "type": ["string", "null"],
+                    "maxLength": 50
+                  },
+                  "language": {
+                    "type": ["string", "null"],
+                    "maxLength": 10
+                  },
+                  "status": {
+                    "type": ["string", "null"]
+                  }
+                },
+                "required": ["project_id", "candidate_ref", "display_name"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "`App.Http.Resources.ParticipantResource`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/App.Http.Resources.ParticipantResource"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationException"
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationException"
+          }
+        }
+      },
+      "get": {
+        "operationId": "m2m.participant.index",
+        "description": "GET /api/m2m/participants\nAuth: auth:api-m2m + ability:participants:read",
+        "summary": "List participants for the caller's organization",
+        "tags": ["Participant"],
+        "responses": {
+          "200": {
+            "description": "Paginated set of `App.Http.Resources.ParticipantResource`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/App.Http.Resources.ParticipantResource"
+                      }
+                    },
+                    "links": {
+                      "type": "object",
+                      "properties": {
+                        "first": {
+                          "type": ["string", "null"]
+                        },
+                        "last": {
+                          "type": ["string", "null"]
+                        },
+                        "prev": {
+                          "type": ["string", "null"]
+                        },
+                        "next": {
+                          "type": ["string", "null"]
+                        }
+                      },
+                      "required": ["first", "last", "prev", "next"]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "current_page": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "from": {
+                          "type": ["integer", "null"],
+                          "minimum": 1
+                        },
+                        "last_page": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "links": {
+                          "type": "array",
+                          "description": "Generated paginator links.",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "url": {
+                                "type": ["string", "null"]
+                              },
+                              "label": {
+                                "type": "string"
+                              },
+                              "active": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": ["url", "label", "active"]
+                          }
+                        },
+                        "path": {
+                          "type": ["string", "null"],
+                          "description": "Base path for paginator generated URLs."
+                        },
+                        "per_page": {
+                          "type": "integer",
+                          "description": "Number of items shown per page.",
+                          "minimum": 0
+                        },
+                        "to": {
+                          "type": ["integer", "null"],
+                          "description": "Number of the last item in the slice.",
+                          "minimum": 1
+                        },
+                        "total": {
+                          "type": "integer",
+                          "description": "Total number of items being paginated.",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "current_page",
+                        "from",
+                        "last_page",
+                        "links",
+                        "path",
+                        "per_page",
+                        "to",
+                        "total"
+                      ]
+                    }
+                  },
+                  "required": ["data", "links", "meta"]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationException"
+          }
+        }
+      }
+    },
+    "/m2m/participants/{id}": {
+      "get": {
+        "operationId": "m2m.participant.show",
         "description": "GET /api/m2m/participants/{id}\nAuth: auth:api-m2m + ability:participants:read",
         "summary": "Show a specific participant (org-scoped)",
         "tags": ["Participant"],
@@ -1051,17 +1195,102 @@
         ],
         "responses": {
           "200": {
-            "description": "`ParticipantResource`",
+            "description": "`App.Http.Resources.ParticipantResource`",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
-                      "$ref": "#/components/schemas/ParticipantResource"
+                      "$ref": "#/components/schemas/App.Http.Resources.ParticipantResource"
                     }
                   },
                   "required": ["data"]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationException"
+          }
+        }
+      }
+    },
+    "/participants/{id}/transcript/download": {
+      "get": {
+        "operationId": "admin.participants.transcript.download",
+        "summary": "GET /api/participants/{id}/transcript/download",
+        "tags": ["ParticipantDownload"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain; charset=utf-8": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationException"
+          }
+        }
+      }
+    },
+    "/participants/{id}/evaluation/download": {
+      "get": {
+        "operationId": "admin.participants.evaluation.download",
+        "summary": "GET /api/participants/{id}/evaluation/download",
+        "tags": ["ParticipantDownload"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -1286,6 +1515,117 @@
         }
       }
     },
+    "/health/queue": {
+      "get": {
+        "operationId": "queueHealth",
+        "tags": ["QueueHealth"],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["degraded", "ok"]
+                    },
+                    "worker": {
+                      "type": "object",
+                      "properties": {
+                        "alive": {
+                          "type": "boolean"
+                        },
+                        "last_heartbeat_age_seconds": {
+                          "type": ["object", "null"]
+                        }
+                      },
+                      "required": ["alive", "last_heartbeat_age_seconds"]
+                    },
+                    "queue": {
+                      "type": "object",
+                      "properties": {
+                        "depth": {
+                          "type": "integer"
+                        },
+                        "last_processed_age_seconds": {
+                          "type": ["object", "null"]
+                        },
+                        "stalled": {
+                          "type": "string"
+                        },
+                        "oldest_reserved_age_seconds": {
+                          "type": ["integer", "null"]
+                        },
+                        "reservation_stalled": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "depth",
+                        "last_processed_age_seconds",
+                        "stalled",
+                        "oldest_reserved_age_seconds",
+                        "reservation_stalled"
+                      ]
+                    },
+                    "failed": {
+                      "type": "object",
+                      "properties": {
+                        "count": {
+                          "type": "integer"
+                        },
+                        "oldest_age_seconds": {
+                          "type": ["object", "null"]
+                        }
+                      },
+                      "required": ["count", "oldest_age_seconds"]
+                    }
+                  },
+                  "required": ["status", "worker", "queue", "failed"]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "down"
+                    },
+                    "worker": {
+                      "type": "object",
+                      "properties": {
+                        "alive": {
+                          "type": "boolean"
+                        },
+                        "last_heartbeat_age_seconds": {
+                          "type": ["object", "null"]
+                        }
+                      },
+                      "required": ["alive", "last_heartbeat_age_seconds"]
+                    },
+                    "queue": {
+                      "type": "null"
+                    },
+                    "failed": {
+                      "type": "null"
+                    }
+                  },
+                  "required": ["status", "worker", "queue", "failed"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/candidate/session": {
       "get": {
         "operationId": "session.show",
@@ -1294,14 +1634,14 @@
         "tags": ["Session"],
         "responses": {
           "200": {
-            "description": "`ParticipantResource`",
+            "description": "`App.Http.Resources.ParticipantResource`",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
-                      "$ref": "#/components/schemas/ParticipantResource"
+                      "$ref": "#/components/schemas/App.Http.Resources.ParticipantResource"
                     }
                   },
                   "required": ["data"]
@@ -1692,7 +2032,7 @@
             "type": ["string", "null"]
           },
           "created_at": {
-            "type": ["string", "null"]
+            "type": "string"
           }
         },
         "required": [
@@ -1705,6 +2045,82 @@
           "created_at"
         ],
         "title": "ApiClientResource"
+      },
+      "App.Http.Resources.ParticipantResource": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "candidate_ref": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "role_code": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": ["string", "null"]
+          },
+          "completed_at": {
+            "type": ["string", "null"]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "project": {
+            "type": ["object", "null"],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "role_code": {
+                "type": "string"
+              },
+              "language": {
+                "type": "string"
+              },
+              "assessment_type": {
+                "type": "string"
+              },
+              "exit_redirect_url": {
+                "type": "string"
+              },
+              "error_redirect_url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "role_code",
+              "language",
+              "assessment_type",
+              "exit_redirect_url",
+              "error_redirect_url"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "candidate_ref",
+          "display_name",
+          "role_code",
+          "language",
+          "status",
+          "started_at",
+          "completed_at",
+          "created_at",
+          "project"
+        ],
+        "title": "App.Http.Resources.ParticipantResource"
       },
       "BarsIndicatorResource": {
         "type": "object",
@@ -1759,6 +2175,16 @@
         "required": ["code", "name", "definition", "type", "bars_available"],
         "title": "CompetencyResource"
       },
+      "DashboardMetricsResource": {
+        "type": "object",
+        "additionalProperties": {},
+        "title": "DashboardMetricsResource"
+      },
+      "EvaluationResource": {
+        "type": "object",
+        "additionalProperties": {},
+        "title": "EvaluationResource"
+      },
       "FrameworkVersionResource": {
         "type": "object",
         "properties": {
@@ -1795,6 +2221,104 @@
         ],
         "title": "FrameworkVersionResource"
       },
+      "ParticipantDetailResource": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "candidate_ref": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "role_code": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "timeline": {
+            "type": "object",
+            "properties": {
+              "started_at": {
+                "type": ["string", "null"]
+              },
+              "completed_at": {
+                "type": ["string", "null"]
+              },
+              "session_count": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": ["started_at", "completed_at", "session_count"]
+          },
+          "files": {
+            "type": "object",
+            "properties": {
+              "transcript": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "text/plain"
+                  },
+                  "ref": {
+                    "type": "string",
+                    "const": "transcript"
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "required": ["type", "ref", "url"]
+              },
+              "evaluation_raw": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "application/json"
+                  },
+                  "ref": {
+                    "type": "string",
+                    "const": "evaluation"
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "required": ["type", "ref", "url"]
+              }
+            },
+            "required": ["transcript", "evaluation_raw"]
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "candidate_ref",
+          "display_name",
+          "role_code",
+          "language",
+          "status",
+          "project_id",
+          "timeline",
+          "files",
+          "created_at"
+        ],
+        "title": "ParticipantDetailResource"
+      },
       "ParticipantResource": {
         "type": "object",
         "properties": {
@@ -1816,6 +2340,9 @@
           "status": {
             "type": "string"
           },
+          "project_id": {
+            "type": "string"
+          },
           "started_at": {
             "type": ["string", "null"]
           },
@@ -1823,28 +2350,7 @@
             "type": ["string", "null"]
           },
           "created_at": {
-            "type": ["string", "null"]
-          },
-          "project": {
-            "type": ["object", "null"],
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "role_code": {
-                "type": "string"
-              },
-              "language": {
-                "type": "string"
-              },
-              "assessment_type": {
-                "type": "string"
-              },
-              "exit_redirect_url": {
-                "type": "string"
-              }
-            },
-            "required": ["id", "role_code", "language", "assessment_type", "exit_redirect_url"]
+            "type": "string"
           }
         },
         "required": [
@@ -1854,10 +2360,10 @@
           "role_code",
           "language",
           "status",
+          "project_id",
           "started_at",
           "completed_at",
-          "created_at",
-          "project"
+          "created_at"
         ],
         "title": "ParticipantResource"
       },
@@ -1901,6 +2407,9 @@
             "type": "string"
           },
           "webhook_url": {
+            "type": "string"
+          },
+          "webhook_events": {
             "type": "string"
           },
           "deadline_at": {
@@ -1955,6 +2464,7 @@
           "nudge_min_chars",
           "exit_redirect_url",
           "webhook_url",
+          "webhook_events",
           "deadline_at",
           "goes_live_at",
           "created_at",
@@ -2033,6 +2543,11 @@
             "format": "uri",
             "maxLength": 2048
           },
+          "error_redirect_url": {
+            "type": ["string", "null"],
+            "format": "uri",
+            "maxLength": 2048
+          },
           "webhook_url": {
             "type": ["string", "null"],
             "format": "uri",
@@ -2041,6 +2556,14 @@
           "webhook_secret": {
             "type": ["string", "null"],
             "maxLength": 1024
+          },
+          "webhook_events": {
+            "type": "array",
+            "description": "Closed event-type set (C10 D10) \u2014 not env-overridable, so Rule::in reads\nthe config, never a hardcoded list.",
+            "items": {
+              "type": "string",
+              "enum": ["progress", "evaluation"]
+            }
           },
           "deadline_at": {
             "type": ["string", "null"],
@@ -2053,6 +2576,16 @@
         },
         "required": ["framework_version_id", "slug", "name", "assessment_type", "language"],
         "title": "StoreProjectRequest"
+      },
+      "TranscriptResource": {
+        "type": "object",
+        "properties": {
+          "sessions": {
+            "type": "string"
+          }
+        },
+        "required": ["sessions"],
+        "title": "TranscriptResource"
       },
       "UpdateProjectRequest": {
         "type": "object",
