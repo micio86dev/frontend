@@ -284,6 +284,34 @@ watch([() => session.state.value, exitRedirect.exitRedirectUrl], async ([current
 })
 
 // ---------------------------------------------------------------------------
+// Error / terminal → configurable error page.
+//
+// The binding integration doc asks for "redirect a pagina errore configurabile"
+// on a technical failure, and until now nothing implemented it — the spec
+// recorded it as an open gap.
+//
+// This matters more than the `done` redirect above. On completion the candidate
+// is finished; on failure they are stranded on a BEAI screen, on a domain they
+// have no account on, belonging to a company they have no relationship with.
+// Only the calling system can tell them whether the interview will be re-issued
+// or whether their application is affected.
+//
+// `error` and `terminal` share one destination on purpose: the candidate's need
+// is identical in both — they cannot continue and need to get back to whoever
+// sent them. Splitting them would ask an operator to configure a distinction
+// their candidates cannot perceive.
+//
+// Unconfigured is a supported state, not a gap: redirectToError() returns false
+// and the existing inline screen renders unchanged, retry button included.
+// ---------------------------------------------------------------------------
+watch([() => session.state.value, exitRedirect.errorRedirectUrl], async ([currentState, url]) => {
+  if ((currentState === 'error' || currentState === 'terminal') && url) {
+    await session.teardown()
+    exitRedirect.redirectToError()
+  }
+})
+
+// ---------------------------------------------------------------------------
 // Device check flow
 // ---------------------------------------------------------------------------
 

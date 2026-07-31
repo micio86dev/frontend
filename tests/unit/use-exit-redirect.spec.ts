@@ -192,3 +192,99 @@ describe('useExitRedirect', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// Error redirect (C13 — closes the gap interview-frontend/spec.md recorded)
+//
+// The candidate's need on failure is sharper than on success: they cannot
+// continue and they are stranded on a domain they have no account on. Only the
+// calling system can tell them what happens next.
+// ---------------------------------------------------------------------------
+
+describe('useExitRedirect — error destination', () => {
+  it('caches error_redirect_url from the same session fetch', async () => {
+    mockFetchImpl.mockResolvedValueOnce({
+      project: {
+        exit_redirect_url: 'https://hr.test/done',
+        error_redirect_url: 'https://hr.test/failed',
+      },
+    })
+
+    const r = useExitRedirect()
+    await r.fetchSession()
+
+    // One endpoint, both destinations. A second composable would mean a second
+    // fetch of the same session and two places for the safety rules to drift.
+    expect(mockFetchImpl).toHaveBeenCalledTimes(1)
+    expect(r.errorRedirectUrl.value).toBe('https://hr.test/failed')
+    expect(r.exitRedirectUrl.value).toBe('https://hr.test/done')
+  })
+
+  it('treats a missing error_redirect_url as unconfigured, not an error', async () => {
+    // The api may not expose the field yet — the committed OpenAPI snapshot
+    // lags a backend release. Forward-compatibility here is what lets the two
+    // repos merge in either order.
+    mockFetchImpl.mockResolvedValueOnce({
+      project: { exit_redirect_url: 'https://hr.test/done' },
+    })
+
+    const r = useExitRedirect()
+    await r.fetchSession()
+
+    expect(r.errorRedirectUrl.value).toBeNull()
+    expect(r.redirectToError()).toBe(false)
+  })
+
+  it('redirects to a validated https error url', async () => {
+    mockFetchImpl.mockResolvedValueOnce({
+      project: { exit_redirect_url: null, error_redirect_url: 'https://hr.test/failed' },
+    })
+
+    const r = useExitRedirect()
+    await r.fetchSession()
+
+    expect(r.redirectToError()).toBe(true)
+    expect(mockNavigateTo).toHaveBeenCalledWith('https://hr.test/failed', {
+      external: true,
+      replace: true,
+    })
+  })
+
+  it('refuses an http error url', async () => {
+    // A downgrade mid-failure is exactly when a candidate is least likely to
+    // notice the address bar.
+    mockFetchImpl.mockResolvedValueOnce({
+      project: { exit_redirect_url: null, error_redirect_url: 'http://hr.test/failed' },
+    })
+
+    const r = useExitRedirect()
+    await r.fetchSession()
+
+    expect(r.redirectToError()).toBe(false)
+    expect(mockNavigateTo).not.toHaveBeenCalled()
+  })
+
+  it('refuses a malformed error url', async () => {
+    mockFetchImpl.mockResolvedValueOnce({
+      project: { exit_redirect_url: null, error_redirect_url: 'not a url' },
+    })
+
+    const r = useExitRedirect()
+    await r.fetchSession()
+
+    expect(r.redirectToError()).toBe(false)
+    expect(mockNavigateTo).not.toHaveBeenCalled()
+  })
+
+  it('degrades to unconfigured when the session fetch fails', async () => {
+    mockFetchImpl.mockRejectedValueOnce(new Error('network'))
+
+    const r = useExitRedirect()
+    await r.fetchSession()
+
+    // A failed fetch must never strand the candidate on a blank screen: it
+    // falls back to the inline error screen, which still has a retry button.
+    expect(r.errorRedirectUrl.value).toBeNull()
+    expect(r.redirectToError()).toBe(false)
+  })
+})
