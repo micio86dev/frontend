@@ -11,6 +11,23 @@
       provider.toggleMic(). Muting this video muted the interviewer whenever the
       candidate muted their own mic.
     -->
+    <!--
+      A <track> element cannot caption this stream: the source is a live WebRTC
+      feed generated in real time by the avatar provider, and a track file
+      requires content that exists before playback.
+
+      The requirement itself is met by a different mechanism. The avatar's
+      speech is rendered as live text by <InterviewCaption>, driven by the
+      provider's transcript events — see the `transcript` handler in
+      pages/interview/[token].vue. That is a caption in the sense WCAG 1.2.4
+      (Captions, Live) actually asks for; <track> is one way to deliver it and
+      not the applicable one here.
+
+      Disabled on this line only, with the reason, rather than switching the
+      rule off globally: the next <video> added to this app almost certainly
+      SHOULD carry a track.
+    -->
+    <!-- eslint-disable-next-line vuejs-accessibility/media-has-caption -->
     <video
       ref="videoEl"
       class="size-full object-cover"

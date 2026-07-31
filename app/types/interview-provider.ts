@@ -1,4 +1,3 @@
-/* eslint-disable no-unused-vars */
 /**
  * Provider-agnostic contract for the candidate interview session.
  *

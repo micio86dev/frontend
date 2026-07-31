@@ -34,8 +34,7 @@
  * In E2E tests the fake-provider fixture acknowledges this event (C7+).
  */
 const emit = defineEmits<{
-  (e: 'accepted'): void
-  (e: 'declined'): void
+  (e: 'accepted' | 'declined'): void
 }>()
 
 const visible = ref(true)

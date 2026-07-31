@@ -1,7 +1,6 @@
 <template>
   <main
     class="flex min-h-screen flex-col items-center justify-center bg-background p-4"
-    role="main"
     data-testid="terminal-page"
   >
     <section

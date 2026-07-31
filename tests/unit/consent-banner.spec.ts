@@ -1,7 +1,7 @@
 /**
  * Unit tests for ConsentBanner component (GDPR scaffold — task 6.9).
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ConsentBanner from '../../app/components/ConsentBanner.vue'
 

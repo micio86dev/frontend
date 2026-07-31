@@ -23,6 +23,7 @@
  */
 
 import { test, expect } from '@playwright/test'
+import { checkA11y } from './fixtures/a11y'
 import type { Browser } from '@playwright/test'
 
 const FIREFOX_UA =
@@ -140,5 +141,13 @@ test.describe('browser-gate.global.ts middleware', () => {
       // a mounted interview page which needs a valid token + running API
       // The pure isSupportedBrowser() unit tests cover the 900px < 1024 logic at ~95%
     })
+  })
+
+  // C13: the gate's DESTINATION was covered by unsupported-gate.spec.ts, but
+  // the redirect path itself never was. A candidate arriving here has already
+  // hit a wall; the page telling them so must at least be operable.
+  test('the page reached by the gate passes WCAG 2.1 AA', async ({ page }) => {
+    await page.goto('/unsupported')
+    await checkA11y(page)
   })
 })

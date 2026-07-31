@@ -1,4 +1,3 @@
-/* eslint-disable no-unused-vars */
 /**
  * useProctor — 3-layer integrity collector composable (Task 4.4 GREEN)
  *
