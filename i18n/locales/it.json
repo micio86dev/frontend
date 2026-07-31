@@ -11,14 +11,6 @@
   "health": {
     "status": "ok"
   },
-  "consent": {
-    "title": "Informativa sulla privacy",
-    "description": "Per partecipare al colloquio, è necessario fornire il consenso alla registrazione audio/video e al trattamento dei dati personali ai fini della valutazione. Puoi ritirare il consenso in qualsiasi momento. Per maggiori informazioni consulta la nostra informativa sulla privacy.",
-    "accept": "Accetto",
-    "decline": "Rifiuto",
-    "accept_aria": "Accetto i termini e accedo al colloquio",
-    "decline_aria": "Rifiuto e non accedo al colloquio"
-  },
   "interview": {
     "consent": {
       "title": "Informativa sulla privacy e consenso",
@@ -67,5 +59,12 @@
       }
     },
     "document_title": "Colloquio BEAI"
+  },
+  "analytics_consent": {
+    "region_label": "Consenso ai cookie di analisi",
+    "title": "Ci aiuti a migliorare questo servizio?",
+    "description": "Vorremmo usare cookie di analisi per capire come viene usato il sito. Non raccogliamo le tue risposte al colloquio né dati che ti identifichino. Puoi rifiutare senza alcuna conseguenza.",
+    "accept": "Accetta",
+    "reject": "Rifiuta"
   }
 }

@@ -68,6 +68,12 @@ export default defineConfig({
       // real HeyGen/Tavus SDK connection. See app/providers/factory.ts and
       // tests/e2e/fixtures/interview-provider.ts.
       NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK: 'true',
+      // C13 task 5.6: the consent banner only appears where there is something
+      // to ask permission FOR, so E2E needs a measurement ID configured. It is
+      // a fake one, and analytics-consent.spec.ts blocks the third-party hosts
+      // at the network layer — a suite that phoned Google on every run would be
+      // slow, flaky, and reporting CI traffic into a real property.
+      NUXT_PUBLIC_GA_MEASUREMENT_ID: 'G-E2ETEST',
     },
     reuseExistingServer: !process.env['CI'],
     timeout: 180_000,

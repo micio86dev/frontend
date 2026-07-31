@@ -11,14 +11,6 @@
   "health": {
     "status": "ok"
   },
-  "consent": {
-    "title": "Privacy Notice",
-    "description": "To participate in the interview, you must consent to audio/video recording and processing of your personal data for evaluation purposes. You may withdraw consent at any time. For more information, please see our privacy policy.",
-    "accept": "I Accept",
-    "decline": "I Decline",
-    "accept_aria": "I accept the terms and proceed to the interview",
-    "decline_aria": "I decline and will not proceed to the interview"
-  },
   "interview": {
     "consent": {
       "title": "Privacy Notice and Consent",
@@ -67,5 +59,12 @@
       }
     },
     "document_title": "BEAI Interview"
+  },
+  "analytics_consent": {
+    "region_label": "Analytics cookie consent",
+    "title": "Help us improve this service?",
+    "description": "We would like to use analytics cookies to understand how the site is used. We do not collect your interview answers or anything that identifies you. You can refuse with no consequences.",
+    "accept": "Accept",
+    "reject": "Refuse"
   }
 }

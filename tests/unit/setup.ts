@@ -20,6 +20,14 @@ vi.stubGlobal(
   vi.fn(() => ({ t: (key: string) => key, locale: ref('it') }))
 )
 
+// Nuxt auto-import, stubbed globally for the same reason as useI18n above:
+// app.vue reads the route to tell the consent banner where it is, and a spec
+// that mounts the app shell should not have to know that.
+vi.stubGlobal(
+  'useRoute',
+  vi.fn(() => ({ fullPath: '/', path: '/', params: {}, query: {} }))
+)
+
 // Stub Nuxt compiler macros that are unavailable in Vitest context
 vi.stubGlobal('definePageMeta', vi.fn())
 vi.stubGlobal('useHead', vi.fn())
