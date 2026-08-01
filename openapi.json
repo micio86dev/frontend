@@ -6,20 +6,20 @@
   },
   "servers": [
     {
-      "url": "http:\/\/localhost:8000\/api"
+      "url": "http://localhost/api"
     }
   ],
   "paths": {
-    "\/m2m\/clients": {
+    "/m2m/clients": {
       "post": {
         "operationId": "apiClient.store",
-        "description": "POST \/api\/m2m\/clients\nAuth: auth:api (admin only via ApiClientPolicy)\n\nResponse (201):\n{\n  \"data\": { ...ApiClientResource... },\n  \"api_key\": \"beai_live_...\"   \u2190 returned ONCE, never stored raw\n}",
+        "description": "POST /api/m2m/clients\nAuth: auth:api (admin only via ApiClientPolicy)\n\nResponse (201):\n{\n  \"data\": { ...ApiClientResource... },\n  \"api_key\": \"beai_live_...\"   \u2190 returned ONCE, never stored raw\n}",
         "summary": "Create a new M2M API client",
         "tags": ["ApiClient"],
         "requestBody": {
           "required": true,
           "content": {
-            "application\/json": {
+            "application/json": {
               "schema": {
                 "type": "object",
                 "properties": {
@@ -48,12 +48,12 @@
           "201": {
             "description": "",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
-                      "$ref": "#\/components\/schemas\/ApiClientResource"
+                      "$ref": "#/components/schemas/ApiClientResource"
                     },
                     "api_key": {
                       "type": "string"
@@ -65,33 +65,33 @@
             }
           },
           "422": {
-            "$ref": "#\/components\/responses\/ValidationException"
+            "$ref": "#/components/responses/ValidationException"
           },
           "403": {
-            "$ref": "#\/components\/responses\/AuthorizationException"
+            "$ref": "#/components/responses/AuthorizationException"
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       },
       "get": {
         "operationId": "apiClient.index",
-        "description": "GET \/api\/m2m\/clients\nAuth: auth:api (admin only via ApiClientPolicy)\n\nNever returns key_hash or raw api_key.",
+        "description": "GET /api/m2m/clients\nAuth: auth:api (admin only via ApiClientPolicy)\n\nNever returns key_hash or raw api_key.",
         "summary": "List M2M API clients for the authenticated admin's organization",
         "tags": ["ApiClient"],
         "responses": {
           "200": {
             "description": "Paginated set of `ApiClientResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
                       "type": "array",
                       "items": {
-                        "$ref": "#\/components\/schemas\/ApiClientResource"
+                        "$ref": "#/components/schemas/ApiClientResource"
                       }
                     },
                     "links": {
@@ -184,18 +184,18 @@
             }
           },
           "403": {
-            "$ref": "#\/components\/responses\/AuthorizationException"
+            "$ref": "#/components/responses/AuthorizationException"
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/m2m\/clients\/{apiClient}": {
+    "/m2m/clients/{apiClient}": {
       "delete": {
         "operationId": "apiClient.destroy",
-        "description": "DELETE \/api\/m2m\/clients\/{apiClient}\nAuth: auth:api (admin only, same org via ApiClientPolicy::delete)\n\nWrite ordering invariant (design \u00a7Revocation write ordering):\n  1. DB write (is_active=false) committed FIRST \u2014 durable authoritative flag\n  2. Redis denylist write SECOND \u2014 fast-path cache\n\nA crash between the two writes leaves the system in the safer state:\nis_active=false in DB \u2192 next guard lookup rejects the key.",
+        "description": "DELETE /api/m2m/clients/{apiClient}\nAuth: auth:api (admin only, same org via ApiClientPolicy::delete)\n\nWrite ordering invariant (design \u00a7Revocation write ordering):\n  1. DB write (is_active=false) committed FIRST \u2014 durable authoritative flag\n  2. Redis denylist write SECOND \u2014 fast-path cache\n\nA crash between the two writes leaves the system in the safer state:\nis_active=false in DB \u2192 next guard lookup rejects the key.",
         "summary": "Revoke an M2M API client",
         "tags": ["ApiClient"],
         "parameters": [
@@ -214,27 +214,27 @@
             "description": "No content"
           },
           "403": {
-            "$ref": "#\/components\/responses\/AuthorizationException"
+            "$ref": "#/components/responses/AuthorizationException"
           },
           "404": {
-            "$ref": "#\/components\/responses\/ModelNotFoundException"
+            "$ref": "#/components/responses/ModelNotFoundException"
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/auth\/login": {
+    "/auth/login": {
       "post": {
         "operationId": "auth.login",
-        "description": "POST \/api\/auth\/login\nPublic \u2014 no auth middleware.\n\nToken model (D4 \u2014 jwt-auth rotation):\n- Access token: standard TTL (30 min), used for all API requests.\n- Refresh token: re-issues a new access token via POST \/api\/auth\/refresh.\n  jwt-auth rotation: the SAME bearer token is posted to \/refresh; the old\n  token's jti is denylisted and a new token is returned. There is no separate\n  long-lived opaque refresh token \u2014 the \"refresh_token\" field carries the\n  same access token string returned at login.",
+        "description": "POST /api/auth/login\nPublic \u2014 no auth middleware.\n\nToken model (D4 \u2014 jwt-auth rotation):\n- Access token: standard TTL (30 min), used for all API requests.\n- Refresh token: re-issues a new access token via POST /api/auth/refresh.\n  jwt-auth rotation: the SAME bearer token is posted to /refresh; the old\n  token's jti is denylisted and a new token is returned. There is no separate\n  long-lived opaque refresh token \u2014 the \"refresh_token\" field carries the\n  same access token string returned at login.",
         "summary": "Attempt login and return a token pair",
         "tags": ["Auth"],
         "requestBody": {
           "required": true,
           "content": {
-            "application\/json": {
+            "application/json": {
               "schema": {
                 "type": "object",
                 "properties": {
@@ -255,7 +255,7 @@
           "200": {
             "description": "",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -278,7 +278,7 @@
           "401": {
             "description": "",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -293,22 +293,22 @@
             }
           },
           "422": {
-            "$ref": "#\/components\/responses\/ValidationException"
+            "$ref": "#/components/responses/ValidationException"
           }
         }
       }
     },
-    "\/auth\/refresh": {
+    "/auth/refresh": {
       "post": {
         "operationId": "auth.refresh",
-        "description": "POST \/api\/auth\/refresh\nProtected: auth:api\n\nUses jwt-auth's native token ROTATION: the current bearer access token is\npresented and a new access token is returned; the old token's jti is denylisted.",
+        "description": "POST /api/auth/refresh\nProtected: auth:api\n\nUses jwt-auth's native token ROTATION: the current bearer access token is\npresented and a new access token is returned; the old token's jti is denylisted.",
         "summary": "Refresh the access token",
         "tags": ["Auth"],
         "responses": {
           "200": {
             "description": "",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -326,22 +326,22 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/auth\/logout": {
+    "/auth/logout": {
       "post": {
         "operationId": "auth.logout",
-        "description": "POST \/api\/auth\/logout\nProtected: auth:api",
+        "description": "POST /api/auth/logout\nProtected: auth:api",
         "summary": "Logout \u2014 denylist the current token's jti + invalidate Spatie permission cache",
         "tags": ["Auth"],
         "responses": {
           "200": {
             "description": "",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -356,22 +356,22 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/auth\/me": {
+    "/auth/me": {
       "get": {
         "operationId": "auth.me",
-        "description": "GET \/api\/auth\/me\nProtected: auth:api",
+        "description": "GET /api/auth/me\nProtected: auth:api",
         "summary": "Return the authenticated user, their organization, and their roles",
         "tags": ["Auth"],
         "responses": {
           "200": {
             "description": "",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -413,12 +413,12 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/avatar-templates\/field-specs": {
+    "/avatar-templates/field-specs": {
       "get": {
         "operationId": "avatarTemplate.fieldSpecs",
         "description": "Served rather than duplicated in the Nuxt app, so the form, the\nvalidation and the provider payload cannot disagree \u2014 which is the whole\nreason the spec is declarative. Machine-facing and NOT localized: it\ncarries label keys, and translation happens where the operator's locale\nlives.",
@@ -428,7 +428,7 @@
           "200": {
             "description": "",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -442,15 +442,15 @@
             }
           },
           "403": {
-            "$ref": "#\/components\/responses\/AuthorizationException"
+            "$ref": "#/components/responses/AuthorizationException"
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/avatar-templates\/{id}\/activate": {
+    "/avatar-templates/{id}/activate": {
       "post": {
         "operationId": "avatarTemplate.activate",
         "description": "The swap runs in ONE transaction, deactivate-then-activate. The order is\nforced: the partial unique index refuses a second active row, so\nactivating first would simply fail. Doing it outside a transaction would\nleave a window with no active template at all, during which an interview\nstarting would quietly fall back to the environment defaults \u2014 the exact\nbehaviour this whole change exists to replace.",
@@ -470,12 +470,12 @@
           "200": {
             "description": "`AvatarTemplateResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
-                      "$ref": "#\/components\/schemas\/AvatarTemplateResource"
+                      "$ref": "#/components/schemas/AvatarTemplateResource"
                     }
                   },
                   "required": ["data"]
@@ -484,15 +484,15 @@
             }
           },
           "403": {
-            "$ref": "#\/components\/responses\/AuthorizationException"
+            "$ref": "#/components/responses/AuthorizationException"
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/avatar-templates": {
+    "/avatar-templates": {
       "get": {
         "operationId": "avatarTemplate.index",
         "tags": ["AvatarTemplate"],
@@ -500,14 +500,14 @@
           "200": {
             "description": "Array of `AvatarTemplateResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
                       "type": "array",
                       "items": {
-                        "$ref": "#\/components\/schemas\/AvatarTemplateResource"
+                        "$ref": "#/components/schemas/AvatarTemplateResource"
                       }
                     }
                   },
@@ -517,10 +517,10 @@
             }
           },
           "403": {
-            "$ref": "#\/components\/responses\/AuthorizationException"
+            "$ref": "#/components/responses/AuthorizationException"
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       },
@@ -530,7 +530,7 @@
         "requestBody": {
           "required": true,
           "content": {
-            "application\/json": {
+            "application/json": {
               "schema": {
                 "type": "object",
                 "properties": {
@@ -563,12 +563,12 @@
           "201": {
             "description": "`AvatarTemplateResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
-                      "$ref": "#\/components\/schemas\/AvatarTemplateResource"
+                      "$ref": "#/components/schemas/AvatarTemplateResource"
                     }
                   },
                   "required": ["data"]
@@ -577,18 +577,18 @@
             }
           },
           "403": {
-            "$ref": "#\/components\/responses\/AuthorizationException"
+            "$ref": "#/components/responses/AuthorizationException"
           },
           "422": {
-            "$ref": "#\/components\/responses\/ValidationException"
+            "$ref": "#/components/responses/ValidationException"
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/avatar-templates\/{id}": {
+    "/avatar-templates/{id}": {
       "get": {
         "operationId": "avatarTemplate.show",
         "tags": ["AvatarTemplate"],
@@ -606,12 +606,12 @@
           "200": {
             "description": "`AvatarTemplateResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
-                      "$ref": "#\/components\/schemas\/AvatarTemplateResource"
+                      "$ref": "#/components/schemas/AvatarTemplateResource"
                     }
                   },
                   "required": ["data"]
@@ -620,10 +620,10 @@
             }
           },
           "403": {
-            "$ref": "#\/components\/responses\/AuthorizationException"
+            "$ref": "#/components/responses/AuthorizationException"
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       },
@@ -642,7 +642,7 @@
         ],
         "requestBody": {
           "content": {
-            "application\/json": {
+            "application/json": {
               "schema": {
                 "type": "object",
                 "properties": {
@@ -669,12 +669,12 @@
           "200": {
             "description": "`AvatarTemplateResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
-                      "$ref": "#\/components\/schemas\/AvatarTemplateResource"
+                      "$ref": "#/components/schemas/AvatarTemplateResource"
                     }
                   },
                   "required": ["data"]
@@ -683,13 +683,13 @@
             }
           },
           "403": {
-            "$ref": "#\/components\/responses\/AuthorizationException"
+            "$ref": "#/components/responses/AuthorizationException"
           },
           "422": {
-            "$ref": "#\/components\/responses\/ValidationException"
+            "$ref": "#/components/responses/ValidationException"
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       },
@@ -713,7 +713,7 @@
           "409": {
             "description": "Deleting what candidates are currently being interviewed with is\na decision, not a cleanup. 409 rather than 422: the request is\nwell-formed, the state is what refuses it.",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -732,15 +732,15 @@
             }
           },
           "403": {
-            "$ref": "#\/components\/responses\/AuthorizationException"
+            "$ref": "#/components/responses/AuthorizationException"
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/dashboard\/metrics": {
+    "/dashboard/metrics": {
       "get": {
         "operationId": "dashboard.metrics",
         "tags": ["Dashboard"],
@@ -748,12 +748,12 @@
           "200": {
             "description": "`DashboardMetricsResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
-                      "$ref": "#\/components\/schemas\/DashboardMetricsResource"
+                      "$ref": "#/components/schemas/DashboardMetricsResource"
                     }
                   },
                   "required": ["data"]
@@ -762,29 +762,29 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/framework\/roles": {
+    "/framework/roles": {
       "get": {
         "operationId": "framework.index",
         "description": "Returns all global roles for ANY authenticated org.\nNo FrameworkVersion required \u2014 if absent, pin_context is null.",
-        "summary": "GET \/api\/framework\/roles",
+        "summary": "GET /api/framework/roles",
         "tags": ["Framework"],
         "responses": {
           "200": {
             "description": "Array of `RoleResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
                       "type": "array",
                       "items": {
-                        "$ref": "#\/components\/schemas\/RoleResource"
+                        "$ref": "#/components/schemas/RoleResource"
                       }
                     },
                     "pin_context": {
@@ -812,16 +812,16 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/framework\/roles\/{roleCode}\/competencies": {
+    "/framework/roles/{roleCode}/competencies": {
       "get": {
         "operationId": "framework.roleCompetencies",
         "description": "Returns competencies for a specific role + bars_available flag (N+1-free).",
-        "summary": "GET \/api\/framework\/roles\/{roleCode}\/competencies",
+        "summary": "GET /api/framework/roles/{roleCode}/competencies",
         "tags": ["Framework"],
         "parameters": [
           {
@@ -837,14 +837,14 @@
           "200": {
             "description": "Array of `CompetencyResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
                       "type": "array",
                       "items": {
-                        "$ref": "#\/components\/schemas\/CompetencyResource"
+                        "$ref": "#/components/schemas/CompetencyResource"
                       }
                     }
                   },
@@ -854,16 +854,16 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/framework\/roles\/{roleCode}\/competencies\/{competencyCode}\/indicators": {
+    "/framework/roles/{roleCode}/competencies/{competencyCode}/indicators": {
       "get": {
         "operationId": "framework.competencyBars",
         "description": "Returns BARS indicators + anchors for a role\u00d7competency pair.",
-        "summary": "GET \/api\/framework\/roles\/{roleCode}\/competencies\/{competencyCode}\/indicators",
+        "summary": "GET /api/framework/roles/{roleCode}/competencies/{competencyCode}/indicators",
         "tags": ["Framework"],
         "parameters": [
           {
@@ -887,14 +887,14 @@
           "200": {
             "description": "Array of `BarsIndicatorResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
                       "type": "array",
                       "items": {
-                        "$ref": "#\/components\/schemas\/BarsIndicatorResource"
+                        "$ref": "#/components/schemas/BarsIndicatorResource"
                       }
                     }
                   },
@@ -904,29 +904,29 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/framework\/versions": {
+    "/framework/versions": {
       "get": {
         "operationId": "framework.versions",
         "description": "Returns all FrameworkVersions belonging to the authenticated org.\nTenantScoped global scope limits results to own-org versions only.\nUsed by clients when creating a Project to choose which FV to pin.\n\nAdded by C4.",
-        "summary": "GET \/api\/framework\/versions",
+        "summary": "GET /api/framework/versions",
         "tags": ["Framework"],
         "responses": {
           "200": {
             "description": "Array of `FrameworkVersionResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
                       "type": "array",
                       "items": {
-                        "$ref": "#\/components\/schemas\/FrameworkVersionResource"
+                        "$ref": "#/components/schemas/FrameworkVersionResource"
                       }
                     }
                   },
@@ -936,12 +936,12 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/health": {
+    "/health": {
       "get": {
         "operationId": "health",
         "description": "This endpoint is NOT localized \u2014 it returns the literal string \"ok\" in every locale.\nMachine-readable status payloads are exempt from the i18n mandate (D31).",
@@ -951,7 +951,7 @@
           "200": {
             "description": "",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -968,7 +968,7 @@
         }
       }
     },
-    "\/candidate\/interview\/integrity": {
+    "/candidate/interview/integrity": {
       "post": {
         "operationId": "integrity.store",
         "description": "resolveOwnedSession MUST be called FIRST \u2014 enforces participant_id + org isolation.\nValidation of each event.kind against CANONICAL_KINDS is ALL-OR-NOTHING:\na single unknown kind causes the entire batch to be rejected (422) with NO rows inserted.",
@@ -977,7 +977,7 @@
         "requestBody": {
           "required": true,
           "content": {
-            "application\/json": {
+            "application/json": {
               "schema": {
                 "type": "object",
                 "properties": {
@@ -1017,18 +1017,18 @@
             "description": ""
           },
           "422": {
-            "$ref": "#\/components\/responses\/ValidationException"
+            "$ref": "#/components/responses/ValidationException"
           },
           "404": {
-            "$ref": "#\/components\/responses\/ModelNotFoundException"
+            "$ref": "#/components/responses/ModelNotFoundException"
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/candidate\/interview\/start": {
+    "/candidate/interview/start": {
       "post": {
         "operationId": "interview.start",
         "description": "Sequence (from design data flow \u2014 CRITICAL: provider call is OUTSIDE any DB txn):\n(1) Resolve next competency by project_competencies.position ASC.\n(2) Create-or-RESUME: INSERT or catch UniqueConstraintViolationException \u2192 re-query.\n(3) ProviderSessionService.issue() \u2014 OUTSIDE any DB transaction.\n(4a) Provider success \u2192 short DB txn: UPDATE session + participant (FIX-8).\n(4b) Provider 5xx \u2192 session error + participant errore + 502.\n(4c) Provider 429 \u2192 session stays pending + 429 provider_busy (NOT errore).\n(4d) DB failure after provider success \u2192 teardown(in-memory token) + 500.\n\nRESUME in_corso:\n  - issue() FRESH token.\n  - Teardown OLD session via ProviderToken::fromRef($session->provider, $session->provider_session_ref).\n  - Persist new ref.\n\nRESUME pending:\n  - Retry issue(). On success, persist ref and flip to in_corso.\n\nFIX-8: both session UPDATE and participant UPDATE are inside ONE short transaction.",
@@ -1038,7 +1038,7 @@
           "200": {
             "description": "",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object"
                 }
@@ -1046,12 +1046,12 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/candidate\/interview\/end": {
+    "/candidate/interview/end": {
       "post": {
         "operationId": "interview.end",
         "description": "Sequence (CRITICAL-3 atomicity boundary = steps 3\u20136 in ONE explicit txn):\n(1) resolveOwnedSession \u2192 404 if not owned.\n(2) Validate ended_reason \u2208 {completed, timeout, skipped}; reject 'error' \u2192 422 (FIX-11).\n(3) BEGIN EXPLICIT DB TRANSACTION + SELECT FOR UPDATE on session.\n(4) FIX-3 guard: if session.status !== 'in_corso' \u2192 ROLLBACK \u2192 409.\n(5) HeyGen: replaceUtterances inside txn. Tavus: no reconcile.\n(6) UPDATE session status = ended_reason, ended_at = now().\n(7) Count ended sessions (status \u2208 {completed, timeout, skipped}) for this participant+project.\n(8) Last-question CAS: Participant::where(id, status=in_corso)->update(in_valutazione).\n    Only if $won === 1: dispatch FinalizeInterview::dispatch($pid)->afterCommit().\n(9) COMMIT. Return 200.",
@@ -1060,7 +1060,7 @@
         "requestBody": {
           "required": true,
           "content": {
-            "application\/json": {
+            "application/json": {
               "schema": {
                 "type": "object",
                 "properties": {
@@ -1082,35 +1082,35 @@
             "description": ""
           },
           "422": {
-            "$ref": "#\/components\/responses\/ValidationException"
+            "$ref": "#/components/responses/ValidationException"
           },
           "404": {
-            "$ref": "#\/components\/responses\/ModelNotFoundException"
+            "$ref": "#/components/responses/ModelNotFoundException"
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/participants": {
+    "/participants": {
       "get": {
         "operationId": "participant.index",
         "description": "Server-paginated (D5 \u2014 a fresh authorized query per page, never\nfetch-all + client filter). Sort is fixed (created_at desc, id desc):\nno client-specified sort column reaches the query builder.",
-        "summary": "GET \/api\/participants",
+        "summary": "GET /api/participants",
         "tags": ["Participant"],
         "responses": {
           "200": {
             "description": "Paginated set of `ParticipantResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
                       "type": "array",
                       "items": {
-                        "$ref": "#\/components\/schemas\/ParticipantResource"
+                        "$ref": "#/components/schemas/ParticipantResource"
                       }
                     },
                     "links": {
@@ -1203,16 +1203,16 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/participants\/{id}": {
+    "/participants/{id}": {
       "get": {
         "operationId": "participant.show",
         "description": "Summary scope (D2) \u2014 RBAC only, readable regardless of lifecycle status.",
-        "summary": "GET \/api\/participants\/{id}",
+        "summary": "GET /api/participants/{id}",
         "tags": ["Participant"],
         "parameters": [
           {
@@ -1228,12 +1228,12 @@
           "200": {
             "description": "`ParticipantDetailResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
-                      "$ref": "#\/components\/schemas\/ParticipantDetailResource"
+                      "$ref": "#/components/schemas/ParticipantDetailResource"
                     }
                   },
                   "required": ["data"]
@@ -1242,16 +1242,16 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/participants\/{id}\/transcript": {
+    "/participants/{id}/transcript": {
       "get": {
         "operationId": "participant.transcript",
         "description": "Transcript scope (D2) \u2014 requires lifecycle >= in_valutazione; a\npre-threshold status raises LifecycleNotReadyException -> 409 (D4).",
-        "summary": "GET \/api\/participants\/{id}\/transcript",
+        "summary": "GET /api/participants/{id}/transcript",
         "tags": ["Participant"],
         "parameters": [
           {
@@ -1267,12 +1267,12 @@
           "200": {
             "description": "`TranscriptResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
-                      "$ref": "#\/components\/schemas\/TranscriptResource"
+                      "$ref": "#/components/schemas/TranscriptResource"
                     }
                   },
                   "required": ["data"]
@@ -1281,16 +1281,16 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/participants\/{id}\/evaluation": {
+    "/participants/{id}/evaluation": {
       "get": {
         "operationId": "participant.evaluation",
         "description": "Evaluation scope (D2) \u2014 requires lifecycle === completato; anything\nelse raises LifecycleNotReadyException -> 409 (D4).",
-        "summary": "GET \/api\/participants\/{id}\/evaluation",
+        "summary": "GET /api/participants/{id}/evaluation",
         "tags": ["Participant"],
         "parameters": [
           {
@@ -1306,12 +1306,12 @@
           "200": {
             "description": "`EvaluationResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
-                      "$ref": "#\/components\/schemas\/EvaluationResource"
+                      "$ref": "#/components/schemas/EvaluationResource"
                     }
                   },
                   "required": ["data"]
@@ -1320,21 +1320,21 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/m2m\/participants": {
+    "/m2m/participants": {
       "post": {
         "operationId": "participant.store",
-        "description": "POST \/api\/m2m\/participants\nAuth: auth:api-m2m + ability:participants:create",
+        "description": "POST /api/m2m/participants\nAuth: auth:api-m2m + ability:participants:create",
         "summary": "Create a new participant for a project in the caller's org",
         "tags": ["Participant"],
         "requestBody": {
           "required": true,
           "content": {
-            "application\/json": {
+            "application/json": {
               "schema": {
                 "type": "object",
                 "properties": {
@@ -1370,38 +1370,38 @@
           "201": {
             "description": "`App.Http.Resources.ParticipantResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
-                  "$ref": "#\/components\/schemas\/App.Http.Resources.ParticipantResource"
+                  "$ref": "#/components/schemas/App.Http.Resources.ParticipantResource"
                 }
               }
             }
           },
           "422": {
-            "$ref": "#\/components\/responses\/ValidationException"
+            "$ref": "#/components/responses/ValidationException"
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       },
       "get": {
         "operationId": "m2m.participant.index",
-        "description": "GET \/api\/m2m\/participants\nAuth: auth:api-m2m + ability:participants:read",
+        "description": "GET /api/m2m/participants\nAuth: auth:api-m2m + ability:participants:read",
         "summary": "List participants for the caller's organization",
         "tags": ["Participant"],
         "responses": {
           "200": {
             "description": "Paginated set of `App.Http.Resources.ParticipantResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
                       "type": "array",
                       "items": {
-                        "$ref": "#\/components\/schemas\/App.Http.Resources.ParticipantResource"
+                        "$ref": "#/components/schemas/App.Http.Resources.ParticipantResource"
                       }
                     },
                     "links": {
@@ -1494,15 +1494,15 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/m2m\/participants\/{id}": {
+    "/m2m/participants/{id}": {
       "get": {
         "operationId": "m2m.participant.show",
-        "description": "GET \/api\/m2m\/participants\/{id}\nAuth: auth:api-m2m + ability:participants:read",
+        "description": "GET /api/m2m/participants/{id}\nAuth: auth:api-m2m + ability:participants:read",
         "summary": "Show a specific participant (org-scoped)",
         "tags": ["Participant"],
         "parameters": [
@@ -1519,12 +1519,12 @@
           "200": {
             "description": "`App.Http.Resources.ParticipantResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
-                      "$ref": "#\/components\/schemas\/App.Http.Resources.ParticipantResource"
+                      "$ref": "#/components/schemas/App.Http.Resources.ParticipantResource"
                     }
                   },
                   "required": ["data"]
@@ -1533,15 +1533,15 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/participants\/{id}\/transcript\/download": {
+    "/participants/{id}/transcript/download": {
       "get": {
         "operationId": "admin.participants.transcript.download",
-        "summary": "GET \/api\/participants\/{id}\/transcript\/download",
+        "summary": "GET /api/participants/{id}/transcript/download",
         "tags": ["ParticipantDownload"],
         "parameters": [
           {
@@ -1557,7 +1557,7 @@
           "200": {
             "description": "",
             "content": {
-              "text\/plain; charset=utf-8": {
+              "text/plain; charset=utf-8": {
                 "schema": {
                   "type": "string"
                 }
@@ -1572,15 +1572,15 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/participants\/{id}\/evaluation\/download": {
+    "/participants/{id}/evaluation/download": {
       "get": {
         "operationId": "admin.participants.evaluation.download",
-        "summary": "GET \/api\/participants\/{id}\/evaluation\/download",
+        "summary": "GET /api/participants/{id}/evaluation/download",
         "tags": ["ParticipantDownload"],
         "parameters": [
           {
@@ -1596,7 +1596,7 @@
           "200": {
             "description": "",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "anyOf": [
                     {
@@ -1618,29 +1618,29 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/projects": {
+    "/projects": {
       "get": {
         "operationId": "projects.index",
         "description": "Returns all projects for the authenticated org (TenantScoped global scope applied).",
-        "summary": "GET \/api\/projects",
+        "summary": "GET /api/projects",
         "tags": ["Project"],
         "responses": {
           "200": {
             "description": "Array of `ProjectResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
                       "type": "array",
                       "items": {
-                        "$ref": "#\/components\/schemas\/ProjectResource"
+                        "$ref": "#/components/schemas/ProjectResource"
                       }
                     }
                   },
@@ -1650,24 +1650,24 @@
             }
           },
           "403": {
-            "$ref": "#\/components\/responses\/AuthorizationException"
+            "$ref": "#/components/responses/AuthorizationException"
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       },
       "post": {
         "operationId": "projects.store",
         "description": "Creates a Project and pins the FrameworkVersion (conditional is_locked flip).\nAll within a DB transaction \u2014 no partial state on failure.",
-        "summary": "POST \/api\/projects",
+        "summary": "POST /api/projects",
         "tags": ["Project"],
         "requestBody": {
           "required": true,
           "content": {
-            "application\/json": {
+            "application/json": {
               "schema": {
-                "$ref": "#\/components\/schemas\/StoreProjectRequest"
+                "$ref": "#/components/schemas/StoreProjectRequest"
               }
             }
           }
@@ -1676,12 +1676,12 @@
           "201": {
             "description": "`ProjectResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
-                      "$ref": "#\/components\/schemas\/ProjectResource"
+                      "$ref": "#/components/schemas/ProjectResource"
                     }
                   },
                   "required": ["data"]
@@ -1690,22 +1690,22 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           },
           "422": {
-            "$ref": "#\/components\/responses\/ValidationException"
+            "$ref": "#/components/responses/ValidationException"
           },
           "403": {
-            "$ref": "#\/components\/responses\/AuthorizationException"
+            "$ref": "#/components/responses/AuthorizationException"
           }
         }
       }
     },
-    "\/projects\/{project}": {
+    "/projects/{project}": {
       "get": {
         "operationId": "projects.show",
         "description": "Returns a single project (TenantScoped \u2014 404 for cross-org requests).\nProject is resolved manually (not via route model binding) to ensure the\nTenantScoped global scope is active (TenantContext runs before this method).",
-        "summary": "GET \/api\/projects\/{project}",
+        "summary": "GET /api/projects/{project}",
         "tags": ["Project"],
         "parameters": [
           {
@@ -1721,12 +1721,12 @@
           "200": {
             "description": "`ProjectResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
-                      "$ref": "#\/components\/schemas\/ProjectResource"
+                      "$ref": "#/components/schemas/ProjectResource"
                     }
                   },
                   "required": ["data"]
@@ -1735,20 +1735,20 @@
             }
           },
           "403": {
-            "$ref": "#\/components\/responses\/AuthorizationException"
+            "$ref": "#/components/responses/AuthorizationException"
           },
           "404": {
-            "$ref": "#\/components\/responses\/ModelNotFoundException"
+            "$ref": "#/components/responses/ModelNotFoundException"
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       },
       "put": {
         "operationId": "projects.update",
         "description": "Updates a project. Immutability and lifecycle guards enforced at FormRequest layer.\nModel guard provides backstop for non-HTTP paths.\nProject is resolved manually \u2014 see class docblock.",
-        "summary": "PATCH \/api\/projects\/{project}",
+        "summary": "PATCH /api/projects/{project}",
         "tags": ["Project"],
         "parameters": [
           {
@@ -1762,11 +1762,11 @@
         ],
         "requestBody": {
           "content": {
-            "application\/json": {
+            "application/json": {
               "schema": {
                 "allOf": [
                   {
-                    "$ref": "#\/components\/schemas\/UpdateProjectRequest"
+                    "$ref": "#/components/schemas/UpdateProjectRequest"
                   },
                   {
                     "type": "object",
@@ -1785,12 +1785,12 @@
           "200": {
             "description": "`ProjectResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
-                      "$ref": "#\/components\/schemas\/ProjectResource"
+                      "$ref": "#/components/schemas/ProjectResource"
                     }
                   },
                   "required": ["data"]
@@ -1799,20 +1799,20 @@
             }
           },
           "422": {
-            "$ref": "#\/components\/responses\/ValidationException"
+            "$ref": "#/components/responses/ValidationException"
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           },
           "403": {
-            "$ref": "#\/components\/responses\/AuthorizationException"
+            "$ref": "#/components/responses/AuthorizationException"
           }
         }
       },
       "delete": {
         "operationId": "projects.destroy",
         "description": "Soft-deletes the project. Returns HTTP 204 No Content.\nThe pinned FrameworkVersion remains locked (soft-delete does not unlock).\nProject is resolved manually \u2014 see class docblock.",
-        "summary": "DELETE \/api\/projects\/{project}",
+        "summary": "DELETE /api/projects/{project}",
         "tags": ["Project"],
         "parameters": [
           {
@@ -1829,15 +1829,15 @@
             "description": "No content"
           },
           "403": {
-            "$ref": "#\/components\/responses\/AuthorizationException"
+            "$ref": "#/components/responses/AuthorizationException"
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/health\/queue": {
+    "/health/queue": {
       "get": {
         "operationId": "queueHealth",
         "tags": ["QueueHealth"],
@@ -1845,7 +1845,7 @@
           "200": {
             "description": "",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -1913,7 +1913,7 @@
           "503": {
             "description": "",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -1948,22 +1948,22 @@
         }
       }
     },
-    "\/candidate\/session": {
+    "/candidate/session": {
       "get": {
         "operationId": "session.show",
-        "description": "GET \/api\/candidate\/session\nAuth: auth:api-candidate + TenantContextCandidate",
+        "description": "GET /api/candidate/session\nAuth: auth:api-candidate + TenantContextCandidate",
         "summary": "Return the authenticated candidate's session data",
         "tags": ["Session"],
         "responses": {
           "200": {
             "description": "`App.Http.Resources.ParticipantResource`",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "data": {
-                      "$ref": "#\/components\/schemas\/App.Http.Resources.ParticipantResource"
+                      "$ref": "#/components/schemas/App.Http.Resources.ParticipantResource"
                     }
                   },
                   "required": ["data"]
@@ -1972,12 +1972,12 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/candidate\/interview\/snapshot": {
+    "/candidate/interview/snapshot": {
       "post": {
         "operationId": "snapshot.store",
         "description": "resolveOwnedSession MUST be called FIRST \u2014 enforces participant_id + org isolation.\nEncoded length check MUST happen BEFORE decoding to avoid OOM on oversized inputs.",
@@ -1986,7 +1986,7 @@
         "requestBody": {
           "required": true,
           "content": {
-            "application\/json": {
+            "application/json": {
               "schema": {
                 "type": "object",
                 "properties": {
@@ -2007,12 +2007,12 @@
             "description": ""
           },
           "422": {
-            "$ref": "#\/components\/responses\/ValidationException"
+            "$ref": "#/components/responses/ValidationException"
           },
           "413": {
             "description": "",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -2027,18 +2027,18 @@
             }
           },
           "404": {
-            "$ref": "#\/components\/responses\/ModelNotFoundException"
+            "$ref": "#/components/responses/ModelNotFoundException"
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/sso\/exchange": {
+    "/sso/exchange": {
       "get": {
         "operationId": "ssoExchange.exchange",
-        "description": "GET \/api\/sso\/exchange?token=<sso-link JWT>\nPublic \u2014 no auth guard.",
+        "description": "GET /api/sso/exchange?token=<sso-link JWT>\nPublic \u2014 no auth guard.",
         "summary": "Exchange a sso-link JWT for a candidate JWT",
         "tags": ["SsoExchange"],
         "parameters": [
@@ -2055,7 +2055,7 @@
           "200": {
             "description": "",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -2071,7 +2071,7 @@
           "403": {
             "description": "",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -2088,7 +2088,7 @@
           "401": {
             "description": "",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -2105,16 +2105,16 @@
         }
       }
     },
-    "\/m2m\/sso-link": {
+    "/m2m/sso-link": {
       "post": {
         "operationId": "ssoLink.store",
-        "description": "POST \/api\/m2m\/sso-link\nAuth: auth:api-m2m + ability:sso_link:generate\n\nResponse (201): { \"token\": \"<sso-link JWT>\" }",
+        "description": "POST /api/m2m/sso-link\nAuth: auth:api-m2m + ability:sso_link:generate\n\nResponse (201): { \"token\": \"<sso-link JWT>\" }",
         "summary": "Mint an sso-link JWT",
         "tags": ["SsoLink"],
         "requestBody": {
           "required": true,
           "content": {
-            "application\/json": {
+            "application/json": {
               "schema": {
                 "type": "object",
                 "properties": {
@@ -2147,7 +2147,7 @@
           "201": {
             "description": "",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -2163,7 +2163,7 @@
           "409": {
             "description": "",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -2178,12 +2178,12 @@
             }
           },
           "422": {
-            "$ref": "#\/components\/responses\/ValidationException"
+            "$ref": "#/components/responses/ValidationException"
           },
           "403": {
             "description": "",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -2198,12 +2198,12 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/candidate\/interview\/utterance": {
+    "/candidate/interview/utterance": {
       "post": {
         "operationId": "utterance.store",
         "description": "resolveOwnedSession MUST be called FIRST \u2014 it enforces participant_id + org isolation\nand returns 404 for any non-owned, cross-org, or nonexistent session.",
@@ -2212,7 +2212,7 @@
         "requestBody": {
           "required": true,
           "content": {
-            "application\/json": {
+            "application/json": {
               "schema": {
                 "type": "object",
                 "properties": {
@@ -2242,7 +2242,7 @@
           "409": {
             "description": "Session was no longer in_corso at INSERT time (atomic rejection).\n409 Conflict is the canonical signal for \"session no longer in_corso\".\nThe client MUST treat 409 as a no-op (the interview has ended).",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -2257,18 +2257,18 @@
             }
           },
           "422": {
-            "$ref": "#\/components\/responses\/ValidationException"
+            "$ref": "#/components/responses/ValidationException"
           },
           "404": {
-            "$ref": "#\/components\/responses\/ModelNotFoundException"
+            "$ref": "#/components/responses/ModelNotFoundException"
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
     },
-    "\/m2m\/whoami": {
+    "/m2m/whoami": {
       "get": {
         "operationId": "m2m.whoami",
         "description": "Response shape: { client_id, organization_id, abilities }",
@@ -2278,7 +2278,7 @@
           "200": {
             "description": "",
             "content": {
-              "application\/json": {
+              "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -2311,7 +2311,7 @@
             }
           },
           "401": {
-            "$ref": "#\/components\/responses\/AuthenticationException"
+            "$ref": "#/components/responses/AuthenticationException"
           }
         }
       }
@@ -2620,7 +2620,7 @@
                 "properties": {
                   "type": {
                     "type": "string",
-                    "const": "text\/plain"
+                    "const": "text/plain"
                   },
                   "ref": {
                     "type": "string",
@@ -2637,7 +2637,7 @@
                 "properties": {
                   "type": {
                     "type": "string",
-                    "const": "application\/json"
+                    "const": "application/json"
                   },
                   "ref": {
                     "type": "string",
@@ -2850,7 +2850,7 @@
       },
       "StoreProjectRequest": {
         "type": "object",
-        "description": "StoreProjectRequest (C4 Project Configuration).\n\nValidates POST \/api\/projects payload.\n\nValidation layers:\n1. Basic rules (assessment_type, framework_version_id org-scoped, slug unique per org,\n   language \u2208 supported_locales, webhook_url url)\n2. withValidator cross-field (assessment_type invariants + gap 422):\n   a. For potential: POTENTIAL_CATALOG_INCOMPLETE check FIRST, then subset validation\n   b. For standard: role_code \u2208 {ICO,FLL,MLL,BUL,SRX}, competencies \u2286 role's pivot, all type=standard\n   c. For potential: role_code must be null, competencies \u2286 {MTG,LAT}, all type=potential",
+        "description": "StoreProjectRequest (C4 Project Configuration).\n\nValidates POST /api/projects payload.\n\nValidation layers:\n1. Basic rules (assessment_type, framework_version_id org-scoped, slug unique per org,\n   language \u2208 supported_locales, webhook_url url)\n2. withValidator cross-field (assessment_type invariants + gap 422):\n   a. For potential: POTENTIAL_CATALOG_INCOMPLETE check FIRST, then subset validation\n   b. For standard: role_code \u2208 {ICO,FLL,MLL,BUL,SRX}, competencies \u2286 role's pivot, all type=standard\n   c. For potential: role_code must be null, competencies \u2286 {MTG,LAT}, all type=potential",
         "properties": {
           "framework_version_id": {
             "type": "integer"
@@ -2941,7 +2941,7 @@
       },
       "UpdateProjectRequest": {
         "type": "object",
-        "description": "UpdateProjectRequest (C4 Project Configuration).\n\nValidates PATCH \/api\/projects\/{id} payload.\n\nKey invariants:\n- framework_version_id: blanket-prohibited in ALL PATCH requests (immutable from creation).\n  Any PATCH that includes this field is rejected with 422 \u2014 even the same value, even on draft.\n- slug: self-ignoring unique rule (->ignore) with soft-delete exclusion\n- Immutability: changing assessment_type or role_code when the resulting status is 'active' or\n  'archived' \u2192 422\n- Lifecycle: allowed transitions are draft\u2192active and active\u2192archived only.\n  Forbidden (active\u2192draft, archived\u2192active, archived\u2192draft) \u2192 422.\n\nSubstituteBindings note: the route parameter 'project' is an int (no implicit model binding \u2014\nSubstituteBindings runs BEFORE TenantContext in the api middleware group, so route model binding\nwould resolve Project before the tenant scope is set). Manual findOrFail() inside controller\nand FormRequest methods ensures the TenantScoped global scope is active at resolution time.",
+        "description": "UpdateProjectRequest (C4 Project Configuration).\n\nValidates PATCH /api/projects/{id} payload.\n\nKey invariants:\n- framework_version_id: blanket-prohibited in ALL PATCH requests (immutable from creation).\n  Any PATCH that includes this field is rejected with 422 \u2014 even the same value, even on draft.\n- slug: self-ignoring unique rule (->ignore) with soft-delete exclusion\n- Immutability: changing assessment_type or role_code when the resulting status is 'active' or\n  'archived' \u2192 422\n- Lifecycle: allowed transitions are draft\u2192active and active\u2192archived only.\n  Forbidden (active\u2192draft, archived\u2192active, archived\u2192draft) \u2192 422.\n\nSubstituteBindings note: the route parameter 'project' is an int (no implicit model binding \u2014\nSubstituteBindings runs BEFORE TenantContext in the api middleware group, so route model binding\nwould resolve Project before the tenant scope is set). Manual findOrFail() inside controller\nand FormRequest methods ensures the TenantScoped global scope is active at resolution time.",
         "title": "UpdateProjectRequest"
       }
     },
@@ -2949,7 +2949,7 @@
       "ValidationException": {
         "description": "Validation error",
         "content": {
-          "application\/json": {
+          "application/json": {
             "schema": {
               "type": "object",
               "properties": {
@@ -2976,7 +2976,7 @@
       "AuthenticationException": {
         "description": "Unauthenticated",
         "content": {
-          "application\/json": {
+          "application/json": {
             "schema": {
               "type": "object",
               "properties": {
@@ -2993,7 +2993,7 @@
       "AuthorizationException": {
         "description": "Authorization error",
         "content": {
-          "application\/json": {
+          "application/json": {
             "schema": {
               "type": "object",
               "properties": {
@@ -3010,7 +3010,7 @@
       "ModelNotFoundException": {
         "description": "Not found",
         "content": {
-          "application\/json": {
+          "application/json": {
             "schema": {
               "type": "object",
               "properties": {
