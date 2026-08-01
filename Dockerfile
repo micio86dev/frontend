@@ -6,7 +6,7 @@
 # Per D17 (non-root, healthchecked, small final image) and D18 (Bun build → Node SSR).
 
 # ─── Stage 1: Build ──────────────────────────────────────────────────────────
-FROM oven/bun:1.3 AS builder
+FROM oven/bun:1.3.14 AS builder
 
 WORKDIR /app
 
@@ -23,7 +23,7 @@ COPY . .
 RUN bun run build
 
 # ─── Stage 2: Runtime ────────────────────────────────────────────────────────
-FROM node:24-slim AS runtime
+FROM node:24.11-slim AS runtime
 
 WORKDIR /app
 
