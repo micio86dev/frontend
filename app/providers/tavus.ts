@@ -155,10 +155,15 @@ export class TavusProvider implements InterviewProvider {
       }
 
       return {}
-    } catch (err) {
-      // Deliberately not the provider's own words. Upstream error text names
-      // the vendor, and this string is rendered to the candidate.
-      this.emit('error', { code: 'sdk_error', message: String(err) })
+    } catch {
+      // A STABLE CODE, never String(err).
+      //
+      // The SDK's own error text names the vendor — "daily.co", a room URL, a
+      // LiveKit host — and an earlier version of this line carried it while a
+      // comment above claimed it did not. Nothing consumes `message` today
+      // (useInterviewSession switches on `code` alone), but a message that
+      // exists is a message something will eventually render.
+      this.emit('error', { code: 'sdk_error', message: 'provider_unavailable' })
       return {}
     }
   }
