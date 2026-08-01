@@ -19,8 +19,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The pinned Playwright image ships neither unzip nor bun, and setup-bun
+      # downloads a .zip. Without this the next step fails with "Unable to
+      # locate executable file: unzip" — which is the real reason this used to
+      # be `npm install -g bun`.
+      - name: Install unzip (absent from the Playwright image)
+        run: apt-get update -qq && apt-get install -y -qq unzip
+
       - name: Install Bun 1.3
-        run: npm install -g bun@^1.3
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3'
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
