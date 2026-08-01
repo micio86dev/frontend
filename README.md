@@ -1,75 +1,63 @@
-# Nuxt Minimal Starter
+# BEAI — candidate app
 
-Look at the [Nuxt documentation](https://nuxt.com/docs/getting-started/introduction) to learn more.
+Nuxt 4, SSR. The interview a candidate takes: SSO entry, device check, avatar session, proctoring.
+
+> **Bun only.** Bun is the sole package manager here: install, dev and build.
+> Node runs the SSR production runtime (Nitro `node-server`) and the Vitest/Playwright runners, nothing else.
+> `npm`, `pnpm`, `yarn`, `npx` and `pnpx` are not used — see `AGENTS.md` and the
+> pinned version catalogue in `openspec/changes/project-skeleton-ci/design.md`.
+>
+> This file used to be the stock Nuxt starter README, listing three other
+> package managers ahead of bun. The first thing a new developer opened
+> contradicted the project's own toolchain rule, and the CI guard meant to
+> catch that looked for only two of the five banned tools and never looked at
+> Markdown at all.
 
 ## Setup
 
-Make sure to install dependencies:
-
 ```bash
-# npm
-npm install
-
-# pnpm
-pnpm install
-
-# yarn
-yarn install
-
-# bun
 bun install
 ```
 
-## Development Server
-
-Start the development server on `http://localhost:3000`:
+## Development
 
 ```bash
-# npm
-npm run dev
-
-# pnpm
-pnpm dev
-
-# yarn
-yarn dev
-
-# bun
-bun run dev
+bun run dev          # http://localhost:3000
 ```
 
 ## Production
 
-Build the application for production:
-
 ```bash
-# npm
-npm run build
-
-# pnpm
-pnpm build
-
-# yarn
-yarn build
-
-# bun
 bun run build
+node .output/server/index.mjs
 ```
 
-Locally preview production build:
+## Tests
 
 ```bash
-# npm
-npm run preview
-
-# pnpm
-pnpm preview
-
-# yarn
-yarn preview
-
-# bun
-bun run preview
+bunx vitest run      # unit
+bunx playwright test # E2E — chromium, webkit, mobile
+bunx nuxi typecheck
+bunx eslint .
 ```
 
-Check out the [deployment documentation](https://nuxt.com/docs/getting-started/deployment) for more information.
+> Playwright reuses a server already listening on 3000. If one is running —
+> started by hand, or the Docker container — the suite tests THAT, without the
+> environment variables Playwright injects, and fails for reasons unrelated to
+> the code. Stop it first.
+
+## API client
+
+`types/api.ts` is GENERATED from `openapi.json`, which is exported from the api
+repository. Never edit either by hand:
+
+```bash
+bun run codegen
+```
+
+All three repositories must carry a byte-identical `openapi.json`; the wrapper's
+Cross-Stack Consistency job fails otherwise.
+
+## More
+
+The full local walkthrough lives in the wrapper's `GUIDE.md`.
