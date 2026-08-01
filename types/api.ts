@@ -161,6 +161,87 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/avatar-templates/field-specs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The field specs both providers accept
+         * @description Served rather than duplicated in the Nuxt app, so the form, the
+         *     validation and the provider payload cannot disagree — which is the whole
+         *     reason the spec is declarative. Machine-facing and NOT localized: it
+         *     carries label keys, and translation happens where the operator's locale
+         *     lives.
+         */
+        get: operations["avatarTemplate.fieldSpecs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/avatar-templates/{id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make this the organization's active template
+         * @description The swap runs in ONE transaction, deactivate-then-activate. The order is
+         *     forced: the partial unique index refuses a second active row, so
+         *     activating first would simply fail. Doing it outside a transaction would
+         *     leave a window with no active template at all, during which an interview
+         *     starting would quietly fall back to the environment defaults — the exact
+         *     behaviour this whole change exists to replace.
+         */
+        post: operations["avatarTemplate.activate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/avatar-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["avatarTemplate.index"];
+        put?: never;
+        post: operations["avatarTemplate.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/avatar-templates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["avatarTemplate.show"];
+        put?: never;
+        post?: never;
+        delete: operations["avatarTemplate.destroy"];
+        options?: never;
+        head?: never;
+        patch: operations["avatarTemplate.update"];
+        trace?: never;
+    };
     "/dashboard/metrics": {
         parameters: {
             query?: never;
@@ -745,33 +826,44 @@ export interface components {
     schemas: {
         /** ApiClientResource */
         ApiClientResource: {
-            id: string;
+            id: number;
             name: string;
-            abilities: string | string[];
-            is_active: string;
+            abilities: unknown[];
+            is_active: boolean;
             expires_at: string | null;
             last_used_at: string | null;
-            created_at: string;
+            created_at: string | null;
         };
         /** App.Http.Resources.ParticipantResource */
         "App.Http.Resources.ParticipantResource": {
-            id: string;
+            id: number;
             candidate_ref: string;
             display_name: string;
-            role_code: string;
-            language: string;
+            role_code: string | null;
+            language: string | null;
             status: string;
             started_at: string | null;
             completed_at: string | null;
-            created_at: string;
+            created_at: string | null;
             project: {
-                id: string;
-                role_code: string;
+                id: number;
+                role_code: string | null;
                 language: string;
                 assessment_type: string;
-                exit_redirect_url: string;
-                error_redirect_url: string;
+                exit_redirect_url: string | null;
+                error_redirect_url: string | null;
             } | null;
+        };
+        /** AvatarTemplateResource */
+        AvatarTemplateResource: {
+            id: number;
+            name: string;
+            description: string | null;
+            provider: string;
+            config: unknown[];
+            is_active: boolean;
+            created_at: string | null;
+            updated_at: string | null;
         };
         /** BarsIndicatorResource */
         BarsIndicatorResource: {
@@ -810,13 +902,13 @@ export interface components {
         };
         /** ParticipantDetailResource */
         ParticipantDetailResource: {
-            id: string;
+            id: number;
             candidate_ref: string;
             display_name: string;
-            role_code: string;
-            language: string;
+            role_code: string | null;
+            language: string | null;
             status: string;
-            project_id: string;
+            project_id: number;
             timeline: {
                 started_at: string | null;
                 completed_at: string | null;
@@ -838,37 +930,37 @@ export interface components {
                     url: string;
                 };
             };
-            created_at: string;
+            created_at: string | null;
         };
         /** ParticipantResource */
         ParticipantResource: {
-            id: string;
+            id: number;
             candidate_ref: string;
             display_name: string;
-            role_code: string;
-            language: string;
+            role_code: string | null;
+            language: string | null;
             status: string;
-            project_id: string;
+            project_id: number;
             started_at: string | null;
             completed_at: string | null;
-            created_at: string;
+            created_at: string | null;
         };
         /** ProjectResource */
         ProjectResource: {
-            id: string;
-            organization_id: string;
-            framework_version_id: string;
+            id: number;
+            organization_id: number;
+            framework_version_id: number;
             slug: string;
             name: string;
             assessment_type: string;
-            role_code: string;
+            role_code: string | null;
             language: string;
             status: string;
-            pause_every_n_competencies: string;
-            nudge_min_chars: string;
-            exit_redirect_url: string;
-            webhook_url: string;
-            webhook_events: string;
+            pause_every_n_competencies: number | null;
+            nudge_min_chars: number | null;
+            exit_redirect_url: string | null;
+            webhook_url: string | null;
+            webhook_events: unknown[];
             /** @description webhook_secret intentionally excluded (hidden + encrypted) */
             deadline_at: string | null;
             goes_live_at: string | null;
@@ -1248,6 +1340,215 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "avatarTemplate.fieldSpecs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "avatarTemplate.activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `AvatarTemplateResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AvatarTemplateResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "avatarTemplate.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `AvatarTemplateResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AvatarTemplateResource"][];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "avatarTemplate.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    description?: string | null;
+                    /** @enum {string} */
+                    provider: "";
+                    config: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description `AvatarTemplateResource` */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AvatarTemplateResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "avatarTemplate.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `AvatarTemplateResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AvatarTemplateResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "avatarTemplate.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            /**
+             * @description Deleting what candidates are currently being interviewed with is
+             *     a decision, not a cleanup. 409 rather than 422: the request is
+             *     well-formed, the state is what refuses it.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        error: "template_active";
+                        /** @constant */
+                        message: "Activate another template before deleting this one.";
+                    };
+                };
+            };
+        };
+    };
+    "avatarTemplate.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    name?: string;
+                    description?: string | null;
+                    config?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description `AvatarTemplateResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AvatarTemplateResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
         };
     };
     "dashboard.metrics": {
