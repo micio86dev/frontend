@@ -11,6 +11,23 @@ vi.stubGlobal('nextTick', nextTick)
 vi.stubGlobal('toRef', toRef)
 vi.stubGlobal('toRefs', toRefs)
 
+// Nuxt auto-import. Stubbed here rather than per-spec because it is a global
+// in the running app: any component may call it, and a spec that mounts one
+// should not have to know whether it does. A page adding useI18n() for a
+// localized document title should not break nine unrelated specs.
+vi.stubGlobal(
+  'useI18n',
+  vi.fn(() => ({ t: (key: string) => key, locale: ref('it') }))
+)
+
+// Nuxt auto-import, stubbed globally for the same reason as useI18n above:
+// app.vue reads the route to tell the consent banner where it is, and a spec
+// that mounts the app shell should not have to know that.
+vi.stubGlobal(
+  'useRoute',
+  vi.fn(() => ({ fullPath: '/', path: '/', params: {}, query: {} }))
+)
+
 // Stub Nuxt compiler macros that are unavailable in Vitest context
 vi.stubGlobal('definePageMeta', vi.fn())
 vi.stubGlobal('useHead', vi.fn())
@@ -28,5 +45,5 @@ vi.stubGlobal(
 vi.stubGlobal(
   'defineEventHandler',
   // Pass-through: returns the handler function itself so tests can invoke it
-  (handler: (...args: unknown[]) => unknown) => handler
+  (handler: (..._args: unknown[]) => unknown) => handler
 )

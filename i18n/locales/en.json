@@ -1,5 +1,9 @@
 {
   "welcome": "Welcome",
+  "root": {
+    "title": "Access through your personal link",
+    "message": "To take your interview, use the link sent to you by whoever invited you. This page cannot let you in directly."
+  },
   "unsupported": {
     "title": "Unsupported Browser",
     "message": "This application requires a supported desktop browser (Chrome, Edge, Safari). Please access from a desktop computer."
@@ -7,12 +11,60 @@
   "health": {
     "status": "ok"
   },
-  "consent": {
-    "title": "Privacy Notice",
-    "description": "To participate in the interview, you must consent to audio/video recording and processing of your personal data for evaluation purposes. You may withdraw consent at any time. For more information, please see our privacy policy.",
-    "accept": "I Accept",
-    "decline": "I Decline",
-    "accept_aria": "I accept the terms and proceed to the interview",
-    "decline_aria": "I decline and will not proceed to the interview"
+  "interview": {
+    "consent": {
+      "title": "Privacy Notice and Consent",
+      "body": "To participate in the video interview, you must consent to audio/video recording and the processing of your personal data for evaluation purposes. The recording is used exclusively for competency analysis. You may withdraw consent at any time.",
+      "accept": "I Accept and Continue"
+    },
+    "device_check": {
+      "title": "Device Check",
+      "camera_ok": "Camera is working",
+      "mic_ok": "Microphone is working",
+      "camera_error": "Camera not detected or not accessible. Please check your browser permissions.",
+      "mic_error": "Microphone not detected or audio level is too low. Try speaking now.",
+      "continue": "Continue to Interview"
+    },
+    "live": {
+      "timer_label": "Time remaining",
+      "skip": "Skip question",
+      "pause": "Pause"
+    },
+    "end_of_question": {
+      "title": "Question Completed",
+      "next": "Next Question",
+      "pause": "Pause"
+    },
+    "paused": {
+      "title": "Interview Paused",
+      "resume": "Resume"
+    },
+    "done": {
+      "title": "Interview Completed",
+      "body": "Thank you for participating. Your evaluation is being processed and you will receive the results shortly."
+    },
+    "error": {
+      "title": "An error occurred",
+      "retry": "Try Again"
+    },
+    "terminal": {
+      "403": {
+        "title": "Session Not Authorized",
+        "body": "The interview session has expired or is no longer available. If you believe this is an error, please contact the recruitment team."
+      },
+      "absent_phrase": {
+        "title": "Service Temporarily Unavailable",
+        "body": "A technical issue occurred with the interview service. Please contact support for assistance.",
+        "contact": "Contact Support"
+      }
+    },
+    "document_title": "BEAI Interview"
+  },
+  "analytics_consent": {
+    "region_label": "Analytics cookie consent",
+    "title": "Help us improve this service?",
+    "description": "We would like to use analytics cookies to understand how the site is used. We do not collect your interview answers or anything that identifies you. You can refuse with no consequences.",
+    "accept": "Accept",
+    "reject": "Refuse"
   }
 }

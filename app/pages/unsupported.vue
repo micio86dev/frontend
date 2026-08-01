@@ -11,6 +11,8 @@ definePageMeta({
 })
 
 useHead({
+  // WCAG 2.4.2 (Page Titled): non-empty <title> required.
+  title: 'Unsupported browser',
   meta: [{ name: 'robots', content: 'noindex, nofollow' }],
 })
 </script>

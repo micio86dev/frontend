@@ -6,7 +6,7 @@
 # Per D17 (non-root, healthchecked, small final image) and D18 (Bun build → Node SSR).
 
 # ─── Stage 1: Build ──────────────────────────────────────────────────────────
-FROM oven/bun:1.3 AS builder
+FROM oven/bun:1.3.14 AS builder
 
 WORKDIR /app
 
@@ -23,7 +23,7 @@ COPY . .
 RUN bun run build
 
 # ─── Stage 2: Runtime ────────────────────────────────────────────────────────
-FROM node:24-slim AS runtime
+FROM node:24.11-slim AS runtime
 
 WORKDIR /app
 
@@ -42,6 +42,12 @@ EXPOSE 3000
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000
+
+# The /api suffix is PART OF THE BASE (AGENTS.md, .env.example, backoffice/Dockerfile,
+# docker-compose.yml). Composables append paths like /candidate/interview/start to it.
+# Read at runtime by Nitro, so docker-compose / Railway can override it per environment.
+ARG NUXT_PUBLIC_API_BASE=http://localhost:8000/api
+ENV NUXT_PUBLIC_API_BASE=${NUXT_PUBLIC_API_BASE}
 
 # Health check against the Nuxt health page
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \

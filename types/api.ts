@@ -4,6 +4,345 @@
  */
 
 export interface paths {
+    "/m2m/clients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List M2M API clients for the authenticated admin's organization
+         * @description GET /api/m2m/clients
+         *     Auth: auth:api (admin only via ApiClientPolicy)
+         *
+         *     Never returns key_hash or raw api_key.
+         */
+        get: operations["apiClient.index"];
+        put?: never;
+        /**
+         * Create a new M2M API client
+         * @description POST /api/m2m/clients
+         *     Auth: auth:api (admin only via ApiClientPolicy)
+         *
+         *     Response (201):
+         *     {
+         *       "data": { ...ApiClientResource... },
+         *       "api_key": "beai_live_..."   ← returned ONCE, never stored raw
+         *     }
+         */
+        post: operations["apiClient.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/m2m/clients/{apiClient}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke an M2M API client
+         * @description DELETE /api/m2m/clients/{apiClient}
+         *     Auth: auth:api (admin only, same org via ApiClientPolicy::delete)
+         *
+         *     Write ordering invariant (design §Revocation write ordering):
+         *       1. DB write (is_active=false) committed FIRST — durable authoritative flag
+         *       2. Redis denylist write SECOND — fast-path cache
+         *
+         *     A crash between the two writes leaves the system in the safer state:
+         *     is_active=false in DB → next guard lookup rejects the key.
+         */
+        delete: operations["apiClient.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attempt login and return a token pair
+         * @description POST /api/auth/login
+         *     Public — no auth middleware.
+         *
+         *     Token model (D4 — jwt-auth rotation):
+         *     - Access token: standard TTL (30 min), used for all API requests.
+         *     - Refresh token: re-issues a new access token via POST /api/auth/refresh.
+         *       jwt-auth rotation: the SAME bearer token is posted to /refresh; the old
+         *       token's jti is denylisted and a new token is returned. There is no separate
+         *       long-lived opaque refresh token — the "refresh_token" field carries the
+         *       same access token string returned at login.
+         */
+        post: operations["auth.login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh the access token
+         * @description POST /api/auth/refresh
+         *     Protected: auth:api
+         *
+         *     Uses jwt-auth's native token ROTATION: the current bearer access token is
+         *     presented and a new access token is returned; the old token's jti is denylisted.
+         */
+        post: operations["auth.refresh"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Logout — denylist the current token's jti + invalidate Spatie permission cache
+         * @description POST /api/auth/logout
+         *     Protected: auth:api
+         */
+        post: operations["auth.logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return the authenticated user, their organization, and their roles
+         * @description GET /api/auth/me
+         *     Protected: auth:api
+         */
+        get: operations["auth.me"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/avatar-templates/field-specs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The field specs both providers accept
+         * @description Served rather than duplicated in the Nuxt app, so the form, the
+         *     validation and the provider payload cannot disagree — which is the whole
+         *     reason the spec is declarative. Machine-facing and NOT localized: it
+         *     carries label keys, and translation happens where the operator's locale
+         *     lives.
+         */
+        get: operations["avatarTemplate.fieldSpecs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/avatar-templates/{id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make this the organization's active template
+         * @description The swap runs in ONE transaction, deactivate-then-activate. The order is
+         *     forced: the partial unique index refuses a second active row, so
+         *     activating first would simply fail. Doing it outside a transaction would
+         *     leave a window with no active template at all, during which an interview
+         *     starting would quietly fall back to the environment defaults — the exact
+         *     behaviour this whole change exists to replace.
+         */
+        post: operations["avatarTemplate.activate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/avatar-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["avatarTemplate.index"];
+        put?: never;
+        post: operations["avatarTemplate.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/avatar-templates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["avatarTemplate.show"];
+        put?: never;
+        post?: never;
+        delete: operations["avatarTemplate.destroy"];
+        options?: never;
+        head?: never;
+        patch: operations["avatarTemplate.update"];
+        trace?: never;
+    };
+    "/dashboard/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["dashboard.metrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/framework/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/framework/roles
+         * @description Returns all global roles for ANY authenticated org.
+         *     No FrameworkVersion required — if absent, pin_context is null.
+         */
+        get: operations["framework.index"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/framework/roles/{roleCode}/competencies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/framework/roles/{roleCode}/competencies
+         * @description Returns competencies for a specific role + bars_available flag (N+1-free).
+         */
+        get: operations["framework.roleCompetencies"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/framework/roles/{roleCode}/competencies/{competencyCode}/indicators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/framework/roles/{roleCode}/competencies/{competencyCode}/indicators
+         * @description Returns BARS indicators + anchors for a role×competency pair.
+         */
+        get: operations["framework.competencyBars"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/framework/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/framework/versions
+         * @description Returns all FrameworkVersions belonging to the authenticated org.
+         *     TenantScoped global scope limits results to own-org versions only.
+         *     Used by clients when creating a Project to choose which FV to pin.
+         *
+         *     Added by C4.
+         */
+        get: operations["framework.versions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -25,11 +364,748 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/candidate/interview/integrity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ingest a batch of integrity events (all-or-nothing)
+         * @description resolveOwnedSession MUST be called FIRST — enforces participant_id + org isolation.
+         *     Validation of each event.kind against CANONICAL_KINDS is ALL-OR-NOTHING:
+         *     a single unknown kind causes the entire batch to be rejected (422) with NO rows inserted.
+         */
+        post: operations["integrity.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/candidate/interview/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create or resume a provider session for the next competency interview
+         * @description Sequence (from design data flow — CRITICAL: provider call is OUTSIDE any DB txn):
+         *     (1) Resolve next competency by project_competencies.position ASC.
+         *     (2) Create-or-RESUME: INSERT or catch UniqueConstraintViolationException → re-query.
+         *     (3) ProviderSessionService.issue() — OUTSIDE any DB transaction.
+         *     (4a) Provider success → short DB txn: UPDATE session + participant (FIX-8).
+         *     (4b) Provider 5xx → session error + participant errore + 502.
+         *     (4c) Provider 429 → session stays pending + 429 provider_busy (NOT errore).
+         *     (4d) DB failure after provider success → teardown(in-memory token) + 500.
+         *
+         *     RESUME in_corso:
+         *       - issue() FRESH token.
+         *       - Teardown OLD session via ProviderToken::fromRef($session->provider, $session->provider_session_ref).
+         *       - Persist new ref.
+         *
+         *     RESUME pending:
+         *       - Retry issue(). On success, persist ref and flip to in_corso.
+         *
+         *     FIX-8: both session UPDATE and participant UPDATE are inside ONE short transaction.
+         */
+        post: operations["interview.start"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/candidate/interview/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End a provider session, reconcile the transcript, and (on last question) dispatch scoring
+         * @description Sequence (CRITICAL-3 atomicity boundary = steps 3–6 in ONE explicit txn):
+         *     (1) resolveOwnedSession → 404 if not owned.
+         *     (2) Validate ended_reason ∈ {completed, timeout, skipped}; reject 'error' → 422 (FIX-11).
+         *     (3) BEGIN EXPLICIT DB TRANSACTION + SELECT FOR UPDATE on session.
+         *     (4) FIX-3 guard: if session.status !== 'in_corso' → ROLLBACK → 409.
+         *     (5) HeyGen: replaceUtterances inside txn. Tavus: no reconcile.
+         *     (6) UPDATE session status = ended_reason, ended_at = now().
+         *     (7) Count ended sessions (status ∈ {completed, timeout, skipped}) for this participant+project.
+         *     (8) Last-question CAS: Participant::where(id, status=in_corso)->update(in_valutazione).
+         *         Only if $won === 1: dispatch FinalizeInterview::dispatch($pid)->afterCommit().
+         *     (9) COMMIT. Return 200.
+         */
+        post: operations["interview.end"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/participants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/participants
+         * @description Server-paginated (D5 — a fresh authorized query per page, never
+         *     fetch-all + client filter). Sort is fixed (created_at desc, id desc):
+         *     no client-specified sort column reaches the query builder.
+         */
+        get: operations["participant.index"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/participants/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/participants/{id}
+         * @description Summary scope (D2) — RBAC only, readable regardless of lifecycle status.
+         */
+        get: operations["participant.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/participants/{id}/transcript": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/participants/{id}/transcript
+         * @description Transcript scope (D2) — requires lifecycle >= in_valutazione; a
+         *     pre-threshold status raises LifecycleNotReadyException -> 409 (D4).
+         */
+        get: operations["participant.transcript"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/participants/{id}/evaluation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/participants/{id}/evaluation
+         * @description Evaluation scope (D2) — requires lifecycle === completato; anything
+         *     else raises LifecycleNotReadyException -> 409 (D4).
+         */
+        get: operations["participant.evaluation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/m2m/participants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List participants for the caller's organization
+         * @description GET /api/m2m/participants
+         *     Auth: auth:api-m2m + ability:participants:read
+         */
+        get: operations["m2m.participant.index"];
+        put?: never;
+        /**
+         * Create a new participant for a project in the caller's org
+         * @description POST /api/m2m/participants
+         *     Auth: auth:api-m2m + ability:participants:create
+         */
+        post: operations["participant.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/m2m/participants/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a specific participant (org-scoped)
+         * @description GET /api/m2m/participants/{id}
+         *     Auth: auth:api-m2m + ability:participants:read
+         */
+        get: operations["m2m.participant.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/participants/{id}/transcript/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/participants/{id}/transcript/download */
+        get: operations["admin.participants.transcript.download"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/participants/{id}/evaluation/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/participants/{id}/evaluation/download */
+        get: operations["admin.participants.evaluation.download"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/projects
+         * @description Returns all projects for the authenticated org (TenantScoped global scope applied).
+         */
+        get: operations["projects.index"];
+        put?: never;
+        /**
+         * POST /api/projects
+         * @description Creates a Project and pins the FrameworkVersion (conditional is_locked flip).
+         *     All within a DB transaction — no partial state on failure.
+         */
+        post: operations["projects.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/projects/{project}
+         * @description Returns a single project (TenantScoped — 404 for cross-org requests).
+         *     Project is resolved manually (not via route model binding) to ensure the
+         *     TenantScoped global scope is active (TenantContext runs before this method).
+         */
+        get: operations["projects.show"];
+        /**
+         * PATCH /api/projects/{project}
+         * @description Updates a project. Immutability and lifecycle guards enforced at FormRequest layer.
+         *     Model guard provides backstop for non-HTTP paths.
+         *     Project is resolved manually — see class docblock.
+         */
+        put: operations["projects.update"];
+        post?: never;
+        /**
+         * DELETE /api/projects/{project}
+         * @description Soft-deletes the project. Returns HTTP 204 No Content.
+         *     The pinned FrameworkVersion remains locked (soft-delete does not unlock).
+         *     Project is resolved manually — see class docblock.
+         */
+        delete: operations["projects.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["queueHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/candidate/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return the authenticated candidate's session data
+         * @description GET /api/candidate/session
+         *     Auth: auth:api-candidate + TenantContextCandidate
+         */
+        get: operations["session.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/candidate/interview/snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload a JPEG snapshot to S3 and persist the reference
+         * @description resolveOwnedSession MUST be called FIRST — enforces participant_id + org isolation.
+         *     Encoded length check MUST happen BEFORE decoding to avoid OOM on oversized inputs.
+         */
+        post: operations["snapshot.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sso/exchange": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Exchange a sso-link JWT for a candidate JWT
+         * @description GET /api/sso/exchange?token=<sso-link JWT>
+         *     Public — no auth guard.
+         */
+        get: operations["ssoExchange.exchange"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/m2m/sso-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint an sso-link JWT
+         * @description POST /api/m2m/sso-link
+         *     Auth: auth:api-m2m + ability:sso_link:generate
+         *
+         *     Response (201): { "token": "<sso-link JWT>" }
+         */
+        post: operations["ssoLink.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/candidate/interview/utterance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ingest a live transcript utterance (best-effort)
+         * @description resolveOwnedSession MUST be called FIRST — it enforces participant_id + org isolation
+         *     and returns 404 for any non-owned, cross-org, or nonexistent session.
+         */
+        post: operations["utterance.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/m2m/whoami": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return the authenticated M2M client identity
+         * @description Response shape: { client_id, organization_id, abilities }
+         */
+        get: operations["m2m.whoami"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
-    schemas: never;
-    responses: never;
+    schemas: {
+        /** ApiClientResource */
+        ApiClientResource: {
+            id: number;
+            name: string;
+            abilities: unknown[];
+            is_active: boolean;
+            expires_at: string | null;
+            last_used_at: string | null;
+            created_at: string | null;
+        };
+        /** App.Http.Resources.ParticipantResource */
+        "App.Http.Resources.ParticipantResource": {
+            id: number;
+            candidate_ref: string;
+            display_name: string;
+            role_code: string | null;
+            language: string | null;
+            status: string;
+            started_at: string | null;
+            completed_at: string | null;
+            created_at: string | null;
+            project: {
+                id: number;
+                role_code: string | null;
+                language: string;
+                assessment_type: string;
+                exit_redirect_url: string | null;
+                error_redirect_url: string | null;
+            } | null;
+        };
+        /** AvatarTemplateResource */
+        AvatarTemplateResource: {
+            id: number;
+            name: string;
+            description: string | null;
+            provider: string;
+            config: unknown[];
+            is_active: boolean;
+            created_at: string | null;
+            updated_at: string | null;
+        };
+        /** BarsIndicatorResource */
+        BarsIndicatorResource: {
+            position: number;
+            text: unknown[];
+            anchor_5: unknown[];
+            anchor_3: unknown[];
+            anchor_1: unknown[];
+            translation_gap: boolean;
+        };
+        /** CompetencyResource */
+        CompetencyResource: {
+            code: string;
+            name: unknown[];
+            definition: unknown[];
+            type: string;
+            bars_available: boolean;
+        };
+        /** DashboardMetricsResource */
+        DashboardMetricsResource: {
+            [key: string]: unknown;
+        };
+        /** EvaluationResource */
+        EvaluationResource: {
+            [key: string]: unknown;
+        };
+        /** FrameworkVersionResource */
+        FrameworkVersionResource: {
+            id: number;
+            organization_id: number;
+            version: string;
+            label: string | null;
+            is_locked: boolean;
+            created_at: string | null;
+            updated_at: string | null;
+        };
+        /** ParticipantDetailResource */
+        ParticipantDetailResource: {
+            id: number;
+            candidate_ref: string;
+            display_name: string;
+            role_code: string | null;
+            language: string | null;
+            status: string;
+            project_id: number;
+            timeline: {
+                started_at: string | null;
+                completed_at: string | null;
+                session_count: number;
+            };
+            files: {
+                transcript: {
+                    /** @constant */
+                    type: "text/plain";
+                    /** @constant */
+                    ref: "transcript";
+                    url: string;
+                };
+                evaluation_raw: {
+                    /** @constant */
+                    type: "application/json";
+                    /** @constant */
+                    ref: "evaluation";
+                    url: string;
+                };
+            };
+            created_at: string | null;
+        };
+        /** ParticipantResource */
+        ParticipantResource: {
+            id: number;
+            candidate_ref: string;
+            display_name: string;
+            role_code: string | null;
+            language: string | null;
+            status: string;
+            project_id: number;
+            started_at: string | null;
+            completed_at: string | null;
+            created_at: string | null;
+        };
+        /** ProjectResource */
+        ProjectResource: {
+            id: number;
+            organization_id: number;
+            framework_version_id: number;
+            slug: string;
+            name: string;
+            assessment_type: string;
+            role_code: string | null;
+            language: string;
+            status: string;
+            pause_every_n_competencies: number | null;
+            nudge_min_chars: number | null;
+            exit_redirect_url: string | null;
+            webhook_url: string | null;
+            webhook_events: unknown[];
+            /** @description webhook_secret intentionally excluded (hidden + encrypted) */
+            deadline_at: string | null;
+            goes_live_at: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+            /** @description Pin context: the FrameworkVersion this project is pinned to */
+            pin_context: {
+                id: number;
+                version: string;
+                label: string | null;
+                is_locked: boolean;
+            } | null;
+            /** @description Competencies with position pivot */
+            competencies: unknown[];
+        };
+        /** RoleResource */
+        RoleResource: {
+            code: string;
+            name: unknown[];
+            responsibilities: unknown[];
+            competency_count: number;
+        };
+        /**
+         * StoreProjectRequest
+         * @description StoreProjectRequest (C4 Project Configuration).
+         *
+         *     Validates POST /api/projects payload.
+         *
+         *     Validation layers:
+         *     1. Basic rules (assessment_type, framework_version_id org-scoped, slug unique per org,
+         *        language ∈ supported_locales, webhook_url url)
+         *     2. withValidator cross-field (assessment_type invariants + gap 422):
+         *        a. For potential: POTENTIAL_CATALOG_INCOMPLETE check FIRST, then subset validation
+         *        b. For standard: role_code ∈ {ICO,FLL,MLL,BUL,SRX}, competencies ⊆ role's pivot, all type=standard
+         *        c. For potential: role_code must be null, competencies ⊆ {MTG,LAT}, all type=potential
+         */
+        StoreProjectRequest: {
+            framework_version_id: number;
+            slug: string;
+            name: string;
+            /** @enum {string} */
+            assessment_type: "standard" | "potential";
+            role_code?: string | null;
+            /** @enum {string} */
+            language: "it" | "en";
+            competency_ids?: number[] | null;
+            pause_every_n_competencies?: number | null;
+            nudge_min_chars?: number | null;
+            /** Format: uri */
+            exit_redirect_url?: string | null;
+            /** Format: uri */
+            error_redirect_url?: string | null;
+            /** Format: uri */
+            webhook_url?: string | null;
+            webhook_secret?: string | null;
+            /**
+             * @description Closed event-type set (C10 D10) — not env-overridable, so Rule::in reads
+             *     the config, never a hardcoded list.
+             */
+            webhook_events?: ("progress" | "evaluation")[];
+            /** Format: date-time */
+            deadline_at?: string | null;
+            /** Format: date-time */
+            goes_live_at?: string | null;
+        };
+        /** TranscriptResource */
+        TranscriptResource: {
+            sessions: string;
+        };
+        /**
+         * UpdateProjectRequest
+         * @description UpdateProjectRequest (C4 Project Configuration).
+         *
+         *     Validates PATCH /api/projects/{id} payload.
+         *
+         *     Key invariants:
+         *     - framework_version_id: blanket-prohibited in ALL PATCH requests (immutable from creation).
+         *       Any PATCH that includes this field is rejected with 422 — even the same value, even on draft.
+         *     - slug: self-ignoring unique rule (->ignore) with soft-delete exclusion
+         *     - Immutability: changing assessment_type or role_code when the resulting status is 'active' or
+         *       'archived' → 422
+         *     - Lifecycle: allowed transitions are draft→active and active→archived only.
+         *       Forbidden (active→draft, archived→active, archived→draft) → 422.
+         *
+         *     SubstituteBindings note: the route parameter 'project' is an int (no implicit model binding —
+         *     SubstituteBindings runs BEFORE TenantContext in the api middleware group, so route model binding
+         *     would resolve Project before the tenant scope is set). Manual findOrFail() inside controller
+         *     and FormRequest methods ensures the TenantScoped global scope is active at resolution time.
+         */
+        UpdateProjectRequest: Record<string, never>;
+    };
+    responses: {
+        /** @description Validation error */
+        ValidationException: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @description Errors overview. */
+                    message: string;
+                    /** @description A detailed description of each field that failed validation. */
+                    errors: {
+                        [key: string]: string[];
+                    };
+                };
+            };
+        };
+        /** @description Unauthenticated */
+        AuthenticationException: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @description Error overview. */
+                    message: string;
+                };
+            };
+        };
+        /** @description Authorization error */
+        AuthorizationException: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @description Error overview. */
+                    message: string;
+                };
+            };
+        };
+        /** @description Not found */
+        ModelNotFoundException: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @description Error overview. */
+                    message: string;
+                };
+            };
+        };
+    };
     parameters: never;
     requestBodies: never;
     headers: never;
@@ -37,6 +1113,570 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    "apiClient.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated set of `ApiClientResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ApiClientResource"][];
+                        links: {
+                            first: string | null;
+                            last: string | null;
+                            prev: string | null;
+                            next: string | null;
+                        };
+                        meta: {
+                            current_page: number;
+                            from: number | null;
+                            last_page: number;
+                            /** @description Generated paginator links. */
+                            links: {
+                                url: string | null;
+                                label: string;
+                                active: boolean;
+                            }[];
+                            /** @description Base path for paginator generated URLs. */
+                            path: string | null;
+                            /** @description Number of items shown per page. */
+                            per_page: number;
+                            /** @description Number of the last item in the slice. */
+                            to: number | null;
+                            /** @description Total number of items being paginated. */
+                            total: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "apiClient.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    abilities: string[];
+                    /** Format: date-time */
+                    expires_at?: string | null;
+                };
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ApiClientResource"];
+                        api_key: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "apiClient.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The api client ID */
+                apiClient: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "auth.login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: email */
+                    email: string;
+                    password: string;
+                };
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        access_token: string;
+                        refresh_token: string;
+                        /** @constant */
+                        token_type: "bearer";
+                    };
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Invalid credentials.";
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "auth.refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        access_token: string;
+                        /** @constant */
+                        token_type: "bearer";
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "auth.logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Successfully logged out.";
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "auth.me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        user: {
+                            id: number;
+                            name: string;
+                            email: string;
+                        };
+                        organization: {
+                            id: number;
+                            name: string;
+                        } | null;
+                        roles: unknown[];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "avatarTemplate.fieldSpecs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "avatarTemplate.activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `AvatarTemplateResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AvatarTemplateResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "avatarTemplate.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `AvatarTemplateResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AvatarTemplateResource"][];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "avatarTemplate.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    description?: string | null;
+                    /** @enum {string} */
+                    provider: "";
+                    config: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description `AvatarTemplateResource` */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AvatarTemplateResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "avatarTemplate.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `AvatarTemplateResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AvatarTemplateResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "avatarTemplate.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            /**
+             * @description Deleting what candidates are currently being interviewed with is
+             *     a decision, not a cleanup. 409 rather than 422: the request is
+             *     well-formed, the state is what refuses it.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        error: "template_active";
+                        /** @constant */
+                        message: "Activate another template before deleting this one.";
+                    };
+                };
+            };
+        };
+    };
+    "avatarTemplate.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    name?: string;
+                    description?: string | null;
+                    config?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description `AvatarTemplateResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AvatarTemplateResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "dashboard.metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `DashboardMetricsResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DashboardMetricsResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "framework.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `RoleResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RoleResource"][];
+                        pin_context: {
+                            id: number;
+                            version: string;
+                            label: string | null;
+                            is_locked: boolean;
+                        } | null;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "framework.roleCompetencies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                roleCode: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `CompetencyResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CompetencyResource"][];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "framework.competencyBars": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                roleCode: string;
+                competencyCode: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `BarsIndicatorResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["BarsIndicatorResource"][];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "framework.versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `FrameworkVersionResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["FrameworkVersionResource"][];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
     health: {
         parameters: {
             query?: never;
@@ -57,6 +1697,780 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    "integrity.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    session_id: number;
+                    events: {
+                        kind: string;
+                        payload: string[];
+                        ts: string;
+                    }[];
+                };
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "interview.start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "interview.end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    session_id: number;
+                    /** @enum {string} */
+                    ended_reason: "completed" | "timeout" | "skipped";
+                };
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "participant.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated set of `ParticipantResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ParticipantResource"][];
+                        links: {
+                            first: string | null;
+                            last: string | null;
+                            prev: string | null;
+                            next: string | null;
+                        };
+                        meta: {
+                            current_page: number;
+                            from: number | null;
+                            last_page: number;
+                            /** @description Generated paginator links. */
+                            links: {
+                                url: string | null;
+                                label: string;
+                                active: boolean;
+                            }[];
+                            /** @description Base path for paginator generated URLs. */
+                            path: string | null;
+                            /** @description Number of items shown per page. */
+                            per_page: number;
+                            /** @description Number of the last item in the slice. */
+                            to: number | null;
+                            /** @description Total number of items being paginated. */
+                            total: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "participant.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `ParticipantDetailResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ParticipantDetailResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "participant.transcript": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `TranscriptResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["TranscriptResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "participant.evaluation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `EvaluationResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["EvaluationResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "m2m.participant.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated set of `App.Http.Resources.ParticipantResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["App.Http.Resources.ParticipantResource"][];
+                        links: {
+                            first: string | null;
+                            last: string | null;
+                            prev: string | null;
+                            next: string | null;
+                        };
+                        meta: {
+                            current_page: number;
+                            from: number | null;
+                            last_page: number;
+                            /** @description Generated paginator links. */
+                            links: {
+                                url: string | null;
+                                label: string;
+                                active: boolean;
+                            }[];
+                            /** @description Base path for paginator generated URLs. */
+                            path: string | null;
+                            /** @description Number of items shown per page. */
+                            per_page: number;
+                            /** @description Number of the last item in the slice. */
+                            to: number | null;
+                            /** @description Total number of items being paginated. */
+                            total: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "participant.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    project_id: number;
+                    candidate_ref: string;
+                    display_name: string;
+                    role_code?: string | null;
+                    language?: string | null;
+                    status?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description `App.Http.Resources.ParticipantResource` */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["App.Http.Resources.ParticipantResource"];
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "m2m.participant.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `App.Http.Resources.ParticipantResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["App.Http.Resources.ParticipantResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "admin.participants.transcript.download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain; charset=utf-8": string;
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "admin.participants.evaluation.download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string | Record<string, never>;
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "projects.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `ProjectResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ProjectResource"][];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "projects.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description `ProjectResource` */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ProjectResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "projects.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `ProjectResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ProjectResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "projects.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateProjectRequest"] & {
+                    competency_ids?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description `ProjectResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ProjectResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "projects.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    queueHealth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        status: "degraded" | "ok";
+                        worker: {
+                            alive: boolean;
+                            last_heartbeat_age_seconds: Record<string, never> | null;
+                        };
+                        queue: {
+                            depth: number;
+                            last_processed_age_seconds: Record<string, never> | null;
+                            stalled: string;
+                            oldest_reserved_age_seconds: number | null;
+                            reservation_stalled: string;
+                        };
+                        failed: {
+                            count: number;
+                            oldest_age_seconds: Record<string, never> | null;
+                        };
+                    };
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        status: "down";
+                        worker: {
+                            alive: boolean;
+                            last_heartbeat_age_seconds: Record<string, never> | null;
+                        };
+                        queue: null;
+                        failed: null;
+                    };
+                };
+            };
+        };
+    };
+    "session.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `App.Http.Resources.ParticipantResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["App.Http.Resources.ParticipantResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "snapshot.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    session_id: number;
+                    image_base64: string;
+                };
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Snapshot payload exceeds maximum allowed size.";
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "ssoExchange.exchange": {
+        parameters: {
+            query?: {
+                token?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        access_token: string;
+                    };
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Unauthenticated.";
+                    };
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Access denied.";
+                    };
+                };
+            };
+        };
+    };
+    "ssoLink.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    project_id: number;
+                    candidate_ref: string;
+                    display_name: string;
+                    role_code?: string | null;
+                    lang?: string | null;
+                };
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        token: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Access denied.";
+                    };
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Conflict: participant has already completed this assessment.";
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "utterance.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    session_id: number;
+                    /** @enum {string} */
+                    speaker: "candidate" | "avatar";
+                    text: string;
+                    ts: string;
+                };
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            /**
+             * @description Session was no longer in_corso at INSERT time (atomic rejection).
+             *     409 Conflict is the canonical signal for "session no longer in_corso".
+             *     The client MUST treat 409 as a no-op (the interview has ended).
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Session is no longer in_corso.";
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "m2m.whoami": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        client_id: string;
+                        organization_id: string;
+                        abilities: string | string[];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
         };
     };
 }
