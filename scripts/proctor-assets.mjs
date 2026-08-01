@@ -12,8 +12,7 @@
  */
 
 import { copyFile, mkdir } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
-import { createWriteStream } from 'node:fs'
+import { existsSync, createWriteStream } from 'node:fs'
 import { pipeline } from 'node:stream/promises'
 import { get } from 'node:https'
 import { join, dirname } from 'node:path'
