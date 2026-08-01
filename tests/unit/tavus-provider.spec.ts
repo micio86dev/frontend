@@ -170,10 +170,16 @@ describe('TavusProvider', () => {
 
   // ---- toggleMic() ----
 
-  it('toggleMic() resolves without throwing (Daily handles mic toggle via setLocalAudio or similar)', async () => {
-    const { provider } = makeProvider()
-    const el = document.createElement('div')
-    await provider.start(el, { dbSessionId: 1, conversationUrl: CONVERSATION_URL, ...PHRASES })
+  it('toggleMic() resolves without throwing before the call object exists', async () => {
+    // Rewritten (C14 PR1). It used to assert that toggleMic did NOTHING, with
+    // a title claiming "Daily handles mic toggle via setLocalAudio or similar"
+    // and a body that only checked it did not throw. Nothing handled it: the
+    // method was empty, so a candidate pressing mute stayed live.
+    //
+    // The real behaviour is now asserted in tavus-opacity.spec.ts. What is left
+    // here is the case that genuinely must not throw — toggling before start(),
+    // where there is no call object to toggle.
+    const provider = new TavusProvider(vi.fn().mockResolvedValue(mockFrame))
 
     await expect(provider.toggleMic()).resolves.not.toThrow()
   })
