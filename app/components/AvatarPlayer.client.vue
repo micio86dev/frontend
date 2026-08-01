@@ -45,7 +45,12 @@
 /**
  * AvatarPlayer.client.vue — Browser-only avatar video player.
  *
- * Mounts the avatar provider (HeyGen/Tavus) onto the <video> element.
+ * Mounts the avatar provider onto the <video> element.
+ *
+ * Deliberately unnamed. The provider is chosen server-side and the candidate
+ * must never learn which one — a vendor name in a comment is not shipped, but
+ * it is the first thing somebody copies into a label or an error string.
+ * tests/unit/provider-anonymity.spec.ts holds this file to it.
  * Emits provider lifecycle events upward to the interview page container.
  *
  * .client.vue enforces Nuxt SSR-client isolation — this component is NEVER

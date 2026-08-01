@@ -171,8 +171,10 @@ export class HeyGenProvider implements InterviewProvider {
       this.session.startListening()
 
       return {}
-    } catch (err) {
-      this.emit('error', { code: 'sdk_error', message: String(err) })
+    } catch {
+      // A stable code, never String(err) — the SDK's error text names the
+      // vendor and its hosts. See the same guard in tavus.ts.
+      this.emit('error', { code: 'sdk_error', message: 'provider_unavailable' })
       return {}
     }
   }
