@@ -1,10 +1,13 @@
 name: CI — frontend
 
+# Every long-lived branch, not just develop. With develop alone, a release/**
+# or hotfix/** branch reached main without this suite ever running — so the one
+# merge that ships to production was the least tested one in the flow.
 on:
   push:
-    branches: [develop]
+    branches: [develop, main, 'release/**', 'hotfix/**']
   pull_request:
-    branches: [develop]
+    branches: [develop, main, 'release/**', 'hotfix/**']
 
 jobs:
   ci:
