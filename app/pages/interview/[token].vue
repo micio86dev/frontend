@@ -13,6 +13,8 @@
         {{ $t('interview.consent.title') }}
       </h1>
       <p class="text-sm text-muted-foreground">{{ $t('interview.consent.body') }}</p>
+      <Separator />
+      <InterviewGuide />
       <Button @click="session.acceptConsent()">
         {{ $t('interview.consent.accept') }}
       </Button>
@@ -210,6 +212,8 @@ import { Alert, AlertTitle } from '~/components/ui/alert'
 import { Skeleton } from '~/components/ui/skeleton'
 import InterviewTimer from '~/components/InterviewTimer.vue'
 import InterviewCaption from '~/components/InterviewCaption.vue'
+import InterviewGuide from '~/components/molecules/InterviewGuide.vue'
+import { Separator } from '~/components/ui/separator'
 import InterviewProgressBar from '~/components/ProgressBar.vue'
 import type { IntegrityEventInternal } from '~/utils/proctor-config'
 
