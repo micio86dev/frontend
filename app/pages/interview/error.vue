@@ -1,20 +1,17 @@
 <template>
-  <main
-    class="flex min-h-screen flex-col items-center justify-center bg-background p-4"
-    data-testid="error-page"
+  <NoticeShell
+    tone="danger"
+    test-id="error-page"
+    heading-id="error-page-heading"
+    :title="$t('interview.error.title')"
+    :message="$t('interview.error.body')"
   >
-    <section
-      class="flex max-w-lg flex-col gap-6 rounded-xl border border-border bg-card p-8 shadow-md"
-      aria-labelledby="error-page-heading"
-    >
-      <Alert variant="destructive">
-        <AlertTitle id="error-page-heading">{{ $t('interview.error.title') }}</AlertTitle>
-      </Alert>
-      <Button data-testid="retry-button" @click="handleRetry">
+    <div>
+      <Button size="lg" data-testid="retry-button" @click="handleRetry">
         {{ $t('interview.error.retry') }}
       </Button>
-    </section>
-  </main>
+    </div>
+  </NoticeShell>
 </template>
 
 <script setup lang="ts">
@@ -24,8 +21,11 @@
  * Shown on 502, network failure, or 3x provider_busy.
  * Retry resets the attempt counter via useInterviewSession.retry().
  * noindex: session-gated page.
+ *
+ * The retry button is wrapped so it sizes to its own content instead of
+ * stretching across the shell's column.
  */
-import { Alert, AlertTitle } from '~/components/ui/alert'
+import NoticeShell from '~/components/molecules/NoticeShell.vue'
 import { Button } from '~/components/ui/button'
 
 definePageMeta({ ssr: false })

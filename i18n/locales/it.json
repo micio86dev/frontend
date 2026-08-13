@@ -1,4 +1,7 @@
 {
+  "shell": {
+    "tagline": "Valutazione delle soft skill attraverso un colloquio strutturato."
+  },
   "welcome": "Benvenuto",
   "root": {
     "title": "Accedi dal tuo link personale",
@@ -45,7 +48,8 @@
     },
     "error": {
       "title": "Si è verificato un errore",
-      "retry": "Riprova"
+      "retry": "Riprova",
+      "body": "Il colloquio non è stato interrotto. Riprova: riprenderai dal punto in cui eri."
     },
     "terminal": {
       "403": {
@@ -58,7 +62,17 @@
         "contact": "Contatta il supporto"
       }
     },
-    "document_title": "Colloquio BEAI"
+    "document_title": "Colloquio BEAI",
+    "guide": {
+      "title": "Come funziona",
+      "steps": {
+        "0": "Un intervistatore virtuale ti pone una domanda alla volta, a voce. Non devi scrivere nulla.",
+        "1": "Rispondi parlando, con calma. Racconta episodi concreti che hai vissuto: contano più delle risposte generiche.",
+        "2": "Fotocamera e microfono restano attivi per tutta la durata. Servono a registrare la tua risposta.",
+        "3": "Puoi mettere in pausa tra una domanda e l’altra, ma non puoi tornare su una risposta già data.",
+        "4": "Alla fine non devi fare altro: il risultato viene inviato automaticamente a chi ti ha invitato."
+      }
+    }
   },
   "analytics_consent": {
     "region_label": "Consenso ai cookie di analisi",

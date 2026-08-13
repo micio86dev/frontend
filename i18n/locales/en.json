@@ -1,4 +1,7 @@
 {
+  "shell": {
+    "tagline": "Soft-skill assessment through a structured interview."
+  },
   "welcome": "Welcome",
   "root": {
     "title": "Access through your personal link",
@@ -45,7 +48,8 @@
     },
     "error": {
       "title": "An error occurred",
-      "retry": "Try Again"
+      "retry": "Try Again",
+      "body": "Your interview has not been discarded. Try again and you will resume where you left off."
     },
     "terminal": {
       "403": {
@@ -58,7 +62,17 @@
         "contact": "Contact Support"
       }
     },
-    "document_title": "BEAI Interview"
+    "document_title": "BEAI Interview",
+    "guide": {
+      "title": "How this works",
+      "steps": {
+        "0": "A virtual interviewer asks you one question at a time, out loud. There is nothing to type.",
+        "1": "Answer by speaking, and take your time. Concrete episodes you actually lived through count for more than general answers.",
+        "2": "Your camera and microphone stay on throughout. They are what records your answer.",
+        "3": "You can pause between questions, but you cannot go back to an answer you have already given.",
+        "4": "There is nothing to do at the end: the result is sent automatically to whoever invited you."
+      }
+    }
   },
   "analytics_consent": {
     "region_label": "Analytics cookie consent",
