@@ -19,7 +19,7 @@
  * Redefining the bare names (rather than rewriting every vendored class to
  * `data-[state=…]:`) keeps future `shadcn-vue add` output working unmodified.
  */
-@custom-variant data-active (&[data-state='active']);
+@custom-variant data-active (&[data-state='active'], &[data-active]);
 @custom-variant data-checked (&[data-state='checked']);
 @custom-variant data-open (&[data-state='open']);
 @custom-variant data-closed (&[data-state='closed']);
