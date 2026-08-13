@@ -258,6 +258,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/evaluations/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/evaluations/summary
+         * @description Aggregates over the identical filter set, sourced from the SAME
+         *     `EvaluationIndexQuery::build()` call as the index — so the summary
+         *     can never describe a different population than the table above it.
+         */
+        get: operations["evaluationIndex.summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/evaluations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/evaluations
+         * @description Two queries total, never per row (D6): the paginated page (via
+         *     `simplePaginate()` — no separate COUNT query, matching design D6's
+         *     "two queries per request, never per row"), plus ONE grouped query
+         *     over `competency_results` for the page's ids to attach each row's
+         *     mean reliability.
+         */
+        get: operations["evaluationIndex.index"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/framework/roles": {
         parameters: {
             query?: never;
@@ -451,6 +497,29 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/organization": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/organization */
+        get: operations["organization.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/organization
+         * @description `slug` is intentionally never read from the request — only()
+         *     whitelists the writable fields, so a `slug` key in the body is
+         *     silently dropped rather than validated-then-rejected (D2).
+         */
+        patch: operations["organization.update"];
         trace?: never;
     };
     "/participants": {
@@ -779,6 +848,95 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/users */
+        get: operations["user.index"];
+        put?: never;
+        /**
+         * POST /api/users
+         * @description `organization_id` and `is_superadmin` are never read from the request
+         *     at all — the org comes from TenantContext via the authenticated
+         *     caller, and is_superadmin is always false for a user created here.
+         */
+        post: operations["user.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/users/{id}
+         * @description A role change that would remove the target's admin status routes
+         *     through UserGuards — the ONLY place a role is ever written on this
+         *     surface — so the last-admin / self-demotion invariants can never be
+         *     bypassed by a future call site.
+         */
+        patch: operations["user.update"];
+        trace?: never;
+    };
+    "/users/{id}/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/users/{id}/deactivate
+         * @description 204 No Content. Soft deactivation only — the row survives so
+         *     audit-relevant authorship survives (D5).
+         */
+        post: operations["user.deactivate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/users/{id}/activate
+         * @description 204 No Content. Never guarded by UserGuards — activation only ever
+         *     ADDS an available admin/operator/viewer back to the org, so it cannot
+         *     violate the last-admin invariant.
+         */
+        post: operations["user.activate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/candidate/interview/utterance": {
         parameters: {
             query?: never;
@@ -826,42 +984,42 @@ export interface components {
     schemas: {
         /** ApiClientResource */
         ApiClientResource: {
-            id: number;
+            id: string;
             name: string;
-            abilities: unknown[];
-            is_active: boolean;
+            abilities: string | string[];
+            is_active: string;
             expires_at: string | null;
             last_used_at: string | null;
-            created_at: string | null;
+            created_at: string;
         };
         /** App.Http.Resources.ParticipantResource */
         "App.Http.Resources.ParticipantResource": {
-            id: number;
+            id: string;
             candidate_ref: string;
             display_name: string;
-            role_code: string | null;
-            language: string | null;
+            role_code: string;
+            language: string;
             status: string;
             started_at: string | null;
             completed_at: string | null;
-            created_at: string | null;
+            created_at: string;
             project: {
-                id: number;
-                role_code: string | null;
+                id: string;
+                role_code: string;
                 language: string;
                 assessment_type: string;
-                exit_redirect_url: string | null;
-                error_redirect_url: string | null;
+                exit_redirect_url: string;
+                error_redirect_url: string;
             } | null;
         };
         /** AvatarTemplateResource */
         AvatarTemplateResource: {
-            id: number;
+            id: string;
             name: string;
-            description: string | null;
+            description: string;
             provider: string;
-            config: unknown[];
-            is_active: boolean;
+            config: string;
+            is_active: string;
             created_at: string | null;
             updated_at: string | null;
         };
@@ -876,6 +1034,15 @@ export interface components {
         };
         /** CompetencyResource */
         CompetencyResource: {
+            /**
+             * @description Exposed because `StoreProjectRequest` validates `competency_ids[]`
+             *     against primary keys, and this catalog is the only surface a
+             *     client can discover competencies through. Without it the project
+             *     form can render a competency picker it is structurally unable to
+             *     submit. The catalog is global — `framework_competencies` carries
+             *     no `organization_id` — so the key leaks nothing tenant-specific.
+             */
+            id: number;
             code: string;
             name: unknown[];
             definition: unknown[];
@@ -885,6 +1052,25 @@ export interface components {
         /** DashboardMetricsResource */
         DashboardMetricsResource: {
             [key: string]: unknown;
+        };
+        /** EvaluationIndexResource */
+        EvaluationIndexResource: {
+            participant_id: string;
+            candidate_ref: string;
+            display_name: string;
+            project_id: string;
+            project_name: string;
+            assessment_type: string;
+            role_code: string;
+            evaluated_at: string;
+            /** @description 'completed' | 'pending' — the ≥90% valid-competencies gate. */
+            status: string;
+            /**
+             * @description Integer percentage via ReliabilityRenderer, attached by the
+             *     controller — null only when the page's grouped aggregate
+             *     query found no competency_results row for this evaluation.
+             */
+            reliability: string | null;
         };
         /** EvaluationResource */
         EvaluationResource: {
@@ -900,15 +1086,30 @@ export interface components {
             created_at: string | null;
             updated_at: string | null;
         };
+        /** OrganizationResource */
+        OrganizationResource: {
+            id: number;
+            name: string;
+            slug: string;
+            default_webhook_url: string;
+            default_webhook_events: string;
+            /**
+             * @description default_webhook_secret intentionally excluded (hidden + encrypted) —
+             *     only a presence boolean is exposed, never the value.
+             */
+            has_default_webhook_secret: boolean;
+            created_at: string | null;
+            updated_at: string | null;
+        };
         /** ParticipantDetailResource */
         ParticipantDetailResource: {
-            id: number;
+            id: string;
             candidate_ref: string;
             display_name: string;
-            role_code: string | null;
-            language: string | null;
+            role_code: string;
+            language: string;
             status: string;
-            project_id: number;
+            project_id: string;
             timeline: {
                 started_at: string | null;
                 completed_at: string | null;
@@ -930,38 +1131,47 @@ export interface components {
                     url: string;
                 };
             };
-            created_at: string | null;
+            created_at: string;
         };
         /** ParticipantResource */
         ParticipantResource: {
-            id: number;
+            id: string;
             candidate_ref: string;
             display_name: string;
-            role_code: string | null;
-            language: string | null;
+            role_code: string;
+            language: string;
             status: string;
-            project_id: number;
+            project_id: string;
             started_at: string | null;
             completed_at: string | null;
-            created_at: string | null;
+            created_at: string;
         };
         /** ProjectResource */
         ProjectResource: {
-            id: number;
-            organization_id: number;
-            framework_version_id: number;
+            id: string;
+            organization_id: string;
+            framework_version_id: string;
             slug: string;
             name: string;
             assessment_type: string;
-            role_code: string | null;
+            role_code: string;
             language: string;
             status: string;
-            pause_every_n_competencies: number | null;
-            nudge_min_chars: number | null;
-            exit_redirect_url: string | null;
-            webhook_url: string | null;
-            webhook_events: unknown[];
-            /** @description webhook_secret intentionally excluded (hidden + encrypted) */
+            pause_every_n_competencies: string;
+            nudge_min_chars: string;
+            exit_redirect_url: string;
+            webhook_url: string;
+            webhook_events: string;
+            /**
+             * @description webhook_secret intentionally excluded (hidden + encrypted).
+             *     A PRESENCE BOOLEAN is exposed instead, never the value — mirroring
+             *     OrganizationResource::has_default_webhook_secret. Without it the
+             *     edit form cannot distinguish "no secret configured" from "a secret
+             *      exists but is write-only", so it renders "not set" over a project
+             *     that has one. On a security-relevant field that is not a cosmetic
+             *     gap: it invites an operator to believe no secret is in place.
+             */
+            has_webhook_secret: boolean;
             deadline_at: string | null;
             goes_live_at: string | null;
             created_at: string | null;
@@ -1026,9 +1236,56 @@ export interface components {
             /** Format: date-time */
             goes_live_at?: string | null;
         };
+        /**
+         * StoreUserRequest
+         * @description StoreUserRequest (backoffice-missing-pages D4).
+         *
+         *     Validates POST /api/users. `organization_id` and `is_superadmin` are
+         *     deliberately NOT rules here — they are never read from the request at
+         *     all (the controller only ever passes $request->safe()->only([...]) the
+         *     four whitelisted fields to User::create()), so a crafted value in either
+         *     key is ignored, never validated-then-rejected.
+         *
+         *     `role` validates against the code-level OrgRole::values() allow-list —
+         *     NEVER `Rule::exists('roles', 'name')`, which would make the assignable
+         *     set DATA (any seeder/migration/future feature that inserts a `roles` row
+         *     would instantly make it grantable, and it would also accept another
+         *     tenant's role name). `role_code` is never a rule here at all: it is
+         *     ignored, not validated-then-rejected — this surface governs authorization
+         *     roles only, never the BEAI organizational role_code.
+         */
+        StoreUserRequest: {
+            name: string;
+            /** Format: email */
+            email: string;
+            password: string;
+            /** @enum {string} */
+            role: "admin" | "operator" | "viewer";
+        };
         /** TranscriptResource */
         TranscriptResource: {
             sessions: string;
+        };
+        /**
+         * UpdateOrganizationRequest
+         * @description UpdateOrganizationRequest (backoffice-missing-pages D2/D3).
+         *
+         *     Validates PATCH /api/organization. Accepts `name` and the three
+         *     `default_webhook_*` fields; `slug` is deliberately NOT a rule here — it is
+         *     a tenancy identifier, never editable, and the controller only ever writes
+         *     `$request->safe()->only([...])`, so a `slug` key in the body is silently
+         *     dropped rather than validated-then-rejected.
+         */
+        UpdateOrganizationRequest: {
+            name?: string;
+            /** Format: uri */
+            default_webhook_url?: string | null;
+            default_webhook_secret?: string | null;
+            /**
+             * @description Closed event-type set — mirrors UpdateProjectRequest.php:94's
+             *     config-driven Rule::in (never a hardcoded list, never env-overridable).
+             */
+            default_webhook_events?: ("progress" | "evaluation")[] | null;
         };
         /**
          * UpdateProjectRequest
@@ -1051,6 +1308,34 @@ export interface components {
          *     and FormRequest methods ensures the TenantScoped global scope is active at resolution time.
          */
         UpdateProjectRequest: Record<string, never>;
+        /**
+         * UpdateUserRequest
+         * @description UpdateUserRequest (backoffice-missing-pages D4).
+         *
+         *     Validates PATCH /api/users/{id}. The target is resolved through
+         *     UserAdminReader (D4) — the org filter runs BEFORE authorization, so a
+         *     cross-org id 404s before any role is even evaluated (mirrors
+         *     UpdateProjectRequest.php's SubstituteBindings-runs-before-TenantContext
+         *     discipline).
+         */
+        UpdateUserRequest: {
+            name?: string;
+            /** Format: email */
+            email?: string;
+            password?: string;
+            /** @enum {string} */
+            role?: "admin" | "operator" | "viewer";
+        };
+        /** UserResource */
+        UserResource: {
+            id: number;
+            name: string;
+            email: string;
+            role: unknown;
+            is_deactivated: boolean;
+            created_at: string | null;
+            updated_at: string | null;
+        };
     };
     responses: {
         /** @description Validation error */
@@ -1574,6 +1859,93 @@ export interface operations {
             401: components["responses"]["AuthenticationException"];
         };
     };
+    "evaluationIndex.summary": {
+        parameters: {
+            query?: {
+                project_id?: number;
+                assessment_type?: "standard" | "potential";
+                role_code?: "ICO" | "FLL" | "MLL" | "BUL" | "SRX";
+                status?: "completed" | "pending";
+                evaluated_from?: string;
+                evaluated_to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            by_status: unknown[];
+                            competencies: {
+                                competency_code: string;
+                                mean_score: number | null;
+                                scored_count: number;
+                                result_count: number;
+                            }[];
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "evaluationIndex.index": {
+        parameters: {
+            query?: {
+                project_id?: number;
+                assessment_type?: "standard" | "potential";
+                role_code?: "ICO" | "FLL" | "MLL" | "BUL" | "SRX";
+                status?: "completed" | "pending";
+                evaluated_from?: string;
+                evaluated_to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated set of `EvaluationIndexResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["EvaluationIndexResource"][];
+                        links: {
+                            first: string | null;
+                            last: string | null;
+                            prev: string | null;
+                            next: string | null;
+                        };
+                        meta: {
+                            current_page: number;
+                            from: number | null;
+                            /** @description Base path for paginator generated URLs. */
+                            path: string | null;
+                            /** @description Number of items shown per page. */
+                            per_page: number;
+                            /** @description Number of the last item in the slice. */
+                            to: number | null;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
     "framework.index": {
         parameters: {
             query?: never;
@@ -1775,6 +2147,59 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "organization.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `OrganizationResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "organization.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateOrganizationRequest"];
+            };
+        };
+        responses: {
+            /** @description `OrganizationResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             422: components["responses"]["ValidationException"];
         };
     };
@@ -2401,6 +2826,134 @@ export interface operations {
                 };
             };
             422: components["responses"]["ValidationException"];
+        };
+    };
+    "user.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `UserResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["UserResource"][];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "user.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreUserRequest"];
+            };
+        };
+        responses: {
+            /** @description `UserResource` */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["UserResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "user.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateUserRequest"];
+            };
+        };
+        responses: {
+            /** @description `UserResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["UserResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "user.deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "user.activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "utterance.store": {

@@ -99,6 +99,30 @@ function computedBackgroundColor(compiledCss: string, className: string): string
   return window.getComputedStyle(el).backgroundColor
 }
 
+/**
+ * Same technique as `computedBackgroundColor`, generalized to an arbitrary
+ * `getComputedStyle` property. happy-dom cannot parse `oklch()` color
+ * functions (verified during RED: an `oklch(...)` custom property resolves to
+ * `""`, not the color), which is exactly why D12 maps `--input` to
+ * `var(--color-neutral-500)` — a `@theme`-literal hex custom property —
+ * rather than a fresh oklch literal; see the `--input` comment in `main.css`.
+ */
+function computedStyleProperty(
+  compiledCss: string,
+  className: string,
+  property: 'backgroundColor' | 'borderColor' | 'height'
+): string {
+  const window = new Window()
+  const document = window.document
+  const style = document.createElement('style')
+  style.textContent = compiledCss
+  document.head.appendChild(style)
+  const el = document.createElement('div')
+  el.className = className
+  document.body.appendChild(el)
+  return window.getComputedStyle(el)[property]
+}
+
 /** Extracts the body of the first `<selector> { ... }` block from raw CSS source. */
 function extractBlock(css: string, selector: string): string {
   const start = css.indexOf(selector)
@@ -146,6 +170,30 @@ describe('brand theme tokens (D10)', () => {
       .bg-primary { background-color: var(--color-primary); }
     `
     expect(computedBackgroundColor(buggyCss, 'bg-primary')).not.toBe('#771aaf')
+  })
+})
+
+// tasks 2.1/2.3 (backoffice-missing-pages) — D12/D11 §9: shadcn's default
+// `--input` (`#e2e8f0` on `#f8fafc`/white) measures ≈1.18:1, failing
+// DESIGN.md §9's binding ≥3:1 non-text-contrast minimum for form control
+// borders, and DESIGN.md §17 requires the fix and the sizing tokens to be
+// identical in both Nuxt apps. `frontend` has no vendored `Input` component
+// (candidate-facing SSR app, not the admin backoffice), so this exercises the
+// same compiled-CSS technique as `bg-primary`/`bg-accent` above, against the
+// literal utility classes rather than a mounted component — proving the
+// TOKENS themselves have landed here with the same name/value as
+// `backoffice/app/assets/css/main.css`, which is what cross-app parity means.
+describe('form control tokens match backoffice (D12, DESIGN.md §9/§17)', () => {
+  it('resolves border-input to --color-neutral-500 (#64748b), not the pre-fix #e2e8f0', async () => {
+    const compiled = await compileForCandidates(['border', 'border-input'])
+    expect(computedStyleProperty(compiled, 'border border-input', 'borderColor')).toBe('#64748b')
+  })
+
+  it('resolves h-(--spacing-control) to 44px and h-(--spacing-control-sm) to 36px', async () => {
+    const defaultCompiled = await compileForCandidates(['h-(--spacing-control)'])
+    expect(computedStyleProperty(defaultCompiled, 'h-(--spacing-control)', 'height')).toBe('44px')
+    const smCompiled = await compileForCandidates(['h-(--spacing-control-sm)'])
+    expect(computedStyleProperty(smCompiled, 'h-(--spacing-control-sm)', 'height')).toBe('36px')
   })
 })
 
