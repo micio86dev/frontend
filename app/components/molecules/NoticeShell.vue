@@ -6,8 +6,14 @@
       see, and an unbranded centred box reads as a broken deployment at the
       exact moment the person is deciding whether this service is trustworthy.
     -->
+    <!--
+      One vertical lockup, centred — NOT wordmark-top / tagline-bottom. Pushing
+      them to opposite ends of a full-height column leaves ~700px of empty
+      purple between them at 1440x900, which reads as an unfinished page rather
+      than as deliberate space. Kept together they are a single confident mark.
+    -->
     <aside
-      class="relative flex flex-col justify-between gap-10 overflow-hidden bg-primary px-8 py-10 text-primary-foreground lg:px-10 lg:py-12"
+      class="relative flex flex-col justify-center gap-5 overflow-hidden bg-primary px-8 py-12 text-primary-foreground lg:px-10"
     >
       <div
         aria-hidden="true"
@@ -15,11 +21,14 @@
       />
       <div
         aria-hidden="true"
-        class="pointer-events-none absolute -right-28 -bottom-32 size-96 rounded-full bg-accent/20 blur-3xl"
+        class="pointer-events-none absolute -right-28 -bottom-32 size-96 rounded-full bg-accent/25 blur-3xl"
       />
 
-      <p class="relative text-xl leading-none font-semibold tracking-[0.28em]">BEAI</p>
-      <p class="relative max-w-[28ch] text-sm leading-6 text-primary-foreground/75">
+      <p class="relative text-2xl leading-none font-semibold tracking-[0.3em]">BEAI</p>
+      <!-- A hairline, not a gap: it ties the two lines into one lockup and
+           gives the eye a reason to travel from the mark to the sentence. -->
+      <span aria-hidden="true" class="relative h-px w-12 bg-primary-foreground/40" />
+      <p class="relative max-w-[26ch] text-sm leading-6 text-primary-foreground/80">
         {{ $t('shell.tagline') }}
       </p>
     </aside>
