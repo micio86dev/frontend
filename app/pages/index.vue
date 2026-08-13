@@ -1,8 +1,11 @@
 <template>
-  <div data-testid="root-landing" role="main" aria-labelledby="root-title">
-    <h1 id="root-title">{{ $t('root.title') }}</h1>
-    <p>{{ $t('root.message') }}</p>
-  </div>
+  <NoticeShell
+    tone="info"
+    test-id="root-landing"
+    heading-id="root-title"
+    :title="$t('root.title')"
+    :message="$t('root.message')"
+  />
 </template>
 
 <script setup lang="ts">
@@ -32,13 +35,17 @@
  *
  * All three prohibitions are covered by tests/unit/root-page.spec.ts, because a
  * comment saying "do not add a login here" survives only until somebody
- * disagrees with it in a hurry.
+ * disagrees with it in a hurry. The shared `NoticeShell` therefore takes copy
+ * and tone only — it exposes no action affordance this route would have to
+ * suppress.
  *
  * The global browser gate (browser-gate.global.ts) skips only paths ending in
  * /unsupported, so this route inherits it: a Firefox or sub-1024px visitor is
  * redirected before this renders. That ordering is correct — somebody on a
  * phone has two problems and only the device one is fixable right now.
  */
+import NoticeShell from '~/components/molecules/NoticeShell.vue'
+
 definePageMeta({
   name: 'root',
 })

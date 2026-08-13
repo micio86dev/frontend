@@ -44,7 +44,10 @@ describe('pages/index.vue', () => {
 
   it('exposes a main landmark labelled by its own heading', async () => {
     const wrapper = await mountRoot()
-    const main = wrapper.get('[role="main"]')
+    // The landmark is a <main> element, whose `role="main"` is implicit —
+    // stating it explicitly is a redundant-role lint error, so the landmark is
+    // located by element rather than by attribute.
+    const main = wrapper.get('main')
 
     const labelledBy = main.attributes('aria-labelledby')
     expect(labelledBy).toBeTruthy()
