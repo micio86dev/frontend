@@ -106,10 +106,16 @@ exports[`brand theme token source (regression guard) > @theme literal block matc
   --color-neutral-800: #1e293b;
   --color-neutral-900: #0f172a;
 
+  /* \`--color-success\` / \`--color-warning\` are fill-only: neither reaches 4.5:1
+     as text or as an icon on a light surface. The \`-dark\` pair is the
+     text-and-icon-safe variant (7.1:1 on white) mandated by DESIGN.md §9.1 and
+     was missing here while present in \`backoffice\` — drift, now closed. */
   --color-success: #22c55e;
   --color-success-light: #dcfce7;
+  --color-success-dark: #166534;
   --color-warning: #f59e0b;
   --color-warning-light: #fef3c7;
+  --color-warning-dark: #92400e;
   --color-error: #ef4444;
   --color-error-light: #fee2e2;
   --color-info: #3b82f6;

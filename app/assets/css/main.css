@@ -4,6 +4,28 @@
 @import 'shadcn-vue/tailwind.css';
 
 @custom-variant dark (&:is(.dark *));
+
+/*
+ * reka-ui state variants — DESIGN.md §8.2.3, kept identical in `backoffice`.
+ *
+ * reka-ui exposes component state as `data-state="active|checked|open|closed"`
+ * and axis as `data-orientation="vertical|horizontal"`, while the vendored
+ * shadcn-vue components style those states with Tailwind's BARE data variants
+ * (`data-open:`, `data-closed:`, ...), which compile to attribute-PRESENCE
+ * selectors — `[data-open]` — that reka-ui never emits. Without these
+ * mappings every such rule is dead CSS; here that is the dialog enter/leave
+ * animation in `app/components/ui/dialog`, which never ran.
+ *
+ * Redefining the bare names (rather than rewriting every vendored class to
+ * `data-[state=…]:`) keeps future `shadcn-vue add` output working unmodified.
+ */
+@custom-variant data-active (&[data-state='active']);
+@custom-variant data-checked (&[data-state='checked']);
+@custom-variant data-open (&[data-state='open']);
+@custom-variant data-closed (&[data-state='closed']);
+@custom-variant data-vertical (&[data-orientation='vertical']);
+@custom-variant data-horizontal (&[data-orientation='horizontal']);
+
 @plugin '@tailwindcss/forms';
 @plugin '@tailwindcss/typography';
 
@@ -37,10 +59,16 @@
   --color-neutral-800: #1e293b;
   --color-neutral-900: #0f172a;
 
+  /* `--color-success` / `--color-warning` are fill-only: neither reaches 4.5:1
+     as text or as an icon on a light surface. The `-dark` pair is the
+     text-and-icon-safe variant (7.1:1 on white) mandated by DESIGN.md §9.1 and
+     was missing here while present in `backoffice` — drift, now closed. */
   --color-success: #22c55e;
   --color-success-light: #dcfce7;
+  --color-success-dark: #166534;
   --color-warning: #f59e0b;
   --color-warning-light: #fef3c7;
+  --color-warning-dark: #92400e;
   --color-error: #ef4444;
   --color-error-light: #fee2e2;
   --color-info: #3b82f6;
