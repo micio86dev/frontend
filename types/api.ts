@@ -4,6 +4,29 @@
  */
 
 export interface paths {
+    "/m2m/abilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the abilities an API client may be granted
+         * @description GET /api/m2m/abilities
+         *     Auth: auth:api (admin only via ApiClientPolicy::viewAny)
+         *
+         *     Response (200): { "data": ["participants:create", ...] }
+         */
+        get: operations["m2m.abilityCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/m2m/clients": {
         parameters: {
             query?: never;
@@ -1398,6 +1421,29 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    "m2m.abilityCatalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: unknown[];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
     "apiClient.index": {
         parameters: {
             query?: never;
