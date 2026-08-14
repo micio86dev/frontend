@@ -924,7 +924,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Upload a JPEG snapshot to S3 and persist the reference
+         * Upload a JPEG snapshot to the configured disk and persist the reference
          * @description resolveOwnedSession MUST be called FIRST — enforces participant_id + org isolation.
          *     Encoded length check MUST happen BEFORE decoding to avoid OOM on oversized inputs.
          */
