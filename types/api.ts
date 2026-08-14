@@ -1115,13 +1115,15 @@ export interface components {
     schemas: {
         /** ApiClientResource */
         ApiClientResource: {
-            id: string;
+            id: number;
             name: string;
-            abilities: string | string[];
-            is_active: string;
+            abilities: string[];
+            is_active: boolean;
+            /** @enum {string} */
+            state: "active" | "expired" | "revoked";
             expires_at: string | null;
             last_used_at: string | null;
-            created_at: string;
+            created_at: string | null;
         };
         /** App.Http.Resources.ParticipantResource */
         "App.Http.Resources.ParticipantResource": {
@@ -1145,12 +1147,14 @@ export interface components {
         };
         /** AvatarTemplateResource */
         AvatarTemplateResource: {
-            id: string;
+            id: number;
             name: string;
-            description: string;
+            description: string | null;
             provider: string;
-            config: string;
-            is_active: string;
+            config: {
+                [key: string]: unknown;
+            };
+            is_active: boolean;
             created_at: string | null;
             updated_at: string | null;
         };
