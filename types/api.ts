@@ -39,6 +39,13 @@ export interface paths {
          * @description GET /api/m2m/clients
          *     Auth: auth:api (admin only via ApiClientPolicy)
          *
+         *     Unpaginated (generated-client-truth-and-session-safety D5) — the panel
+         *     answers a whole-set question: what can authenticate against my org,
+         *     and what did I revoke. Not a page-at-a-time one; `UserController::index`
+         *     already returns an unpaginated org-scoped `->get()` for the same class
+         *     of operator-managed collection. `is_active` first so the rows that
+         *     matter most stay first even at unusual scale.
+         *
          *     Never returns key_hash or raw api_key.
          */
         get: operations["apiClient.index"];
@@ -843,16 +850,22 @@ export interface paths {
         put?: never;
         /**
          * POST /api/profile/photo
-         * @description Validation order matters (design D3b) — the first three steps touch
+         * @description Validation order matters (design D3b) — the first four steps touch
          *     only the PHP temp file, so a rejected upload NEVER reaches the disk:
-         *       1. UpdateProfilePhotoRequest (required|file|max:2048 KB, shape only)
+         *       1. UpdateProfilePhotoRequest (required|file|max:2048 KB, shape only
+         *          — a fast pre-check against a hardcoded literal, NOT itself
+         *          config-driven; step 2 below is the real enforcement point).
          *       2. Magic-byte verdict (content, never the declared type)
-         *       3. getimagesize() — false, or over the configured dimension cap
-         *       4. Storage::putFileAs(...) — no disk() argument (SingleStorageDiskArchTest)
-         *       5. $user->profile_photo_path = $newKey; $user->save();
+         *       3. $file->getSize() > config('profile.photo.max_bytes') — the ACTUAL
+         *          byte cap (post-apply verification finding: this step was
+         *          missing; the FormRequest literal merely coincided with the
+         *          config default and could not be overridden).
+         *       4. getimagesize() — false, or over the configured dimension cap
+         *       5. Storage::putFileAs(...) — no disk() argument (SingleStorageDiskArchTest)
+         *       6. $user->profile_photo_path = $newKey; $user->save();
          *          throws → delete the NEW key in the catch, then re-throw — never
          *          orphan the object the row-write that just failed never pointed to.
-         *       6. After the row commits, delete the OLD key. Logged, never fatal:
+         *       7. After the row commits, delete the OLD key. Logged, never fatal:
          *          at most one stale object per user is preferable to failing a
          *          request over a change that already succeeded.
          */
@@ -1220,22 +1233,24 @@ export interface components {
         };
         /** App.Http.Resources.ParticipantResource */
         "App.Http.Resources.ParticipantResource": {
-            id: string;
+            id: number;
             candidate_ref: string;
             display_name: string;
-            role_code: string;
-            language: string;
-            status: string;
+            role_code: string | null;
+            language: string | null;
+            /** @enum {string} */
+            status: "in_attesa" | "in_corso" | "in_valutazione" | "completato" | "errore";
             started_at: string | null;
             completed_at: string | null;
-            created_at: string;
+            created_at: string | null;
             project: {
-                id: string;
-                role_code: string;
+                id: number;
+                role_code: string | null;
                 language: string;
-                assessment_type: string;
-                exit_redirect_url: string;
-                error_redirect_url: string;
+                /** @enum {string} */
+                assessment_type: "standard" | "potential";
+                exit_redirect_url: string | null;
+                error_redirect_url: string | null;
             } | null;
         };
         /** AvatarTemplateResource */
@@ -1254,26 +1269,18 @@ export interface components {
         /** BarsIndicatorResource */
         BarsIndicatorResource: {
             position: number;
-            text: unknown[];
-            anchor_5: unknown[];
-            anchor_3: unknown[];
-            anchor_1: unknown[];
+            text: string;
+            anchor_5: string;
+            anchor_3: string;
+            anchor_1: string;
             translation_gap: boolean;
         };
         /** CompetencyResource */
         CompetencyResource: {
-            /**
-             * @description Exposed because `StoreProjectRequest` validates `competency_ids[]`
-             *     against primary keys, and this catalog is the only surface a
-             *     client can discover competencies through. Without it the project
-             *     form can render a competency picker it is structurally unable to
-             *     submit. The catalog is global — `framework_competencies` carries
-             *     no `organization_id` — so the key leaks nothing tenant-specific.
-             */
             id: number;
             code: string;
-            name: unknown[];
-            definition: unknown[];
+            name: string;
+            definition: string;
             type: string;
             bars_available: boolean;
         };
@@ -1327,25 +1334,22 @@ export interface components {
             id: number;
             name: string;
             slug: string;
-            default_webhook_url: string;
-            default_webhook_events: string;
-            /**
-             * @description default_webhook_secret intentionally excluded (hidden + encrypted) —
-             *     only a presence boolean is exposed, never the value.
-             */
+            default_webhook_url: string | null;
+            default_webhook_events: string[] | null;
             has_default_webhook_secret: boolean;
             created_at: string | null;
             updated_at: string | null;
         };
         /** ParticipantDetailResource */
         ParticipantDetailResource: {
-            id: string;
+            id: number;
             candidate_ref: string;
             display_name: string;
-            role_code: string;
-            language: string;
-            status: string;
-            project_id: string;
+            role_code: string | null;
+            language: string | null;
+            /** @enum {string} */
+            status: "in_attesa" | "in_corso" | "in_valutazione" | "completato" | "errore";
+            project_id: number;
             timeline: {
                 started_at: string | null;
                 completed_at: string | null;
@@ -1353,34 +1357,31 @@ export interface components {
             };
             files: {
                 transcript: {
-                    /** @constant */
-                    type: "text/plain";
-                    /** @constant */
-                    ref: "transcript";
+                    type: string;
+                    ref: string;
                     url: string;
                 };
                 evaluation_raw: {
-                    /** @constant */
-                    type: "application/json";
-                    /** @constant */
-                    ref: "evaluation";
+                    type: string;
+                    ref: string;
                     url: string;
                 };
             };
-            created_at: string;
+            created_at: string | null;
         };
         /** ParticipantResource */
         ParticipantResource: {
-            id: string;
+            id: number;
             candidate_ref: string;
             display_name: string;
-            role_code: string;
-            language: string;
-            status: string;
-            project_id: string;
+            role_code: string | null;
+            language: string | null;
+            /** @enum {string} */
+            status: "in_attesa" | "in_corso" | "in_valutazione" | "completato" | "errore";
+            project_id: number;
             started_at: string | null;
             completed_at: string | null;
-            created_at: string;
+            created_at: string | null;
         };
         /** ProfileResource */
         ProfileResource: {
@@ -1397,61 +1398,57 @@ export interface components {
         };
         /** ProjectResource */
         ProjectResource: {
-            id: string;
-            organization_id: string;
-            framework_version_id: string;
+            id: number;
+            organization_id: number;
+            framework_version_id: number;
             slug: string;
             name: string;
-            assessment_type: string;
-            role_code: string;
+            /** @enum {string} */
+            assessment_type: "standard" | "potential";
+            role_code: string | null;
             language: string;
-            status: string;
-            pause_every_n_competencies: string;
-            nudge_min_chars: string;
-            exit_redirect_url: string;
-            webhook_url: string;
-            webhook_events: string;
-            /**
-             * @description webhook_secret intentionally excluded (hidden + encrypted).
-             *     A PRESENCE BOOLEAN is exposed instead, never the value — mirroring
-             *     OrganizationResource::has_default_webhook_secret. Without it the
-             *     edit form cannot distinguish "no secret configured" from "a secret
-             *      exists but is write-only", so it renders "not set" over a project
-             *     that has one. On a security-relevant field that is not a cosmetic
-             *     gap: it invites an operator to believe no secret is in place.
-             */
+            /** @enum {string} */
+            status: "draft" | "active" | "archived";
+            pause_every_n_competencies: number | null;
+            nudge_min_chars: number | null;
+            exit_redirect_url: string | null;
+            webhook_url: string | null;
+            webhook_events: string[];
             has_webhook_secret: boolean;
             deadline_at: string | null;
             goes_live_at: string | null;
             created_at: string | null;
             updated_at: string | null;
-            /** @description Pin context: the FrameworkVersion this project is pinned to */
             pin_context: {
                 id: number;
                 version: string;
                 label: string | null;
                 is_locked: boolean;
             } | null;
-            /** @description Competencies with position pivot */
-            competencies: unknown[];
+            competencies: {
+                id: number;
+                code: string;
+                type: string;
+                position: number;
+            }[];
         };
         /** RoleResource */
         RoleResource: {
             code: string;
-            name: unknown[];
-            responsibilities: unknown[];
+            name: string;
+            responsibilities: string;
             competency_count: number;
         };
         /** SessionReviewResource */
         SessionReviewResource: {
-            id: string;
-            participant_id: string;
+            id: number;
+            participant_id: number;
             competency_code: string;
-            question_index: string;
+            question_index: number;
             provider: string;
-            provider_session_ref: string;
+            provider_session_ref: string | null;
             status: string;
-            ended_reason: string;
+            ended_reason: string | null;
             started_at: string | null;
             ended_at: string | null;
             duration_seconds: number | null;
@@ -1490,12 +1487,12 @@ export interface components {
         };
         /** SessionSummaryResource */
         SessionSummaryResource: {
-            id: string;
+            id: number;
             competency_code: string;
-            question_index: string;
+            question_index: number;
             provider: string;
             status: string;
-            ended_reason: string;
+            ended_reason: string | null;
             started_at: string | null;
             ended_at: string | null;
             duration_seconds: string | null;
@@ -1726,7 +1723,8 @@ export interface components {
             id: number;
             name: string;
             email: string;
-            role: unknown;
+            /** @enum {string|null} */
+            role: "admin" | "operator" | "viewer" | null;
             is_deactivated: boolean;
             created_at: string | null;
             updated_at: string | null;
@@ -1825,7 +1823,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Paginated set of `ApiClientResource` */
+            /** @description Array of `ApiClientResource` */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1833,31 +1831,6 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["ApiClientResource"][];
-                        links: {
-                            first: string | null;
-                            last: string | null;
-                            prev: string | null;
-                            next: string | null;
-                        };
-                        meta: {
-                            current_page: number;
-                            from: number | null;
-                            last_page: number;
-                            /** @description Generated paginator links. */
-                            links: {
-                                url: string | null;
-                                label: string;
-                                active: boolean;
-                            }[];
-                            /** @description Base path for paginator generated URLs. */
-                            path: string | null;
-                            /** @description Number of items shown per page. */
-                            per_page: number;
-                            /** @description Number of the last item in the slice. */
-                            to: number | null;
-                            /** @description Total number of items being paginated. */
-                            total: number;
-                        };
                     };
                 };
             };
@@ -2037,7 +2010,7 @@ export interface operations {
                              * @description user-profile-self-service: previously the column and
                              *     $fillable entry existed but /auth/me never returned it.
                              */
-                            locale: string;
+                            locale: string | null;
                             /**
                              * @description user-avatar-image (design D4): the SAME signer ProfileResource
                              *     uses — /auth/me is the shell-identity contract useCurrentUser
@@ -2286,11 +2259,11 @@ export interface operations {
                         exported_at: string;
                         templates: {
                             name: string;
-                            description: string;
+                            description: string | null;
                             provider: string;
-                            config: string;
+                            config: unknown[];
                             /** @description Persona is optional: a template may be pure provider config. */
-                            persona: string | null;
+                            persona: unknown[] | null;
                         }[];
                     };
                 };
