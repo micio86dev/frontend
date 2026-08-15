@@ -832,6 +832,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/profile/photo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/profile/photo
+         * @description Validation order matters (design D3b) — the first three steps touch
+         *     only the PHP temp file, so a rejected upload NEVER reaches the disk:
+         *       1. UpdateProfilePhotoRequest (required|file|max:2048 KB, shape only)
+         *       2. Magic-byte verdict (content, never the declared type)
+         *       3. getimagesize() — false, or over the configured dimension cap
+         *       4. Storage::putFileAs(...) — no disk() argument (SingleStorageDiskArchTest)
+         *       5. $user->profile_photo_path = $newKey; $user->save();
+         *          throws → delete the NEW key in the catch, then re-throw — never
+         *          orphan the object the row-write that just failed never pointed to.
+         *       6. After the row commits, delete the OLD key. Logged, never fatal:
+         *          at most one stale object per user is preferable to failing a
+         *          request over a change that already succeeded.
+         */
+        post: operations["profilePhoto.store"];
+        /**
+         * DELETE /api/profile/photo
+         * @description Object-first, then null the column — exactly purgeSnapshots()'s
+         *     ordering (design D5): a failed object delete leaves the row intact
+         *     for a retryable second call, and S3/R2 deletes are idempotent, so a
+         *     second DELETE with nothing left to remove still succeeds (design
+         *     spec: "Removing a photo twice ... still 200").
+         */
+        delete: operations["profilePhoto.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects": {
         parameters: {
             query?: never;
@@ -1348,12 +1387,13 @@ export interface components {
             id: number;
             name: string;
             email: string;
-            locale: string;
-            role: unknown;
+            locale: string | null;
+            role: string | null;
             organization: {
                 id: number;
                 name: string;
             } | null;
+            photo_url: string | null;
         };
         /** ProjectResource */
         ProjectResource: {
@@ -1576,6 +1616,49 @@ export interface components {
             current_password: string;
             password: string;
             password_confirmation: string;
+        };
+        /**
+         * UpdateProfilePhotoRequest
+         * @description UpdateProfilePhotoRequest (user-avatar-image, design D3/D3b).
+         *
+         *     Validates POST /api/profile/photo. `max:2048` (KB) is the SHAPE check —
+         *     `ValidatePostSize` already returns 413 for anything past nginx's
+         *     `client_max_body_size 8m` / PHP's `post_max_size=8M` before this even
+         *     runs. The REAL enforcement is `config('profile.photo.max_bytes')`
+         *     (2 MiB), checked in ProfilePhotoController against the real byte count,
+         *     never this literal.
+         *
+         *     What this rule does NOT do, stated plainly, per design D3 — the residual
+         *     is documented in code, not just in design.md:
+         *
+         *     - No re-encode: EXIF (including GPS coordinates, camera serial, capture
+         *       timestamp, and any embedded thumbnail) survives verbatim into every
+         *       presigned URL served from the stored object.
+         *     - Polyglots and trailing payloads pass every check here — bytes appended
+         *       after valid image data are never inspected, so the object is
+         *       effectively a byte-capped arbitrary-content store keyed to a user id.
+         *     - A 4096×4096 PNG (the dimension cap's own ceiling) is roughly 64 MB
+         *       decompressed once a browser renders it — the cap bounds the spike, it
+         *       does not remove it.
+         *     - Nothing decodes server-side, so a header-valid file crafted to crash a
+         *       specific image decoder is not detected.
+         *
+         *     The only route to closing any of the above is re-encoding, which needs
+         *     `ext-gd` or `ext-imagick` — neither is installed in either Dockerfile
+         *     stage, and adding one is explicitly out of scope for this change.
+         *     Client-side canvas re-encoding is a UX convenience, never a control: it
+         *     makes honest uploads fit the cap and incidentally drops EXIF, but an
+         *     attacker posts the multipart request directly and skips it entirely.
+         *
+         *     REQ: Upload Is Validated By Content, Not By Declared Type
+         *     (openspec/changes/user-avatar-image/specs/user-self-service/spec.md)
+         */
+        UpdateProfilePhotoRequest: {
+            /**
+             * Format: binary
+             * @description Maximum file size: 2048 kilobytes.
+             */
+            photo: string;
         };
         /**
          * UpdateProfileRequest
@@ -1955,6 +2038,13 @@ export interface operations {
                              *     $fillable entry existed but /auth/me never returned it.
                              */
                             locale: string;
+                            /**
+                             * @description user-avatar-image (design D4): the SAME signer ProfileResource
+                             *     uses — /auth/me is the shell-identity contract useCurrentUser
+                             *     caches once per page load, so this is the second (and only
+                             *     other) caller of ProfilePhotoUrlSigner.
+                             */
+                            photo_url: string;
                         };
                         organization: {
                             id: number;
@@ -2987,6 +3077,60 @@ export interface operations {
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
             422: components["responses"]["ValidationException"];
+        };
+    };
+    "profilePhoto.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["UpdateProfilePhotoRequest"];
+            };
+        };
+        responses: {
+            /** @description `ProfileResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ProfileResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "profilePhoto.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `ProfileResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ProfileResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
         };
     };
     "projects.index": {
