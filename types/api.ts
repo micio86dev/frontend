@@ -778,6 +778,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/profile */
+        get: operations["profile.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/profile
+         * @description `role`, `organization_id`, `is_superadmin`, `deactivated_at` are
+         *     never read from the request at all — `only()` whitelists the writable
+         *     fields, so any of those keys in the body is silently dropped rather
+         *     than validated-then-rejected (design D2).
+         */
+        patch: operations["profile.update"];
+        trace?: never;
+    };
+    "/profile/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * PUT /api/profile/password
+         * @description The acting session survives by RE-MINTING, not by exemption (design
+         *     D3): sets the password and `password_changed_at`, then
+         *     `$guard->logout()` denylists the ACTING jti (the SAME mechanism
+         *     AuthController::logout() uses), then `$guard->login($user)` mints a
+         *     brand-new token whose `iat >= password_changed_at`, returned in the
+         *     body — the same {access_token, token_type} shape as
+         *     AuthController::refresh().
+         *
+         *     `iat` is second-precision (design D3): `startOfSecond()` here pairs
+         *     with RejectStaleCredentials's strict `<` comparison, so a token minted
+         *     in the same wall-clock second as this change is not born dead.
+         */
+        put: operations["profile.updatePassword"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects": {
         parameters: {
             query?: never;
@@ -1289,6 +1343,18 @@ export interface components {
             completed_at: string | null;
             created_at: string;
         };
+        /** ProfileResource */
+        ProfileResource: {
+            id: number;
+            name: string;
+            email: string;
+            locale: string;
+            role: unknown;
+            organization: {
+                id: number;
+                name: string;
+            } | null;
+        };
         /** ProjectResource */
         ProjectResource: {
             id: string;
@@ -1488,6 +1554,50 @@ export interface components {
              *     config-driven Rule::in (never a hardcoded list, never env-overridable).
              */
             default_webhook_events?: ("progress" | "evaluation")[] | null;
+        };
+        /**
+         * UpdatePasswordRequest
+         * @description UpdatePasswordRequest (user-profile-self-service, design D4).
+         *
+         *     Validates PUT /api/profile/password. Its OWN request — the admin
+         *     `UpdateUserRequest` (`['sometimes','string','min:8']`, no current-password
+         *     check) MUST NOT be reused for this route.
+         *
+         *     `current_password:api` is not decoration: the rule resolves
+         *     `auth()->guard($param)`, and the default guard is `env('AUTH_GUARD', 'api')`
+         *     (config/auth.php:19) — an env change would make the rule read the wrong
+         *     guard and fail closed on every request. `min:8` deliberately matches the
+         *     admin path floor — a stricter self-service floor would be theatre.
+         *
+         *     REQ: Password Change Requires The Current Password
+         *     (openspec/changes/user-profile-self-service/specs/user-self-service/spec.md)
+         */
+        UpdatePasswordRequest: {
+            current_password: string;
+            password: string;
+            password_confirmation: string;
+        };
+        /**
+         * UpdateProfileRequest
+         * @description UpdateProfileRequest (user-profile-self-service, design D2/D8).
+         *
+         *     Validates PATCH /api/profile. Declares ONLY `name`, `email`, `locale` —
+         *     `role`, `organization_id`, `is_superadmin`, `deactivated_at` are NEVER
+         *     declared here, so a FormRequest alone does not strip them (D2 layer 1);
+         *     ProfileController's `$request->safe()->only([...])` (D2 layer 2) and
+         *     User::$fillable (D2 layer 3) are what actually drop them, silently rather
+         *     than a validated-then-rejected `prohibited` 422 (same discipline as
+         *     UpdateOrganizationRequest.php's `slug`).
+         *
+         *     REQ: Editable Fields Are An Allow-List; Email Uniqueness On Self-Update
+         *     (openspec/changes/user-profile-self-service/specs/user-self-service/spec.md)
+         */
+        UpdateProfileRequest: {
+            name?: string;
+            /** Format: email */
+            email?: string;
+            /** @enum {string} */
+            locale?: "it" | "en";
         };
         /**
          * UpdateProjectRequest
@@ -1840,6 +1950,11 @@ export interface operations {
                             id: number;
                             name: string;
                             email: string;
+                            /**
+                             * @description user-profile-self-service: previously the column and
+                             *     $fillable entry existed but /auth/me never returned it.
+                             */
+                            locale: string;
                         };
                         organization: {
                             id: number;
@@ -2788,6 +2903,90 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "profile.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `ProfileResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ProfileResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "profile.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description `ProfileResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ProfileResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "profile.updatePassword": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePasswordRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        access_token: string;
+                        /** @constant */
+                        token_type: "bearer";
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
         };
     };
     "projects.index": {
