@@ -1,5 +1,6 @@
 /**
- * useExitRedirect — post-interview exit redirect composable (D10, C10 PR7)
+ * useExitRedirect — post-interview exit redirect composable (D10, C10 PR7;
+ * D-D — candidate-session-auth)
  *
  * Fetches `GET /api/candidate/session` once (intended call site: page mount, NOT
  * the `done` state itself — a network failure at the very end must not strand the
@@ -9,11 +10,22 @@
  * downgrade hardening — `StoreProjectRequest.php:74` accepts `http://`, so the
  * client refuses it here). A null/empty/invalid/non-https URL is a no-op: the
  * caller keeps rendering the existing static `done` branch.
+ *
+ * D-D: `fetchSession()` keeps its never-throws contract, but "operator
+ * configured no URL" (supported) and "we are not authenticated" (defect) no
+ * longer share one code path. `sessionFetchFailed` distinguishes them:
+ *   - `'unauthenticated'` — the candidate session has expired or been
+ *     cleared (a 401, surfaced as `CandidateUnauthorizedError`).
+ *   - `'unavailable'` — any other failure (network, 5xx, malformed body).
+ * Neither is logged as "non-fatal" — that word is what let this survive
+ * unnoticed; the log now names the actual consequence instead.
  */
 
 import { ref } from 'vue'
-import { $fetch } from 'ofetch'
-import { apiUrl } from '~/app/utils/api-url'
+import { candidateFetch, CandidateUnauthorizedError } from '~/app/utils/candidate-api'
+import { useCandidateSession } from '~/app/composables/useCandidateSession'
+
+export type SessionFetchFailure = 'unauthenticated' | 'unavailable'
 
 export interface UseExitRedirectReturn {
   /** Cached `project.exit_redirect_url` from the candidate session, or null. */
@@ -27,6 +39,12 @@ export interface UseExitRedirectReturn {
    * session, and two places for the URL-safety rules to drift apart.
    */
   errorRedirectUrl: ReturnType<typeof ref<string | null>>
+  /**
+   * Why the LAST `fetchSession()` call failed to resolve either redirect URL,
+   * or null if it has not failed. Distinguishes "no URL configured"
+   * (supported) from "we are not authenticated" (defect) — see D-D.
+   */
+  sessionFetchFailed: ReturnType<typeof ref<SessionFetchFailure | null>>
   /** Fetch GET /api/candidate/session once and cache exit_redirect_url. Never throws. */
   fetchSession: () => Promise<void>
   /**
@@ -46,21 +64,32 @@ export interface UseExitRedirectReturn {
 export function useExitRedirect(): UseExitRedirectReturn {
   const exitRedirectUrl = ref<string | null>(null)
   const errorRedirectUrl = ref<string | null>(null)
+  const sessionFetchFailed = ref<SessionFetchFailure | null>(null)
 
   async function fetchSession(): Promise<void> {
     try {
-      const response = await $fetch<{
+      const response = await candidateFetch<{
         project: {
           exit_redirect_url: string | null
           error_redirect_url?: string | null
         } | null
-      }>(apiUrl('/candidate/session'), { method: 'GET' })
+      }>('/candidate/session', { method: 'GET' })
 
+      sessionFetchFailed.value = null
       exitRedirectUrl.value = response.project?.exit_redirect_url ?? null
       errorRedirectUrl.value = response.project?.error_redirect_url ?? null
     } catch (err) {
-      // Non-fatal: a fetch failure degrades to the inline screens.
-      console.warn('[useExitRedirect] /candidate/session fetch failed (non-fatal):', err)
+      // The failure degrades to the inline screens — fetchSession() never
+      // throws — but the consequence is named, not hidden behind "non-fatal":
+      // a candidate session that has expired or been cleared means BOTH the
+      // exit redirect and the error redirect are unavailable for the rest of
+      // this session, and that is worth knowing, not shrugging off.
+      sessionFetchFailed.value =
+        err instanceof CandidateUnauthorizedError ? 'unauthenticated' : 'unavailable'
+      console.warn(
+        '[useExitRedirect] /candidate/session fetch failed — exit and error redirects are unavailable for this session:',
+        err
+      )
       exitRedirectUrl.value = null
       errorRedirectUrl.value = null
     }
@@ -93,6 +122,14 @@ export function useExitRedirect(): UseExitRedirectReturn {
       return false
     }
 
+    // Verification Finding #1: "cleared ... immediately before an exit or
+    // error redirect fires" — cleared HERE, defensively, rather than relying
+    // on the caller (e.g. useInterviewSession's own terminal/done clearing)
+    // having already run. Only on the path that actually navigates — a
+    // refused redirect (null/http/malformed) leaves the inline screen up and
+    // must not destroy a still-valid session out from under it.
+    useCandidateSession().clear()
+
     navigateTo(url, { external: true, replace: true })
     return true
   }
@@ -100,5 +137,12 @@ export function useExitRedirect(): UseExitRedirectReturn {
   const redirect = (): boolean => redirectTo(exitRedirectUrl.value, 'exit_redirect_url')
   const redirectToError = (): boolean => redirectTo(errorRedirectUrl.value, 'error_redirect_url')
 
-  return { exitRedirectUrl, errorRedirectUrl, fetchSession, redirect, redirectToError }
+  return {
+    exitRedirectUrl,
+    errorRedirectUrl,
+    sessionFetchFailed,
+    fetchSession,
+    redirect,
+    redirectToError,
+  }
 }

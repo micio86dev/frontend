@@ -38,10 +38,48 @@ const MOCK_END_RESPONSE = { status: 'ok' }
 const EXIT_REDIRECT_URL = 'https://hr.acme.example.com/beai/done?ref=acme-672'
 
 // ---------------------------------------------------------------------------
+// sso-link exchange mocking (candidate-session-auth D1/D-A) — the entry route
+// exchanges once before the candidate ever reaches consent/device-check/live.
+// ---------------------------------------------------------------------------
+
+function base64url(input: string): string {
+  return Buffer.from(input, 'utf-8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
+}
+
+function makeCandidateJwt(): string {
+  const header = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+  const payload = base64url(
+    JSON.stringify({
+      typ: 'candidate',
+      candidate_ref: 'cand-e2e-exit',
+      project_id: 1,
+      exp: Math.floor(Date.now() / 1000) + 7200,
+    })
+  )
+  return `${header}.${payload}.e2e-fake-signature`
+}
+
+async function mockSsoExchange(page: Page): Promise<void> {
+  await page.route('**/api/sso/exchange*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ access_token: makeCandidateJwt() }),
+    })
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Route mock helpers
 // ---------------------------------------------------------------------------
 
 async function mockInterviewRoutes(page: Page, exitRedirectUrl: string | null) {
+  await mockSsoExchange(page)
+
   await page.route('**/api/candidate/session', (route) => {
     route.fulfill({
       status: 200,
@@ -185,8 +223,8 @@ test.describe('Exit redirect at interview completion — E2E', () => {
 
     await expect(page.getByTestId('done-screen')).toBeVisible({ timeout: 10_000 })
     await expect(page.getByRole('heading', { name: /interview completed/i })).toBeVisible()
-    // Still on the interview route — no navigation occurred.
-    expect(page.url()).toContain(`/interview/${TOKEN}`)
+    // Still on the token-free session route — no external navigation occurred.
+    expect(page.url()).toContain('/interview/session')
   })
 
   test('redirect fires identically for a pending-evaluation candidate — no status check precedes it', async ({
