@@ -132,8 +132,10 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockUseExitRedirect.mockReturnValue({
     exitRedirectUrl: ref<string | null>(null),
+    errorRedirectUrl: ref<string | null>(null),
     fetchSession: vi.fn(async () => undefined),
     redirect: vi.fn(() => false),
+    redirectToError: vi.fn(() => false),
   })
   vi.stubGlobal('definePageMeta', vi.fn())
   vi.stubGlobal('useHead', vi.fn())
@@ -149,6 +151,15 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals()
 })
+
+// Flush the microtask queue — the state/errorRedirectUrl watcher body is
+// async (`await session.teardown()` before `redirectToError()`), so a single
+// nextTick() is not enough to observe its effects.
+async function flushPromises() {
+  for (let i = 0; i < 5; i++) {
+    await nextTick()
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -233,5 +244,73 @@ describe('interview/[token].vue — timer expiry and skip', () => {
     await pauseButton!.trigger('click')
 
     expect(session.pause).toHaveBeenCalled()
+  })
+})
+
+describe('interview/[token].vue — error/terminal → configurable error redirect', () => {
+  // useExitRedirect is fully mocked above (vi.mock), so these tests are the
+  // ONLY coverage of the integration point that actually fires the redirect:
+  // the watch handler wiring `session.state` + `errorRedirectUrl` to
+  // `redirectToError()`. useExitRedirect's own internal safety logic
+  // (https-only, well-formed, etc.) is covered separately in
+  // use-exit-redirect.spec.ts.
+
+  it('tears down and redirects to the configured error page when state becomes `error`', async () => {
+    const redirectToError = vi.fn(() => true)
+    mockUseExitRedirect.mockReturnValue({
+      exitRedirectUrl: ref<string | null>(null),
+      errorRedirectUrl: ref<string | null>('https://hr.acme.test/assessment/failed'),
+      fetchSession: vi.fn(async () => undefined),
+      redirect: vi.fn(() => false),
+      redirectToError,
+    })
+
+    const session = makeSession({ state: 'live' })
+    await mountPage(session)
+
+    session.state.value = 'error'
+    await flushPromises()
+
+    expect(session.teardown).toHaveBeenCalled()
+    expect(redirectToError).toHaveBeenCalled()
+  })
+
+  it('tears down and redirects to the configured error page when state becomes `terminal`', async () => {
+    const redirectToError = vi.fn(() => true)
+    mockUseExitRedirect.mockReturnValue({
+      exitRedirectUrl: ref<string | null>(null),
+      errorRedirectUrl: ref<string | null>('https://hr.acme.test/assessment/failed'),
+      fetchSession: vi.fn(async () => undefined),
+      redirect: vi.fn(() => false),
+      redirectToError,
+    })
+
+    const session = makeSession({ state: 'live' })
+    await mountPage(session)
+
+    session.state.value = 'terminal'
+    await flushPromises()
+
+    expect(session.teardown).toHaveBeenCalled()
+    expect(redirectToError).toHaveBeenCalled()
+  })
+
+  it('does NOT call redirectToError when no error_redirect_url is configured — inline screen stays', async () => {
+    const redirectToError = vi.fn(() => false)
+    mockUseExitRedirect.mockReturnValue({
+      exitRedirectUrl: ref<string | null>(null),
+      errorRedirectUrl: ref<string | null>(null),
+      fetchSession: vi.fn(async () => undefined),
+      redirect: vi.fn(() => false),
+      redirectToError,
+    })
+
+    const session = makeSession({ state: 'live' })
+    await mountPage(session)
+
+    session.state.value = 'error'
+    await flushPromises()
+
+    expect(redirectToError).not.toHaveBeenCalled()
   })
 })
