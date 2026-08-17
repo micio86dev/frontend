@@ -15,6 +15,32 @@
         <p class="text-sm text-muted-foreground">{{ $t('interview.terminal.403.body') }}</p>
       </template>
 
+      <!-- Spent-link terminal: the sso-link's jti was already consumed (401 from exchange) -->
+      <template v-else-if="reason === 'spent_link'">
+        <h1 id="terminal-page-heading" class="text-2xl font-semibold text-foreground">
+          {{ $t('interview.terminal.spent_link.title') }}
+        </h1>
+        <p class="text-sm text-muted-foreground">{{ $t('interview.terminal.spent_link.body') }}</p>
+      </template>
+
+      <!--
+        Expired-session terminal: the stored candidate session is absent or
+        expired (candidate-session middleware gate, D-E), or a candidate call
+        returned 401 mid-session (D-D/D-F). Honest by design: a paused
+        candidate whose session has expired has NO self-serve path back in —
+        a fresh sso-link is refused at the exchange pre-flight read for any
+        status other than in_attesa (SsoExchangeController.php:118-126) — so
+        this copy MUST NOT suggest requesting or using a new link will help.
+      -->
+      <template v-else-if="reason === 'session_expired'">
+        <h1 id="terminal-page-heading" class="text-2xl font-semibold text-foreground">
+          {{ $t('interview.terminal.session_expired.title') }}
+        </h1>
+        <p class="text-sm text-muted-foreground">
+          {{ $t('interview.terminal.session_expired.body') }}
+        </p>
+      </template>
+
       <!-- Absent phrase terminal: service unavailable, contact support -->
       <template v-else>
         <h1 id="terminal-page-heading" class="text-2xl font-semibold text-foreground">
@@ -40,11 +66,19 @@
  * Terminal page — no exit, no retry.
  *
  * Props (via query param):
- *   reason — '403' (authorization expired/closed) or 'absent_phrase' (service unavailable)
+ *   reason — '403' (authorization expired/closed), 'spent_link' (sso-link
+ *     jti already consumed — exchange 401), 'session_expired' (stored
+ *     candidate session absent/expired — candidate-session middleware gate,
+ *     D-E), or 'absent_phrase' (service unavailable, fallback default).
  *
- * Shows TWO DISTINCT localized messages:
- *   403         → session authorization expired/closed
- *   absent_phrase → service temporarily unavailable; contact support affordance required
+ * Reached from two places:
+ *   1. The entry route (`[token].vue`) on an exchange 401/403 — D1.
+ *   2. `middleware/candidate-session.ts` on `/interview/session` when no
+ *      valid stored session exists — D-E.
+ *
+ * Shows DISTINCT localized messages per reason. `session_expired` and
+ * `spent_link` are honest, non-generic copy — see D-D/D-F: nothing here
+ * ever implies a new link will resolve an expired session.
  *
  * noindex: session-gated page.
  */
@@ -55,10 +89,14 @@ useHead({ meta: [{ name: 'robots', content: 'noindex, nofollow' }] })
 
 const route = useRoute()
 
+type TerminalReason = '403' | 'absent_phrase' | 'session_expired' | 'spent_link'
+
 // Reason can be passed as a route query or param
-const reason = computed<'403' | 'absent_phrase'>(() => {
+const reason = computed<TerminalReason>(() => {
   const r = route.query['reason'] ?? route.params['reason']
-  if (r === '403' || r === 'absent_phrase') return r
+  if (r === '403' || r === 'absent_phrase' || r === 'session_expired' || r === 'spent_link') {
+    return r
+  }
   return '403' // Safe default
 })
 </script>

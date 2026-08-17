@@ -1,5 +1,10 @@
 /**
- * app/pages/interview/[token].vue — the container's wiring, not its styling.
+ * app/pages/interview/session.vue — the container's wiring, not its styling.
+ *
+ * Moved verbatim from `[token].vue` (candidate-session-auth D-A / Task 2.1):
+ * `[token].vue` is now the token-consuming entry route (see
+ * interview-entry.spec.ts); this file is the token-free interview UI the
+ * candidate actually sits on.
  *
  * Two defects this file exists to keep dead:
  *  1. The live interview screen could NEVER render. `activeProvider` / `activeConfig`
@@ -118,7 +123,7 @@ function globalConfig() {
 
 async function mountPage(session: ReturnType<typeof makeSession>) {
   mockUseInterviewSession.mockReturnValue(session)
-  const { default: Page } = await import('~/app/pages/interview/[token].vue')
+  const { default: Page } = await import('~/app/pages/interview/session.vue')
   const wrapper = mount(Page, { global: globalConfig() })
   await nextTick()
   return wrapper
@@ -133,6 +138,7 @@ beforeEach(() => {
   mockUseExitRedirect.mockReturnValue({
     exitRedirectUrl: ref<string | null>(null),
     errorRedirectUrl: ref<string | null>(null),
+    sessionFetchFailed: ref<'unauthenticated' | 'unavailable' | null>(null),
     fetchSession: vi.fn(async () => undefined),
     redirect: vi.fn(() => false),
     redirectToError: vi.fn(() => false),
@@ -165,7 +171,7 @@ async function flushPromises() {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('interview/[token].vue — live render path', () => {
+describe('interview/session.vue — live render path', () => {
   it('mounts AvatarPlayer when the session publishes a provider and config', async () => {
     const wrapper = await mountPage(makeSession({ state: 'live' }))
 
@@ -209,7 +215,7 @@ describe('interview/[token].vue — live render path', () => {
   })
 })
 
-describe('interview/[token].vue — timer expiry and skip', () => {
+describe('interview/session.vue — timer expiry and skip', () => {
   it("timer expiry dispatches endQuestion('timeout')", async () => {
     const session = makeSession({ state: 'live' })
     const wrapper = await mountPage(session)
@@ -247,7 +253,7 @@ describe('interview/[token].vue — timer expiry and skip', () => {
   })
 })
 
-describe('interview/[token].vue — error/terminal → configurable error redirect', () => {
+describe('interview/session.vue — error/terminal → configurable error redirect', () => {
   // useExitRedirect is fully mocked above (vi.mock), so these tests are the
   // ONLY coverage of the integration point that actually fires the redirect:
   // the watch handler wiring `session.state` + `errorRedirectUrl` to
@@ -260,6 +266,7 @@ describe('interview/[token].vue — error/terminal → configurable error redire
     mockUseExitRedirect.mockReturnValue({
       exitRedirectUrl: ref<string | null>(null),
       errorRedirectUrl: ref<string | null>('https://hr.acme.test/assessment/failed'),
+      sessionFetchFailed: ref<'unauthenticated' | 'unavailable' | null>(null),
       fetchSession: vi.fn(async () => undefined),
       redirect: vi.fn(() => false),
       redirectToError,
@@ -280,6 +287,7 @@ describe('interview/[token].vue — error/terminal → configurable error redire
     mockUseExitRedirect.mockReturnValue({
       exitRedirectUrl: ref<string | null>(null),
       errorRedirectUrl: ref<string | null>('https://hr.acme.test/assessment/failed'),
+      sessionFetchFailed: ref<'unauthenticated' | 'unavailable' | null>(null),
       fetchSession: vi.fn(async () => undefined),
       redirect: vi.fn(() => false),
       redirectToError,
@@ -300,6 +308,7 @@ describe('interview/[token].vue — error/terminal → configurable error redire
     mockUseExitRedirect.mockReturnValue({
       exitRedirectUrl: ref<string | null>(null),
       errorRedirectUrl: ref<string | null>(null),
+      sessionFetchFailed: ref<'unauthenticated' | 'unavailable' | null>(null),
       fetchSession: vi.fn(async () => undefined),
       redirect: vi.fn(() => false),
       redirectToError,
@@ -312,5 +321,107 @@ describe('interview/[token].vue — error/terminal → configurable error redire
     await flushPromises()
 
     expect(redirectToError).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Expired-session variant (Task 3.4 RED — D-D)
+//
+// "Surfaced, not just logged: when the machine reaches terminal/error with
+// sessionFetchFailed === 'unauthenticated' and no URL, the terminal renders
+// the expired-session variant instead of no-opping."
+// ---------------------------------------------------------------------------
+
+describe('interview/session.vue — expired-session variant (D-D)', () => {
+  it('state=terminal + sessionFetchFailed="unauthenticated" + no error_redirect_url → renders the session_expired copy', async () => {
+    mockUseExitRedirect.mockReturnValue({
+      exitRedirectUrl: ref<string | null>(null),
+      errorRedirectUrl: ref<string | null>(null),
+      sessionFetchFailed: ref<'unauthenticated' | 'unavailable' | null>('unauthenticated'),
+      fetchSession: vi.fn(async () => undefined),
+      redirect: vi.fn(() => false),
+      redirectToError: vi.fn(() => false),
+    })
+
+    const session = makeSession({ state: 'terminal', provider: null })
+    const wrapper = await mountPage(session)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('interview.terminal.session_expired.title')
+  })
+
+  it('state=error + sessionFetchFailed="unauthenticated" + no error_redirect_url → renders the session_expired copy, not the retry screen', async () => {
+    mockUseExitRedirect.mockReturnValue({
+      exitRedirectUrl: ref<string | null>(null),
+      errorRedirectUrl: ref<string | null>(null),
+      sessionFetchFailed: ref<'unauthenticated' | 'unavailable' | null>('unauthenticated'),
+      fetchSession: vi.fn(async () => undefined),
+      redirect: vi.fn(() => false),
+      redirectToError: vi.fn(() => false),
+    })
+
+    const session = makeSession({ state: 'error', provider: null })
+    const wrapper = await mountPage(session)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('interview.terminal.session_expired.title')
+    expect(wrapper.find('[data-testid="retry-button"]').exists()).toBe(false)
+  })
+
+  it('state=terminal + sessionFetchFailed="unauthenticated" BUT error_redirect_url IS configured → redirects instead of rendering inline (existing mechanism wins)', async () => {
+    const redirectToError = vi.fn(() => true)
+    mockUseExitRedirect.mockReturnValue({
+      exitRedirectUrl: ref<string | null>(null),
+      errorRedirectUrl: ref<string | null>('https://hr.acme.test/assessment/failed'),
+      sessionFetchFailed: ref<'unauthenticated' | 'unavailable' | null>('unauthenticated'),
+      fetchSession: vi.fn(async () => undefined),
+      redirect: vi.fn(() => false),
+      redirectToError,
+    })
+
+    // Start 'live' then transition to 'terminal' — the watch fires on CHANGE,
+    // matching the existing redirect tests' pattern (mounting already-terminal
+    // never triggers a `watch()` without `immediate: true`).
+    const session = makeSession({ state: 'live' })
+    await mountPage(session)
+    session.state.value = 'terminal'
+    await flushPromises()
+
+    expect(redirectToError).toHaveBeenCalled()
+  })
+
+  it('state=terminal + sessionFetchFailed="unavailable" (not unauthenticated) → does NOT render the expired-session variant', async () => {
+    mockUseExitRedirect.mockReturnValue({
+      exitRedirectUrl: ref<string | null>(null),
+      errorRedirectUrl: ref<string | null>(null),
+      sessionFetchFailed: ref<'unauthenticated' | 'unavailable' | null>('unavailable'),
+      fetchSession: vi.fn(async () => undefined),
+      redirect: vi.fn(() => false),
+      redirectToError: vi.fn(() => false),
+    })
+
+    const session = makeSession({ state: 'terminal', provider: null })
+    const wrapper = await mountPage(session)
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('interview.terminal.session_expired.title')
+  })
+
+  it('the session machine\'s OWN terminalReason="session_expired" (Task 2.7) also renders the session_expired copy', async () => {
+    mockUseExitRedirect.mockReturnValue({
+      exitRedirectUrl: ref<string | null>(null),
+      errorRedirectUrl: ref<string | null>(null),
+      sessionFetchFailed: ref<'unauthenticated' | 'unavailable' | null>(null),
+      fetchSession: vi.fn(async () => undefined),
+      redirect: vi.fn(() => false),
+      redirectToError: vi.fn(() => false),
+    })
+
+    const session = makeSession({ state: 'terminal', provider: null })
+    session.terminalReason.value = 'session_expired' as never
+    const wrapper = await mountPage(session)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('interview.terminal.session_expired.title')
   })
 })

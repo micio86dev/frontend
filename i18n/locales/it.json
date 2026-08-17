@@ -60,6 +60,14 @@
         "title": "Servizio temporaneamente non disponibile",
         "body": "Si è verificato un problema tecnico con il servizio di colloquio. Per favore contatta il supporto per ricevere assistenza.",
         "contact": "Contatta il supporto"
+      },
+      "session_expired": {
+        "title": "La tua sessione è scaduta",
+        "body": "La tua sessione di colloquio non è più attiva e non può essere ripresa da questo dispositivo. Non esiste un modo autonomo per continuare da qui: contatta chi ti ha invitato a questo colloquio."
+      },
+      "spent_link": {
+        "title": "Questo invito è già stato utilizzato",
+        "body": "Questo invito è già stato utilizzato e non può essere riutilizzato. Se non hai ancora completato il colloquio, contatta chi ti ha invitato."
       }
     },
     "document_title": "Colloquio BEAI",

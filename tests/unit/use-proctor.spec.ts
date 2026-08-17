@@ -19,6 +19,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // Mocks
 // ---------------------------------------------------------------------------
 
+// The snapshot POST is routed through candidateFetch (D-B / Task 1.6) instead
+// of a raw fetch() — mock the wrapper directly so these tests exercise the
+// takeSnapshot() call site without needing a stored candidate session.
+const { mockCandidateFetch } = vi.hoisted(() => ({
+  mockCandidateFetch: vi.fn().mockResolvedValue({ ok: true }),
+}))
+
+vi.mock('~/app/utils/candidate-api', () => ({
+  candidateFetch: mockCandidateFetch,
+}))
+
 // Mock @mediapipe/tasks-vision (dynamically imported in useProctor)
 vi.mock('@mediapipe/tasks-vision', () => ({
   FilesetResolver: {
@@ -984,9 +995,8 @@ describe('useProctor', () => {
     proctor.stop()
   })
 
-  it('triggerSnapshot: posts jpeg to snapshot endpoint', async () => {
-    const fetchSpy = vi.fn().mockResolvedValue({ ok: true })
-    vi.stubGlobal('fetch', fetchSpy)
+  it('triggerSnapshot: posts jpeg to snapshot endpoint via candidateFetch', async () => {
+    mockCandidateFetch.mockClear().mockResolvedValue({ ok: true })
 
     const { useProctor } = await import('~/app/composables/useProctor')
     const proctor = useProctor({ getSessionId: () => 42 })
@@ -996,22 +1006,19 @@ describe('useProctor', () => {
     proctor.injectSelfView(videoEl)
 
     proctor.triggerSnapshot()
-    await Promise.resolve() // settle fetch
+    await Promise.resolve() // settle candidateFetch
 
-    // FULL resolved URL. `stringContaining('/api/candidate/interview/snapshot')`
-    // passed just as happily against the doubled-prefix URL the app actually built
-    // under Docker ('http://localhost:8000/api' + '/api/candidate/...'), which is a
-    // hard 404. apiBase is stubbed to 'http://localhost:8000' in beforeEach.
-    expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:8000/candidate/interview/snapshot',
+    // candidateFetch resolves the URL internally (D-B) — the caller passes the
+    // API-relative path, not a pre-built absolute URL.
+    expect(mockCandidateFetch).toHaveBeenCalledWith(
+      '/candidate/interview/snapshot',
       expect.objectContaining({ method: 'POST' })
     )
     proctor.stop()
   })
 
   it('triggerSnapshot: includes session_id — the endpoint rejects a body without it', async () => {
-    const fetchSpy = vi.fn().mockResolvedValue({ ok: true })
-    vi.stubGlobal('fetch', fetchSpy)
+    mockCandidateFetch.mockClear().mockResolvedValue({ ok: true })
 
     const { useProctor } = await import('~/app/composables/useProctor')
     const proctor = useProctor({ getSessionId: () => 7 })
@@ -1021,18 +1028,14 @@ describe('useProctor', () => {
     proctor.triggerSnapshot()
     await Promise.resolve()
 
-    const body = JSON.parse((fetchSpy.mock.calls[0]![1] as { body: string }).body) as Record<
-      string,
-      unknown
-    >
+    const body = (mockCandidateFetch.mock.calls[0]![1] as { body: Record<string, unknown> }).body
     expect(body['session_id']).toBe(7)
     expect(body['image_base64']).toBe('data:image/jpeg;base64,test')
     proctor.stop()
   })
 
   it('triggerSnapshot: no session id yet → no POST at all (never sends a rejectable body)', async () => {
-    const fetchSpy = vi.fn().mockResolvedValue({ ok: true })
-    vi.stubGlobal('fetch', fetchSpy)
+    mockCandidateFetch.mockClear().mockResolvedValue({ ok: true })
 
     const { useProctor } = await import('~/app/composables/useProctor')
     const proctor = useProctor({ getSessionId: () => null })
@@ -1042,7 +1045,7 @@ describe('useProctor', () => {
     proctor.triggerSnapshot()
     await Promise.resolve()
 
-    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(mockCandidateFetch).not.toHaveBeenCalled()
     proctor.stop()
   })
 
@@ -1152,8 +1155,7 @@ describe('useProctor', () => {
   })
 
   it('triggerSnapshot: selfView readyState < 2 → no-op (early return)', async () => {
-    const fetchSpy = vi.fn()
-    vi.stubGlobal('fetch', fetchSpy)
+    mockCandidateFetch.mockClear()
 
     const { useProctor } = await import('~/app/composables/useProctor')
     const proctor = useProctor()
@@ -1166,7 +1168,7 @@ describe('useProctor', () => {
     proctor.injectSelfView(lowReadyStateVideo)
 
     proctor.triggerSnapshot()
-    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(mockCandidateFetch).not.toHaveBeenCalled()
     proctor.stop()
   })
 

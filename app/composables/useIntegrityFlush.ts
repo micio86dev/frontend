@@ -1,10 +1,36 @@
 /**
- * useIntegrityFlush — Integrity event flush composable (Task 3.4 GREEN)
+ * useIntegrityFlush — Integrity event flush composable (Task 3.4 GREEN;
+ * migrated onto the single authenticated transport by Task 1.7/1.8 —
+ * candidate-session-auth D-B, D-C)
  *
  * Manages a batch of integrity events and provides two flush paths:
- *   1. flush()           — POST /integrity via $fetch (normal flush, every 10s)
- *   2. flushViaBeacon()  — navigator.sendBeacon with absolute URL + Blob('application/json')
- *                           (used on pagehide and resize-triggered navigation)
+ *   1. flush()           — POST /integrity via candidateFetch (normal flush, every 10s)
+ *   2. flushViaBeacon()  — delegates to the shared `flushIntegrityKeepalive`
+ *                           transport (fetch + keepalive + Authorization header;
+ *                           used on pagehide and resize-triggered navigation)
+ *
+ * `navigator.sendBeacon` cannot carry an `Authorization` header, so it was
+ * replaced by `fetch(..., { keepalive: true })` (D-C). That transport is
+ * fire-and-forget by construction — its promise will not settle before the
+ * page dies — so `flushPendingViaBeacon()` acknowledges (clears) the pending
+ * batch ON DISPATCH, not on settlement.
+ *
+ * Verification warning, stated plainly rather than left implicit: acknowledging
+ * on dispatch means a flush that is dispatched but never actually DELIVERED
+ * (network refusal, the keepalive body exceeding its ~64 KiB practical cap, the
+ * request racing the page's teardown and losing) drops that batch of
+ * proctoring events SILENTLY from the candidate's evidence trail — the only
+ * trace is `console.warn('[candidate-api] keepalive flush failed:', err)`
+ * inside `flushIntegrityKeepalive`, logged to a browser console that is
+ * closing at the exact moment the warning fires and that nothing server-side
+ * ever reads. This is the same practical ceiling `sendBeacon` already had
+ * (best-effort, no delivery guarantee) — not a regression — but it was never
+ * written down before. There is no delivery-confirmation channel available
+ * within this proposal's backend-unchanged, frontend-only scope; closing this
+ * gap for real (e.g. a durable client-side retry queue, or a server-side
+ * "did the last N seconds of proctoring evidence arrive" check) is a
+ * candidate for the same follow-up track as the operator-visible stalled-
+ * candidate alert (see tasks.md 5.3) — not solved here.
  *
  * Type → kind mapping: internal IntegrityEventInternal uses field `type`;
  * the C7a API contract uses field `kind`. All payload construction maps type → kind.
@@ -12,13 +38,12 @@
  * SSR invariant: NO browser globals at module scope. navigator/window access is
  * inside function bodies only, not at module evaluation.
  *
- * Design refs: D3 (sendBeacon + type→kind), spec Coverage Note (sendBeacon via Playwright)
+ * Design refs: D-B, D-C (keepalive + type→kind), spec Coverage Note (sendBeacon via Playwright)
  */
 
 import { getCurrentScope, onScopeDispose, ref } from 'vue'
-import { $fetch } from 'ofetch'
 import type { IntegrityEventInternal } from '~/app/utils/proctor-config'
-import { apiUrl } from '~/app/utils/api-url'
+import { candidateFetch, flushIntegrityKeepalive } from '~/app/utils/candidate-api'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -73,10 +98,6 @@ export function useIntegrityFlush(options: UseIntegrityFlushOptions): UseIntegri
   const { sessionId } = options
   const pendingEvents = ref<IntegrityEventInternal[]>([])
 
-  function buildBeaconUrl(): string {
-    return apiUrl('/candidate/interview/integrity')
-  }
-
   function addEvent(event: IntegrityEventInternal): void {
     pendingEvents.value = [...pendingEvents.value, event]
   }
@@ -84,7 +105,7 @@ export function useIntegrityFlush(options: UseIntegrityFlushOptions): UseIntegri
   async function flush(events: IntegrityEventInternal[]): Promise<void> {
     if (events.length === 0) return
 
-    await $fetch(apiUrl('/candidate/interview/integrity'), {
+    await candidateFetch('/candidate/interview/integrity', {
       method: 'POST',
       body: {
         session_id: sessionId,
@@ -93,25 +114,29 @@ export function useIntegrityFlush(options: UseIntegrityFlushOptions): UseIntegri
     })
   }
 
+  /**
+   * Delegates to the shared `flushIntegrityKeepalive` transport (D-C) instead
+   * of `navigator.sendBeacon` — sendBeacon cannot carry the Authorization
+   * header a candidate-scoped request requires.
+   */
   function flushViaBeacon(events: IntegrityEventInternal[]): void {
-    const url = buildBeaconUrl()
-    const payload = {
+    flushIntegrityKeepalive({
       session_id: sessionId,
       events: events.map(toApiPayload),
-    }
-
-    const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' })
-    const sent = navigator.sendBeacon(url, blob)
-
-    if (!sent) {
-      // Safari 64 KB cap exceeded — log degradation warning
-      console.warn(
-        '[useIntegrityFlush] sendBeacon returned false (payload may exceed 64 KB Safari cap)',
-        { url, eventCount: events.length }
-      )
-    }
+    })
   }
 
+  /**
+   * Dispatches the pending batch via the keepalive transport and clears it
+   * immediately — acknowledge on dispatch (D-C). `fetch(..., { keepalive: true })`
+   * returns a promise that will not settle before the page dies, so there is
+   * no synchronous success signal left to gate the clear on.
+   *
+   * Evidence-loss ceiling: if the dispatched request never actually lands
+   * (refused, oversized, or racing page teardown), this batch of proctoring
+   * events is gone — cleared here, and the failure surfaces only as a
+   * `console.warn` from a closing page. See the module docblock above.
+   */
   function flushPendingViaBeacon(): void {
     const events = pendingEvents.value
     if (events.length > 0) {
