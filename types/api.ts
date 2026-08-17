@@ -356,6 +356,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/entry-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["entryLink.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/evaluations/summary": {
         parameters: {
             query?: never;
@@ -1350,6 +1366,14 @@ export interface components {
             /** @enum {string} */
             status: "in_attesa" | "in_corso" | "in_valutazione" | "completato" | "errore";
             project_id: number;
+            project: {
+                id: number;
+                name: string;
+                /** @enum {string} */
+                status: "draft" | "active" | "archived";
+                goes_live_at: string | null;
+                deadline_at: string | null;
+            };
             timeline: {
                 started_at: string | null;
                 completed_at: string | null;
@@ -2347,6 +2371,52 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "entryLink.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    project_id: number;
+                    candidate_ref: string;
+                    display_name: string;
+                    role_code?: string | null;
+                    lang?: string | null;
+                };
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        entry_url: string;
+                        expires_at: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Conflict: participant has already completed this assessment.";
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
         };
     };
     "evaluationIndex.summary": {

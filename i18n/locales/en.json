@@ -60,6 +60,14 @@
         "title": "Service Temporarily Unavailable",
         "body": "A technical issue occurred with the interview service. Please contact support for assistance.",
         "contact": "Contact Support"
+      },
+      "session_expired": {
+        "title": "Your Session Has Expired",
+        "body": "Your interview session is no longer active and cannot be resumed from this device. There is no self-service way to continue from here — please get in touch with whoever invited you to this interview."
+      },
+      "spent_link": {
+        "title": "This Invitation Has Already Been Used",
+        "body": "This invitation has already been used and cannot be used again. If you have not yet completed your interview, please contact whoever invited you."
       }
     },
     "document_title": "BEAI Interview",

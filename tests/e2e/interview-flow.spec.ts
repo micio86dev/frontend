@@ -20,6 +20,59 @@ const TOKEN = 'test-token-abc123'
 const INTERVIEW_URL = `/interview/${TOKEN}`
 const EN_INTERVIEW_URL = `/en/interview/${TOKEN}`
 
+// ---------------------------------------------------------------------------
+// sso-link exchange mocking (candidate-session-auth D1/D-A)
+//
+// `/interview/{token}` is the entry route: it exchanges the sso-link token
+// exactly once against `GET /api/sso/exchange`, persists the returned
+// candidate JWT, then `replace`-redirects to the token-free `/interview/session`
+// route. Every scenario below needs this mocked or the entry route can never
+// progress past its connecting skeleton.
+// ---------------------------------------------------------------------------
+
+function base64url(input: string): string {
+  return Buffer.from(input, 'utf-8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
+}
+
+/** A candidate JWT shaped closely enough for useCandidateSession to decode client-side. */
+function makeCandidateJwt(candidateRef = 'cand-e2e-001', projectId = 1): string {
+  const header = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+  const payload = base64url(
+    JSON.stringify({
+      typ: 'candidate',
+      candidate_ref: candidateRef,
+      project_id: projectId,
+      exp: Math.floor(Date.now() / 1000) + 7200,
+    })
+  )
+  return `${header}.${payload}.e2e-fake-signature`
+}
+
+/**
+ * Mock `GET /api/sso/exchange` — counts calls so refresh-safety can be
+ * asserted (D1's central hazard: the exchange consumes the sso-link's `jti`
+ * BEFORE any gate, so re-exchanging on refresh would burn the link).
+ */
+function mockSsoExchange(
+  page: Parameters<typeof test>[0] extends { page: infer P } ? P : never,
+  accessToken: string = makeCandidateJwt()
+): { getCallCount: () => number } {
+  let callCount = 0
+  page.route('**/api/sso/exchange*', (route) => {
+    callCount++
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ access_token: accessToken }),
+    })
+  })
+  return { getCallCount: () => callCount }
+}
+
 // Mock API responses
 const MOCK_START_RESPONSE = {
   session_id: 1,
@@ -46,14 +99,79 @@ const MOCK_START_LAST_RESPONSE = {
 const MOCK_END_RESPONSE = { status: 'ok' }
 
 // ---------------------------------------------------------------------------
+// Device mocks — getUserMedia + AudioContext, so device check completes
+// automatically (camera live, mic OK via immediate RMS spike). This enables
+// the "Continue to Interview" button so confirmDevices() fires.
+//
+// DeviceCheck.client.vue is a .client.vue component registered as "DeviceCheck".
+// It mounts inside <ClientOnly> in the production build. The mocks below allow
+// navigator.mediaDevices.getUserMedia to succeed and AudioContext to report a
+// mic RMS above threshold — enabling the "Continue to Interview" button without
+// real hardware. Module-scoped so every describe block below can share it.
+// ---------------------------------------------------------------------------
+
+async function injectDeviceMocks(
+  page: Parameters<typeof test>[0] extends { page: infer P } ? P : never
+) {
+  await page.addInitScript(() => {
+    // Mock getUserMedia with fake tracks (non-real MediaStream object).
+    // navigator.mediaDevices is null in non-HTTPS (localhost without TLS);
+    // we replace it wholesale.
+    const fakeStream = {
+      getTracks: () => [
+        { readyState: 'live', kind: 'video', stop: () => {} },
+        { readyState: 'live', kind: 'audio', stop: () => {} },
+      ],
+      getVideoTracks: () => [{ readyState: 'live', stop: () => {} }],
+      getAudioTracks: () => [{ readyState: 'live', stop: () => {} }],
+    }
+
+    Object.defineProperty(navigator, 'mediaDevices', {
+      writable: true,
+      configurable: true,
+      value: { getUserMedia: async () => fakeStream },
+    })
+
+    // Mock AudioContext — buffer filled with 148 → RMS ≈ 0.156 > MIC_SPEAK_THRESHOLD(0.04)
+    const fakeBuffer = new Uint8Array(128).fill(148)
+    const fakeAnalyser = {
+      fftSize: 256,
+      frequencyBinCount: 128,
+      getByteTimeDomainData: (buf: Uint8Array) => {
+        for (let i = 0; i < buf.length; i++) buf[i] = fakeBuffer[i] ?? 148
+      },
+    }
+    ;(window as Record<string, unknown>).AudioContext = class {
+      createAnalyser() {
+        return fakeAnalyser
+      }
+      createMediaStreamSource() {
+        return { connect: () => {} }
+      }
+    }
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Route mock helpers
 // ---------------------------------------------------------------------------
 
 async function mockInterviewRoutes(
   page: Parameters<typeof test>[0] extends { page: infer P } ? P : never,
   startResponse: object = MOCK_START_RESPONSE,
-  startStatus = 201
+  startStatus = 201,
+  // GET /api/sso/exchange — the entry route exchanges once before the
+  // candidate ever reaches the consent/device-check/live screens these tests
+  // exercise; every scenario needs it mocked to get past the entry route.
+  // Accepts an already-registered exchange handle (default param: creates one
+  // if the caller doesn't need to inspect the call count) — registering a
+  // SECOND `page.route()` for the same pattern here would shadow a caller's
+  // own handle in Playwright's LIFO route-matching order, making its call
+  // counter permanently stuck at 0.
+  ssoExchange: { getCallCount: () => number } = mockSsoExchange(page)
 ) {
+  void ssoExchange
+
   // POST /start
   await page.route('**/api/candidate/interview/start', (route) => {
     route.fulfill({
@@ -220,61 +338,6 @@ test.describe('Interview flow — E2E', () => {
   })
 
   test.describe('Error paths', () => {
-    // Helper: inject mocks for getUserMedia + AudioContext so device check
-    // completes automatically (camera live, mic OK via immediate RMS spike).
-    // This enables the "Continue to Interview" button so confirmDevices() fires.
-    //
-    // DeviceCheck.client.vue is a .client.vue component registered as "DeviceCheck".
-    // It mounts inside <ClientOnly> in the production build. The mocks below allow
-    // navigator.mediaDevices.getUserMedia to succeed and AudioContext to report a
-    // mic RMS above threshold — enabling the "Continue to Interview" button without
-    // real hardware.
-    //
-    // Route registration order: Playwright matches routes in LIFO order. To ensure the
-    // specific /start route wins over the wildcard /**, register the wildcard FIRST and
-    // the specific /start route LAST (so it takes priority).
-    async function injectDeviceMocks(
-      page: Parameters<typeof test>[0] extends { page: infer P } ? P : never
-    ) {
-      await page.addInitScript(() => {
-        // Mock getUserMedia with fake tracks (non-real MediaStream object).
-        // navigator.mediaDevices is null in non-HTTPS (localhost without TLS);
-        // we replace it wholesale.
-        const fakeStream = {
-          getTracks: () => [
-            { readyState: 'live', kind: 'video', stop: () => {} },
-            { readyState: 'live', kind: 'audio', stop: () => {} },
-          ],
-          getVideoTracks: () => [{ readyState: 'live', stop: () => {} }],
-          getAudioTracks: () => [{ readyState: 'live', stop: () => {} }],
-        }
-
-        Object.defineProperty(navigator, 'mediaDevices', {
-          writable: true,
-          configurable: true,
-          value: { getUserMedia: async () => fakeStream },
-        })
-
-        // Mock AudioContext — buffer filled with 148 → RMS ≈ 0.156 > MIC_SPEAK_THRESHOLD(0.04)
-        const fakeBuffer = new Uint8Array(128).fill(148)
-        const fakeAnalyser = {
-          fftSize: 256,
-          frequencyBinCount: 128,
-          getByteTimeDomainData: (buf: Uint8Array) => {
-            for (let i = 0; i < buf.length; i++) buf[i] = fakeBuffer[i] ?? 148
-          },
-        }
-        ;(window as Record<string, unknown>).AudioContext = class {
-          createAnalyser() {
-            return fakeAnalyser
-          }
-          createMediaStreamSource() {
-            return { connect: () => {} }
-          }
-        }
-      })
-    }
-
     // Helper: navigate to EN interview URL, accept consent, wait for DeviceCheck
     // to be fully rendered, then click "Continue to Interview".
     async function goThroughDeviceCheck(
@@ -291,6 +354,7 @@ test.describe('Interview flow — E2E', () => {
     }
 
     test('429 x3 shows error+retry screen', async ({ page }) => {
+      mockSsoExchange(page)
       // Register wildcard FIRST (lower priority in LIFO), /start LAST (wins).
       await page.route('**/api/candidate/interview/**', (route) => {
         route.fulfill({ status: 202, contentType: 'application/json', body: '{}' })
@@ -314,6 +378,7 @@ test.describe('Interview flow — E2E', () => {
     })
 
     test('403 from /start shows terminal screen (403 variant)', async ({ page }) => {
+      mockSsoExchange(page)
       // Register wildcard FIRST, /start LAST so /start takes priority.
       await page.route('**/api/candidate/interview/**', (route) => {
         route.fulfill({ status: 202, contentType: 'application/json', body: '{}' })
@@ -335,6 +400,7 @@ test.describe('Interview flow — E2E', () => {
     })
 
     test('error screen has retry button', async ({ page }) => {
+      mockSsoExchange(page)
       // Register wildcard FIRST, /start LAST.
       await page.route('**/api/candidate/interview/**', (route) => {
         route.fulfill({ status: 202, contentType: 'application/json', body: '{}' })
@@ -401,24 +467,189 @@ test.describe('Interview flow — E2E', () => {
     })
   })
 
-  test.describe('sendBeacon Content-Type assertion', () => {
-    test('sendBeacon is called with absolute URL and application/json Content-Type', async ({
+  // ---------------------------------------------------------------------------
+  // Entry route — refresh does not burn the link (Task 2.8 — D1's central hazard)
+  //
+  // The sso-link is single-use and its `jti` is consumed BEFORE any gate is
+  // evaluated (SsoExchangeController.php:44) — an entry route that re-exchanges
+  // on every mount would burn the link on the candidate's first refresh, which
+  // is exactly what someone does when a page looks stuck. `replace: true`
+  // removes the token URL from the history entry, so a refresh always lands on
+  // the token-free session route, never back on the exchange.
+  // ---------------------------------------------------------------------------
+
+  test.describe('Entry route — refresh does not burn the link (D1)', () => {
+    // Verification Finding #4 (mutation-proven decorative test, now removed):
+    // a "reload at /interview/session triggers zero additional exchange
+    // calls" test used to live here. It could not fail on the thing it
+    // named — by the time a reload happens, the browser is ALREADY on
+    // `/interview/session`, a route whose own component (`session.vue`)
+    // never imports or calls the exchange transport at all. That guarantee
+    // is structural (route separation), not a property of
+    // `storedSessionMatchesLink` or any exchange-guard logic — disabling
+    // `storedSessionMatchesLink` entirely left that test green, because
+    // there was nothing left in the reload path for the mutation to break.
+    // A test that cannot fail on the thing it names reads as coverage while
+    // providing none, which is worse than no test.
+    //
+    // The sibling test below — re-visiting the ENTRY URL itself with a
+    // stored, matching session — IS the test that exercises
+    // `storedSessionMatchesLink` and DOES go red when it is disabled. It is
+    // the one that actually protects D1's hazard: a candidate landing back
+    // on the token URL (refresh, Back, a resent link) must not re-exchange.
+    test('a stored, unexpired session with matching claims → zero exchange calls on a fresh visit', async ({
       page,
     }) => {
-      const beaconCalls: Array<{ url: string; contentType?: string }> = []
+      // Simulates "closed the tab, reopened the app" (D1 scenario 3): the
+      // candidate already holds a valid session before the entry route ever
+      // exchanges anything. The stored candidate JWT's claims must MATCH the
+      // sso-link's own claims for the skip to fire — build both from the
+      // same candidate_ref/project_id.
+      const candidateRef = 'cand-e2e-skip'
+      const projectId = 7
+      const candidateToken = makeCandidateJwt(candidateRef, projectId)
+      const ssoLinkToken = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+        .concat(
+          '.',
+          base64url(
+            JSON.stringify({
+              typ: 'sso-link',
+              candidate_ref: candidateRef,
+              project_id: projectId,
+              exp: Math.floor(Date.now() / 1000) + 1800,
+            })
+          )
+        )
+        .concat('.e2e-fake-sso-signature')
+      const entryUrl = `/en/interview/${ssoLinkToken}`
 
-      // Intercept sendBeacon calls
+      const exchange = mockSsoExchange(page, candidateToken)
+      await mockInterviewRoutes(page, MOCK_START_RESPONSE, 201, exchange)
+
+      await page.goto(entryUrl)
+      await expect(page.getByRole('button', { name: /accept and continue/i })).toBeVisible({
+        timeout: 10_000,
+      })
+      expect(exchange.getCallCount()).toBe(1)
+
+      // Re-visit the SAME entry URL — the stored session's claims match the
+      // sso-link's own claims, so the exchange must be skipped entirely.
+      await page.goto(entryUrl)
+      await expect(page.getByRole('button', { name: /accept and continue/i })).toBeVisible({
+        timeout: 10_000,
+      })
+      expect(exchange.getCallCount()).toBe(1)
+    })
+
+    // -------------------------------------------------------------------------
+    // Task 4.2 — the first /start request carries Authorization: Bearer.
+    //
+    // Interpretation note (documented per non-negotiable honesty requirement):
+    // spec.md's "The E2E exchange step is not mocked" scenario asks that
+    // GET /api/sso/exchange never be intercepted via page.route(). This
+    // Playwright config's webServer is frontend-only — no PHP/Postgres/Redis
+    // (playwright.config.ts:52-65) — and design.md's own "Where the real-chain
+    // test lives — and why not the frontend" section explicitly scopes the
+    // GENUINE chain to the api Pest suite (Task 4.1) for exactly that reason,
+    // recording a real-API E2E wrapper as a named, costed, NOT-built-here
+    // follow-up. Consistent with that recorded decision, the exchange RESPONSE
+    // stays mocked here (there is no backend to answer it for real), but the
+    // request-side behavior — the token is genuinely propagated from the
+    // exchange response into the very next authenticated call — is asserted
+    // directly and is not weakened by the stubbed response.
+    // -------------------------------------------------------------------------
+    test('the first POST /start request carries Authorization: Bearer <the exchanged token>', async ({
+      page,
+    }) => {
+      const candidateToken = makeCandidateJwt('cand-e2e-auth-header')
+      const exchange = mockSsoExchange(page, candidateToken)
+      await mockInterviewRoutes(page, MOCK_START_RESPONSE, 201, exchange)
+
+      let startAuthHeader: string | null = null
+      await page.route('**/api/candidate/interview/start', (route) => {
+        startAuthHeader ??= route.request().headers()['authorization'] ?? null
+        route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(MOCK_START_RESPONSE),
+        })
+      })
+
+      await injectDeviceMocks(page)
+      await page.goto(EN_INTERVIEW_URL)
+      await page.getByRole('button', { name: /accept and continue/i }).click()
+      await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+        timeout: 8000,
+      })
+      await page.getByRole('button', { name: /continue to interview/i }).click()
+
+      await expect.poll(() => startAuthHeader, { timeout: 10_000 }).toBe(`Bearer ${candidateToken}`)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Verification Finding #5 — locale preservation through failure paths.
+  //
+  // Both locale-loss fix sites ([token].vue and candidate-session.ts
+  // middleware) are unit-tested with a marker-based useLocalePath stub, but
+  // neither of those tests can prove the REAL @nuxtjs/i18n integration
+  // actually resolves the marker into a genuine `/en/...` URL end to end in
+  // a real browser. This E2E walks the `/en/` locale through to a terminal
+  // via BOTH fix sites and asserts the final URL keeps the `/en/` prefix.
+  // ---------------------------------------------------------------------------
+
+  test.describe('Locale preservation through failure paths (Verification Finding #5)', () => {
+    test('EN locale + no stored session on /interview/session → middleware redirects to /en/interview/terminal (not the default locale)', async ({
+      page,
+    }) => {
+      // Navigate straight to the session route with NO exchange, NO stored
+      // session — the candidate-session middleware gate fires synchronously.
+      await page.goto('/en/interview/session')
+
+      await page.waitForURL(/\/interview\/terminal/, { timeout: 10_000 })
+
+      expect(page.url()).toContain('/en/interview/terminal')
+      expect(page.url()).toContain('reason=session_expired')
+    })
+
+    test('EN locale + exchange 401 (spent link) → entry route redirects to /en/interview/terminal (not the default locale)', async ({
+      page,
+    }) => {
+      await page.route('**/api/sso/exchange*', (route) => {
+        route.fulfill({
+          status: 401,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: 'Unauthenticated.' }),
+        })
+      })
+
+      await page.goto(EN_INTERVIEW_URL)
+
+      await page.waitForURL(/\/interview\/terminal/, { timeout: 10_000 })
+
+      expect(page.url()).toContain('/en/interview/terminal')
+      expect(page.url()).toContain('reason=spent_link')
+    })
+  })
+
+  test.describe('pagehide keepalive-flush transport (D-C — sendBeacon replaced)', () => {
+    // `navigator.sendBeacon` cannot carry an `Authorization` header (D-C), so the
+    // pagehide integrity flush moved to `fetch(..., { keepalive: true })` via
+    // `flushIntegrityKeepalive` (candidate-api.ts). This asserts NO code path
+    // reaches for `navigator.sendBeacon` any more — a regression here would
+    // silently reintroduce the unauthenticated end-of-session flush this
+    // change exists to fix.
+    test('navigator.sendBeacon is never called — the keepalive transport replaced it', async ({
+      page,
+    }) => {
+      const sendBeaconCalls: string[] = []
+
       await page.addInitScript(() => {
         const originalSendBeacon = navigator.sendBeacon.bind(navigator)
         navigator.sendBeacon = (url: string, data?: BodyInit | null) => {
-          // Store call info in localStorage for assertion
-          const contentType = data instanceof Blob ? data.type : 'unknown'
-          const calls = JSON.parse(localStorage.getItem('beaconCalls') ?? '[]') as Array<{
-            url: string
-            contentType: string
-          }>
-          calls.push({ url, contentType })
-          localStorage.setItem('beaconCalls', JSON.stringify(calls))
+          const calls = JSON.parse(localStorage.getItem('sendBeaconCalls') ?? '[]') as string[]
+          calls.push(url)
+          localStorage.setItem('sendBeaconCalls', JSON.stringify(calls))
           return originalSendBeacon(url, data)
         }
       })
@@ -432,21 +663,12 @@ test.describe('Interview flow — E2E', () => {
         window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }))
       })
 
-      // Read beacon calls from localStorage
       const storedCalls = await page.evaluate(() => {
-        return JSON.parse(localStorage.getItem('beaconCalls') ?? '[]')
+        return JSON.parse(localStorage.getItem('sendBeaconCalls') ?? '[]') as string[]
       })
 
-      // If beacons were sent (there may be none if no integrity events accumulated)
-      // When beacons are sent, they must have absolute URL and application/json
-      for (const call of storedCalls as typeof beaconCalls) {
-        expect(call.url).toMatch(/^https?:\/\//)
-        expect(call.url).toContain('/api/candidate/interview/integrity')
-        expect(call.contentType).toBe('application/json')
-      }
-
-      // Record for reporting
-      beaconCalls.push(...(storedCalls as typeof beaconCalls))
+      sendBeaconCalls.push(...storedCalls)
+      expect(sendBeaconCalls).toEqual([])
     })
   })
 })

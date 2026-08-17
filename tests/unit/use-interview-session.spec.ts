@@ -21,10 +21,33 @@ import { nextTick } from 'vue'
 // Hoisted mocks — must be defined before any other imports using vi.hoisted
 // ---------------------------------------------------------------------------
 
-const { mockFetchImpl, mockCreateProvider } = vi.hoisted(() => {
-  const mockFetchImpl = vi.fn()
+const {
+  mockCandidateFetch,
+  mockFlushIntegrityKeepalive,
+  mockCreateProvider,
+  mockClearSession,
+  MockCandidateUnauthorizedError,
+} = vi.hoisted(() => {
+  const mockCandidateFetch = vi.fn()
+  const mockFlushIntegrityKeepalive = vi.fn()
   const mockCreateProvider = vi.fn()
-  return { mockFetchImpl, mockCreateProvider }
+  const mockClearSession = vi.fn()
+  // A real class (not just a spy) — useInterviewSession does `instanceof`
+  // checks against this, so the test and the source must share the exact
+  // same class reference via the mocked module.
+  class MockCandidateUnauthorizedError extends Error {
+    constructor(message = 'Candidate session unauthorized') {
+      super(message)
+      this.name = 'CandidateUnauthorizedError'
+    }
+  }
+  return {
+    mockCandidateFetch,
+    mockFlushIntegrityKeepalive,
+    mockCreateProvider,
+    mockClearSession,
+    MockCandidateUnauthorizedError,
+  }
 })
 
 // Mock the provider factory BEFORE importing the composable
@@ -32,10 +55,20 @@ vi.mock('~/app/providers/factory', () => ({
   createProvider: mockCreateProvider,
 }))
 
-// Mock ofetch which backs $fetch in Nuxt composables
-vi.mock('ofetch', () => ({
-  $fetch: mockFetchImpl,
-  FetchError: class FetchError extends Error {},
+// useInterviewSession is migrated onto the single authenticated transport
+// (D-B/D-C, Task 1.6/1.9) — mock candidate-api directly instead of raw ofetch.
+vi.mock('~/app/utils/candidate-api', () => ({
+  candidateFetch: mockCandidateFetch,
+  flushIntegrityKeepalive: mockFlushIntegrityKeepalive,
+  CandidateUnauthorizedError: MockCandidateUnauthorizedError,
+}))
+
+// Verification finding #1: the candidate session MUST be cleared on every
+// terminal/done transition, not just the 401 path (candidateFetch already
+// clears on 401 internally — this mock proves useInterviewSession ALSO
+// clears directly, defense in depth, for 403/absent_phrase/malformed_response/done).
+vi.mock('~/app/composables/useCandidateSession', () => ({
+  useCandidateSession: () => ({ clear: mockClearSession, read: vi.fn(), store: vi.fn() }),
 }))
 
 // eslint-disable-next-line import/first
@@ -187,7 +220,7 @@ async function createLiveSession(questionIndex = '0', competencies = DEFAULT_COM
   const session = useInterviewSession({ competencies })
   session.acceptConsent()
 
-  mockFetchImpl.mockResolvedValueOnce(makeStartResponse({ question_index: questionIndex }))
+  mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ question_index: questionIndex }))
   session.confirmDevices()
   await nextTick()
 
@@ -237,7 +270,7 @@ describe('useInterviewSession', () => {
     it('transitions device_check → connecting immediately', () => {
       const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
       session.acceptConsent()
-      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse())
 
       session.confirmDevices()
 
@@ -250,19 +283,18 @@ describe('useInterviewSession', () => {
       expect(session.state.value).toBe('live')
     })
 
-    it('calls $fetch with /candidate/interview/start endpoint', async () => {
+    it('calls candidateFetch with the /candidate/interview/start endpoint', async () => {
       const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
       session.acceptConsent()
-      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse())
 
       session.confirmDevices()
       await nextTick()
 
-      // Full resolved URL, not stringContaining: a substring assertion passes
-      // just as happily against the doubled-prefix '/api/api/candidate/interview/start',
-      // which is exactly the URL the app used to build and which routes nowhere.
-      expect(mockFetchImpl).toHaveBeenCalledWith(
-        'https://api.test/candidate/interview/start',
+      // candidateFetch resolves the URL internally (D-B) — the caller passes
+      // the API-relative path, not a pre-built absolute URL.
+      expect(mockCandidateFetch).toHaveBeenCalledWith(
+        '/candidate/interview/start',
         expect.any(Object)
       )
     })
@@ -283,7 +315,7 @@ describe('useInterviewSession', () => {
 
       const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
       session.acceptConsent()
-      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse())
 
       session.confirmDevices()
       await nextTick()
@@ -313,7 +345,7 @@ describe('useInterviewSession', () => {
         },
       }
 
-      mockFetchImpl.mockResolvedValueOnce(response)
+      mockCandidateFetch.mockResolvedValueOnce(response)
       session.confirmDevices()
       await nextTick()
 
@@ -341,14 +373,12 @@ describe('useInterviewSession', () => {
     it('provider emits complete → calls POST /end with ended_reason=completed', async () => {
       await createLiveSession()
 
-      mockFetchImpl.mockResolvedValueOnce(undefined) // /end 200
+      mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
 
       currentMockProvider._emit('state', 'complete')
       await flushPromises()
 
-      const endCall = mockFetchImpl.mock.calls.find(
-        (c) => c[0] === 'https://api.test/candidate/interview/end'
-      )
+      const endCall = mockCandidateFetch.mock.calls.find((c) => c[0] === '/candidate/interview/end')
       expect(endCall).toBeDefined()
       expect((endCall![1] as { body: { ended_reason: string } }).body.ended_reason).toBe(
         'completed'
@@ -358,7 +388,7 @@ describe('useInterviewSession', () => {
     it('/end 200 with competencies remaining → state end_of_question', async () => {
       const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
 
-      mockFetchImpl.mockResolvedValueOnce(undefined) // /end 200
+      mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
 
       currentMockProvider._emit('state', 'complete')
       await flushPromises()
@@ -369,7 +399,7 @@ describe('useInterviewSession', () => {
     it('/end 200 on last competency (question_index=4, total=5) → state done', async () => {
       const session = await createLiveSession('4', DEFAULT_COMPETENCIES)
 
-      mockFetchImpl.mockResolvedValueOnce(undefined) // /end 200
+      mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
 
       currentMockProvider._emit('state', 'complete')
       await flushPromises()
@@ -381,7 +411,7 @@ describe('useInterviewSession', () => {
       const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
 
       // 409 from /end = race: already ended; treat as 200
-      mockFetchImpl.mockRejectedValueOnce(makeFetchError(409))
+      mockCandidateFetch.mockRejectedValueOnce(makeFetchError(409))
 
       currentMockProvider._emit('state', 'complete')
       await flushPromises()
@@ -395,7 +425,7 @@ describe('useInterviewSession', () => {
       const session = await createLiveSession()
 
       // Transcript triggers /utterance call which returns 409
-      mockFetchImpl.mockRejectedValueOnce(makeFetchError(409))
+      mockCandidateFetch.mockRejectedValueOnce(makeFetchError(409))
 
       currentMockProvider._emit('transcript', { role: 'candidate', text: 'Hello', ts: Date.now() })
       await flushPromises()
@@ -416,7 +446,7 @@ describe('useInterviewSession', () => {
       await vi.advanceTimersByTimeAsync(SNAPSHOT_INTERVAL_MS_TEST * 6)
       await nextTick()
 
-      const snapshotCalls = mockFetchImpl.mock.calls.filter((c) =>
+      const snapshotCalls = mockCandidateFetch.mock.calls.filter((c) =>
         String(c[0]).includes('/candidate/interview/snapshot')
       )
       expect(snapshotCalls).toHaveLength(0)
@@ -430,7 +460,7 @@ describe('useInterviewSession', () => {
       session.acceptConsent()
 
       // Attempt 1: 429 | Attempt 2: 201 success
-      mockFetchImpl
+      mockCandidateFetch
         .mockRejectedValueOnce(makeFetchError(429))
         .mockResolvedValueOnce(makeStartResponse())
 
@@ -454,7 +484,7 @@ describe('useInterviewSession', () => {
       const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
       session.acceptConsent()
 
-      mockFetchImpl
+      mockCandidateFetch
         .mockRejectedValueOnce(makeFetchError(429))
         .mockRejectedValueOnce(makeFetchError(429))
         .mockRejectedValueOnce(makeFetchError(429))
@@ -475,7 +505,7 @@ describe('useInterviewSession', () => {
       const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
       session.acceptConsent()
 
-      mockFetchImpl
+      mockCandidateFetch
         .mockRejectedValueOnce(makeFetchError(429))
         .mockRejectedValueOnce(makeFetchError(429))
         .mockRejectedValueOnce(makeFetchError(429))
@@ -490,7 +520,7 @@ describe('useInterviewSession', () => {
       expect(session.state.value).toBe('error')
 
       // User presses Retry — new sequence begins
-      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse())
       session.retry()
       await nextTick()
 
@@ -504,7 +534,7 @@ describe('useInterviewSession', () => {
       const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
       session.acceptConsent()
 
-      mockFetchImpl.mockRejectedValueOnce(makeFetchError(403))
+      mockCandidateFetch.mockRejectedValueOnce(makeFetchError(403))
 
       session.confirmDevices()
       await flushPromises()
@@ -517,7 +547,7 @@ describe('useInterviewSession', () => {
       const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
       session.acceptConsent()
 
-      mockFetchImpl.mockRejectedValueOnce(makeFetchError(502))
+      mockCandidateFetch.mockRejectedValueOnce(makeFetchError(502))
 
       session.confirmDevices()
       await flushPromises()
@@ -526,40 +556,296 @@ describe('useInterviewSession', () => {
     })
   })
 
+  // ---------------------------------------------------------------------------
+  // 401 → session_expired (Task 2.6/2.7 RED — candidate-session-auth D-E)
+  //
+  // candidateFetch throws a typed CandidateUnauthorizedError on any 401 — both
+  // a LIVE 401 response and a session that was already expired before the
+  // call was attempted (candidateFetch's own guard rejects before any network
+  // call in that case). Either way, the session machine must land on a
+  // DISTINCT, non-retryable terminal state — never the retryable `error`
+  // state, and never an automatic retry.
+  // ---------------------------------------------------------------------------
+
+  describe('401 → session_expired (non-retryable, distinct from 403)', () => {
+    it('/start 401 (CandidateUnauthorizedError) → terminal with reason session_expired', async () => {
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+      session.acceptConsent()
+
+      mockCandidateFetch.mockRejectedValueOnce(new MockCandidateUnauthorizedError())
+
+      session.confirmDevices()
+      await flushPromises()
+
+      expect(session.state.value).toBe('terminal')
+      expect(session.terminalReason.value).toBe('session_expired')
+    })
+
+    it('/start 401 → does NOT retry automatically (unlike 429)', async () => {
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+      session.acceptConsent()
+
+      mockCandidateFetch.mockRejectedValueOnce(new MockCandidateUnauthorizedError())
+
+      session.confirmDevices()
+      await flushPromises()
+
+      // No backoff timer, no further /start attempt — a single terminal call.
+      const startCalls = mockCandidateFetch.mock.calls.filter(
+        (c) => c[0] === '/candidate/interview/start'
+      )
+      expect(startCalls).toHaveLength(1)
+      expect(session.state.value).toBe('terminal')
+    })
+
+    it('/end 401 (CandidateUnauthorizedError) → terminal with reason session_expired, not the generic 403 path', async () => {
+      const session = await createLiveSession()
+
+      mockCandidateFetch.mockRejectedValueOnce(new MockCandidateUnauthorizedError())
+
+      currentMockProvider._emit('state', 'complete')
+      await flushPromises()
+
+      expect(session.state.value).toBe('terminal')
+      expect(session.terminalReason.value).toBe('session_expired')
+    })
+
+    it('/utterance 401 (CandidateUnauthorizedError) → terminal with reason session_expired', async () => {
+      const session = await createLiveSession()
+
+      mockCandidateFetch.mockRejectedValueOnce(new MockCandidateUnauthorizedError())
+
+      currentMockProvider._emit('transcript', { role: 'candidate', text: 'Hello', ts: Date.now() })
+      await flushPromises()
+
+      expect(session.state.value).toBe('terminal')
+      expect(session.terminalReason.value).toBe('session_expired')
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Malformed /start response shape → malformed_response (Task 2.6/2.7 RED)
+  //
+  // Today, an unguarded `response.question_context.end_phrase` read throws
+  // inside the try block on a bad body; `status` is undefined, so it lands in
+  // the retryable `error` state — retrying forever against a server that will
+  // answer identically. An explicit shape guard makes this the SAME defect
+  // class as the 401 fix: a non-retryable terminal, not an infinite retry.
+  // ---------------------------------------------------------------------------
+
+  describe('malformed /start response shape → malformed_response (not retryable error)', () => {
+    it('missing question_context entirely → terminal with reason malformed_response', async () => {
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+      session.acceptConsent()
+
+      mockCandidateFetch.mockResolvedValueOnce({
+        session_id: '42',
+        provider: 'heygen',
+        provider_token: 'tok-123',
+        conversation_url: null,
+        // question_context is entirely absent — the contract violation.
+      })
+
+      session.confirmDevices()
+      await flushPromises()
+
+      expect(session.state.value).toBe('terminal')
+      expect(session.terminalReason.value).toBe('malformed_response')
+    })
+
+    it('question_context present but missing end_phrase → terminal with reason malformed_response', async () => {
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+      session.acceptConsent()
+
+      mockCandidateFetch.mockResolvedValueOnce({
+        session_id: '42',
+        provider: 'heygen',
+        provider_token: 'tok-123',
+        conversation_url: null,
+        question_context: {
+          competency_code: 'PRS',
+          question_index: '0',
+          // end_phrase and final_phrase both absent
+        },
+      })
+
+      session.confirmDevices()
+      await flushPromises()
+
+      expect(session.state.value).toBe('terminal')
+      expect(session.terminalReason.value).toBe('malformed_response')
+    })
+
+    it('a malformed response does NOT retry automatically — one /start call only', async () => {
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+      session.acceptConsent()
+
+      mockCandidateFetch.mockResolvedValueOnce({ session_id: '42' })
+
+      session.confirmDevices()
+      await flushPromises()
+
+      const startCalls = mockCandidateFetch.mock.calls.filter(
+        (c) => c[0] === '/candidate/interview/start'
+      )
+      expect(startCalls).toHaveLength(1)
+    })
+
+    it('a well-formed response does NOT trigger the malformed_response path', async () => {
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+      session.acceptConsent()
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse())
+
+      session.confirmDevices()
+      await nextTick()
+
+      expect(session.state.value).not.toBe('terminal')
+      expect(session.terminalReason.value).toBeNull()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Verification Finding #1 — session clearing on EVERY terminal/done
+  // transition, not just the 401 path.
+  //
+  // candidateFetch already clears on a LIVE 401 (candidate-api.spec.ts covers
+  // that). This suite proves useInterviewSession ALSO clears directly and
+  // unconditionally whenever the state machine reaches `done` or `terminal`
+  // — 403, absent_phrase, malformed_response, and session_expired all funnel
+  // through the SAME `transitionTo()` call, so a single centralized clear()
+  // there covers every current and future terminal reason, not a per-branch
+  // patch that the next new reason could forget.
+  // ---------------------------------------------------------------------------
+
+  describe('session clearing on every terminal/done transition (Verification Finding #1)', () => {
+    it('/start 403 → clears the candidate session', async () => {
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+      session.acceptConsent()
+      mockCandidateFetch.mockRejectedValueOnce(makeFetchError(403))
+
+      session.confirmDevices()
+      await flushPromises()
+
+      expect(session.state.value).toBe('terminal')
+      expect(mockClearSession).toHaveBeenCalled()
+    })
+
+    it('/end 403 → clears the candidate session', async () => {
+      const session = await createLiveSession()
+      mockCandidateFetch.mockRejectedValueOnce(makeFetchError(403))
+
+      currentMockProvider._emit('state', 'complete')
+      await flushPromises()
+
+      expect(session.state.value).toBe('terminal')
+      expect(mockClearSession).toHaveBeenCalled()
+    })
+
+    it('absent_phrase (provider verdict) → clears the candidate session', async () => {
+      const session = await createLiveSession()
+
+      currentMockProvider._emit('error', 'absent_phrase')
+      await flushPromises()
+
+      expect(session.state.value).toBe('terminal')
+      expect(session.terminalReason.value).toBe('absent_phrase')
+      expect(mockClearSession).toHaveBeenCalled()
+    })
+
+    it('malformed_response (/start bad shape) → clears the candidate session', async () => {
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+      session.acceptConsent()
+      mockCandidateFetch.mockResolvedValueOnce({ session_id: '42' })
+
+      session.confirmDevices()
+      await flushPromises()
+
+      expect(session.state.value).toBe('terminal')
+      expect(session.terminalReason.value).toBe('malformed_response')
+      expect(mockClearSession).toHaveBeenCalled()
+    })
+
+    it('session_expired (401 mid-session) → clears the candidate session (via useInterviewSession, not only candidateFetch)', async () => {
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+      session.acceptConsent()
+      mockCandidateFetch.mockRejectedValueOnce(new MockCandidateUnauthorizedError())
+
+      session.confirmDevices()
+      await flushPromises()
+
+      expect(session.state.value).toBe('terminal')
+      expect(mockClearSession).toHaveBeenCalled()
+    })
+
+    it('reaching `done` on the last competency → clears the candidate session', async () => {
+      const session = await createLiveSession('4', DEFAULT_COMPETENCIES) // last competency
+      mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
+
+      currentMockProvider._emit('state', 'complete')
+      await flushPromises()
+
+      expect(session.state.value).toBe('done')
+      expect(mockClearSession).toHaveBeenCalled()
+    })
+
+    it('a retryable `error` state (502) does NOT clear the session — it is not terminal', async () => {
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+      session.acceptConsent()
+      mockCandidateFetch.mockRejectedValueOnce(makeFetchError(502))
+
+      session.confirmDevices()
+      await flushPromises()
+
+      expect(session.state.value).toBe('error')
+      expect(mockClearSession).not.toHaveBeenCalled()
+    })
+
+    it('reaching `end_of_question` (not terminal) does NOT clear the session', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
+
+      currentMockProvider._emit('state', 'complete')
+      await flushPromises()
+
+      expect(session.state.value).toBe('end_of_question')
+      expect(mockClearSession).not.toHaveBeenCalled()
+    })
+  })
+
   describe('pause / resume (client-side only)', () => {
     it('end_of_question → pause() → paused (no backend call)', async () => {
       const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
 
-      mockFetchImpl.mockResolvedValueOnce(undefined) // /end 200
+      mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
       currentMockProvider._emit('state', 'complete')
       await flushPromises()
 
       expect(session.state.value).toBe('end_of_question')
 
-      const callsBefore = mockFetchImpl.mock.calls.length
+      const callsBefore = mockCandidateFetch.mock.calls.length
       session.pause()
       await nextTick()
 
       expect(session.state.value).toBe('paused')
-      expect(mockFetchImpl.mock.calls.length).toBe(callsBefore)
+      expect(mockCandidateFetch.mock.calls.length).toBe(callsBefore)
     })
 
     it('paused → resume() → end_of_question (no backend call)', async () => {
       const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
 
-      mockFetchImpl.mockResolvedValueOnce(undefined) // /end 200
+      mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
       currentMockProvider._emit('state', 'complete')
       await flushPromises()
 
       session.pause()
       await nextTick()
 
-      const callsBefore = mockFetchImpl.mock.calls.length
+      const callsBefore = mockCandidateFetch.mock.calls.length
       session.resume()
       await nextTick()
 
       expect(session.state.value).toBe('end_of_question')
-      expect(mockFetchImpl.mock.calls.length).toBe(callsBefore)
+      expect(mockCandidateFetch.mock.calls.length).toBe(callsBefore)
     })
   })
 
@@ -569,7 +855,7 @@ describe('useInterviewSession', () => {
       session.acceptConsent()
 
       // First call will resolve eventually
-      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse())
 
       // Call twice rapidly before first resolves
       session.confirmDevices()
@@ -577,8 +863,8 @@ describe('useInterviewSession', () => {
       await flushPromises()
 
       // /start should only have been called ONCE despite two confirmDevices() calls
-      const startCalls = mockFetchImpl.mock.calls.filter(
-        (c) => c[0] === 'https://api.test/candidate/interview/start'
+      const startCalls = mockCandidateFetch.mock.calls.filter(
+        (c) => c[0] === '/candidate/interview/start'
       )
       expect(startCalls.length).toBe(1)
     })
@@ -593,7 +879,7 @@ describe('useInterviewSession', () => {
     it('removes resize listener on transition to done', async () => {
       const session = await createLiveSession('4', DEFAULT_COMPETENCIES) // last competency
 
-      mockFetchImpl.mockResolvedValueOnce(undefined) // /end 200
+      mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
       currentMockProvider._emit('state', 'complete')
       await flushPromises()
 
@@ -637,7 +923,7 @@ describe('useInterviewSession', () => {
       const session = await createLiveSession()
 
       // /end returns 403
-      mockFetchImpl.mockRejectedValueOnce(makeFetchError(403))
+      mockCandidateFetch.mockRejectedValueOnce(makeFetchError(403))
 
       currentMockProvider._emit('state', 'complete')
       await flushPromises()
@@ -651,21 +937,21 @@ describe('useInterviewSession', () => {
     it('nextCompetency from end_of_question → calls /start again', async () => {
       const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
 
-      mockFetchImpl.mockResolvedValueOnce(undefined) // /end 200
+      mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
       currentMockProvider._emit('state', 'complete')
       await flushPromises()
 
       expect(session.state.value).toBe('end_of_question')
 
       // Next competency
-      mockFetchImpl.mockResolvedValueOnce(makeStartResponse({ question_index: '1' }))
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ question_index: '1' }))
       session.nextCompetency()
       await nextTick()
 
       expect(session.state.value).toBe('connecting')
 
-      const startCalls = mockFetchImpl.mock.calls.filter(
-        (c) => c[0] === 'https://api.test/candidate/interview/start'
+      const startCalls = mockCandidateFetch.mock.calls.filter(
+        (c) => c[0] === '/candidate/interview/start'
       )
       expect(startCalls.length).toBe(2) // one per competency
     })
@@ -683,11 +969,12 @@ describe('useInterviewSession', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // Branch coverage: resize sendBeacon handler invocation path (C4 RED→GREEN)
+  // Branch coverage: resize keepalive-flush handler invocation path
+  // (originally C4 RED→GREEN; migrated off sendBeacon by Task 1.9 — D-C)
   // ---------------------------------------------------------------------------
 
-  describe('resize sendBeacon handler — coverage branches', () => {
-    it('resize to < 1024px with pending integrity events → sendBeacon called with absolute URL', async () => {
+  describe('resize keepalive-flush handler — coverage branches', () => {
+    it('resize to < 1024px with pending integrity events → flushIntegrityKeepalive called with the mapped payload', async () => {
       // Arrange: provide pending events via getPendingIntegrityEvents option
       const pendingEvents = [{ type: 'tab_hidden', ts: 1000, meta: null }]
 
@@ -696,7 +983,7 @@ describe('useInterviewSession', () => {
         getPendingIntegrityEvents: () => pendingEvents,
       })
       session.acceptConsent()
-      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse())
       session.confirmDevices()
       await nextTick()
       currentMockProvider._emit('state', 'ready')
@@ -718,21 +1005,23 @@ describe('useInterviewSession', () => {
       // Invoke the resize handler directly
       resizeHandler()
 
-      // sendBeacon should have been called with absolute URL containing /integrity
-      expect(navigator.sendBeacon).toHaveBeenCalledWith(
-        'https://api.test/candidate/interview/integrity',
-        expect.any(Blob)
+      // flushIntegrityKeepalive replaces sendBeacon (D-C) — carries the same
+      // kind-mapped payload shape the beacon used to build.
+      expect(mockFlushIntegrityKeepalive).toHaveBeenCalledWith(
+        expect.objectContaining({
+          events: [expect.objectContaining({ kind: 'tab_hidden', ts: 1000 })],
+        })
       )
     })
 
-    it('resize to < 1024px with NO pending events → sendBeacon NOT called; navigateTo called', async () => {
-      // No pending events — sendBeacon path skipped, but navigateTo is still called
+    it('resize to < 1024px with NO pending events → flushIntegrityKeepalive NOT called; navigateTo called', async () => {
+      // No pending events — flush path skipped, but navigateTo is still called
       const session = useInterviewSession({
         competencies: DEFAULT_COMPETENCIES,
         getPendingIntegrityEvents: () => [],
       })
       session.acceptConsent()
-      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse())
       session.confirmDevices()
       await nextTick()
       currentMockProvider._emit('state', 'ready')
@@ -748,8 +1037,8 @@ describe('useInterviewSession', () => {
       ;(window as Record<string, unknown>).innerWidth = 900
       resizeHandler()
 
-      // sendBeacon NOT called (no events)
-      expect(navigator.sendBeacon).not.toHaveBeenCalled()
+      // flushIntegrityKeepalive NOT called (no events)
+      expect(mockFlushIntegrityKeepalive).not.toHaveBeenCalled()
       // navigateTo is called to redirect to /unsupported
       expect(mockNavigateTo).toHaveBeenCalledWith('/unsupported')
     })
@@ -762,7 +1051,7 @@ describe('useInterviewSession', () => {
         getPendingIntegrityEvents: () => pendingEvents,
       })
       session.acceptConsent()
-      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse())
       session.confirmDevices()
       await nextTick()
       currentMockProvider._emit('state', 'ready')
@@ -782,48 +1071,45 @@ describe('useInterviewSession', () => {
       expect(mockNavigateTo).toHaveBeenCalledWith('/unsupported')
     })
 
-    it('resize to < 1024px with pending events but sendBeacon throws → catch swallows error; navigateTo still called', async () => {
-      // Exercises the try/catch around navigator.sendBeacon (line 148 — non-fatal catch branch)
-      const pendingEvents = [{ type: 'clipboard_copy', ts: 3000, meta: null }]
+    it('resize to < 1024px with pending events → acknowledges on dispatch (D-C), before the flush settles', async () => {
+      // fetch(..., { keepalive: true }) returns a promise that will not settle
+      // before the page/navigation completes, so acknowledgement happens on
+      // dispatch rather than on settlement — unlike the old sendBeacon path,
+      // which only acknowledged when the synchronous return value was truthy.
+      const pendingEvents = [{ type: 'tab_hidden', ts: 1000, meta: null }]
+      const flushed: unknown[] = []
 
       const session = useInterviewSession({
         competencies: DEFAULT_COMPETENCIES,
         getPendingIntegrityEvents: () => pendingEvents,
+        onIntegrityEventsFlushed: (events) => flushed.push(events),
       })
       session.acceptConsent()
-      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse())
       session.confirmDevices()
       await nextTick()
       currentMockProvider._emit('state', 'ready')
       await nextTick()
-
-      expect(session.state.value).toBe('live')
-
-      // Make sendBeacon throw to exercise the catch branch
-      ;(navigator.sendBeacon as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
-        throw new Error('sendBeacon not available')
-      })
 
       const addCalls = (window.addEventListener as ReturnType<typeof vi.fn>).mock.calls
       const resizeCall = addCalls.find((c: unknown[]) => c[0] === 'resize')
       const resizeHandler = resizeCall![1] as () => void
 
       ;(window as Record<string, unknown>).innerWidth = 900
+      resizeHandler()
 
-      // Should NOT throw — the catch block swallows the error
-      expect(() => resizeHandler()).not.toThrow()
-
-      // navigateTo should still be called despite the sendBeacon throw
-      expect(mockNavigateTo).toHaveBeenCalledWith('/unsupported')
+      // Acknowledged synchronously — no await needed, unlike a settlement-based ack.
+      expect(flushed).toHaveLength(1)
+      expect(flushed[0]).toEqual(pendingEvents)
     })
 
-    it('resize to ≥ 1024px → no sendBeacon, no navigateTo (branch NOT taken)', async () => {
+    it('resize to ≥ 1024px → no flush, no navigateTo (branch NOT taken)', async () => {
       const session = useInterviewSession({
         competencies: DEFAULT_COMPETENCIES,
         getPendingIntegrityEvents: () => [{ type: 'tab_hidden', ts: 1000, meta: null }],
       })
       session.acceptConsent()
-      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse())
       session.confirmDevices()
       await nextTick()
       currentMockProvider._emit('state', 'ready')
@@ -837,7 +1123,7 @@ describe('useInterviewSession', () => {
       ;(window as Record<string, unknown>).innerWidth = 1440
       resizeHandler()
 
-      expect(navigator.sendBeacon).not.toHaveBeenCalled()
+      expect(mockFlushIntegrityKeepalive).not.toHaveBeenCalled()
       expect(mockNavigateTo).not.toHaveBeenCalled()
     })
   })
@@ -852,7 +1138,7 @@ describe('useInterviewSession', () => {
       const session = await createLiveSession()
 
       // Transcript triggers /utterance call which returns 500 (non-409)
-      mockFetchImpl.mockRejectedValueOnce(makeFetchError(500))
+      mockCandidateFetch.mockRejectedValueOnce(makeFetchError(500))
 
       currentMockProvider._emit('transcript', {
         role: 'candidate',
@@ -884,7 +1170,7 @@ describe('useInterviewSession', () => {
       const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
 
       // /end returns 502 (not 409, not 403) → warn is logged, then state proceeds
-      mockFetchImpl.mockRejectedValueOnce(makeFetchError(502))
+      mockCandidateFetch.mockRejectedValueOnce(makeFetchError(502))
 
       currentMockProvider._emit('state', 'complete')
       await flushPromises()
@@ -924,7 +1210,7 @@ describe('useInterviewSession', () => {
       // permanently false and the live interview screen could never render.
       const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
       session.acceptConsent()
-      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse())
 
       session.confirmDevices()
       await nextTick()
@@ -944,7 +1230,7 @@ describe('useInterviewSession', () => {
       // never attached to anything.
       const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
       session.acceptConsent()
-      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse())
 
       session.confirmDevices()
       await nextTick()
@@ -956,7 +1242,7 @@ describe('useInterviewSession', () => {
     it('exposes the DB session id from the /start response', async () => {
       const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
       session.acceptConsent()
-      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse())
 
       session.confirmDevices()
       await nextTick()
@@ -968,7 +1254,7 @@ describe('useInterviewSession', () => {
       const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
       expect(session.activeProvider.value).toBe(currentMockProvider)
 
-      mockFetchImpl.mockResolvedValueOnce(undefined) // /end 200
+      mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
       currentMockProvider._emit('state', 'complete')
       await flushPromises()
 
@@ -996,34 +1282,30 @@ describe('useInterviewSession', () => {
   describe('endQuestion()', () => {
     it("timeout → POST /end with ended_reason 'timeout'", async () => {
       const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
-      mockFetchImpl.mockResolvedValueOnce(undefined) // /end 200
+      mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
 
       await session.endQuestion('timeout')
       await flushPromises()
 
-      const endCall = mockFetchImpl.mock.calls.find(
-        (c) => c[0] === 'https://api.test/candidate/interview/end'
-      )
+      const endCall = mockCandidateFetch.mock.calls.find((c) => c[0] === '/candidate/interview/end')
       expect(endCall).toBeDefined()
       expect((endCall![1] as { body: { ended_reason: string } }).body.ended_reason).toBe('timeout')
     })
 
     it("skip → POST /end with ended_reason 'skipped'", async () => {
       const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
-      mockFetchImpl.mockResolvedValueOnce(undefined) // /end 200
+      mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
 
       await session.endQuestion('skipped')
       await flushPromises()
 
-      const endCall = mockFetchImpl.mock.calls.find(
-        (c) => c[0] === 'https://api.test/candidate/interview/end'
-      )
+      const endCall = mockCandidateFetch.mock.calls.find((c) => c[0] === '/candidate/interview/end')
       expect((endCall![1] as { body: { ended_reason: string } }).body.ended_reason).toBe('skipped')
     })
 
     it('advances to end_of_question when competencies remain', async () => {
       const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
-      mockFetchImpl.mockResolvedValueOnce(undefined)
+      mockCandidateFetch.mockResolvedValueOnce(undefined)
 
       await session.endQuestion('timeout')
       await flushPromises()
@@ -1033,7 +1315,7 @@ describe('useInterviewSession', () => {
 
     it('advances to done on the last competency', async () => {
       const session = await createLiveSession('4', DEFAULT_COMPETENCIES)
-      mockFetchImpl.mockResolvedValueOnce(undefined)
+      mockCandidateFetch.mockResolvedValueOnce(undefined)
 
       await session.endQuestion('skipped')
       await flushPromises()
@@ -1043,7 +1325,7 @@ describe('useInterviewSession', () => {
 
     it('stops the provider — it is cut off mid-turn, unlike the completed path', async () => {
       const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
-      mockFetchImpl.mockResolvedValueOnce(undefined)
+      mockCandidateFetch.mockResolvedValueOnce(undefined)
 
       await session.endQuestion('timeout')
       await flushPromises()
@@ -1053,7 +1335,7 @@ describe('useInterviewSession', () => {
 
     it('403 from /end → terminal, and does NOT advance to end_of_question', async () => {
       const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
-      mockFetchImpl.mockRejectedValueOnce(makeFetchError(403))
+      mockCandidateFetch.mockRejectedValueOnce(makeFetchError(403))
 
       await session.endQuestion('timeout')
       await flushPromises()
@@ -1069,7 +1351,7 @@ describe('useInterviewSession', () => {
       await session.endQuestion('timeout')
 
       expect(session.state.value).toBe('device_check')
-      expect(mockFetchImpl).not.toHaveBeenCalled()
+      expect(mockCandidateFetch).not.toHaveBeenCalled()
     })
   })
 
@@ -1108,7 +1390,7 @@ describe('useInterviewSession', () => {
     it('sdk_error while connecting → retryable error screen', async () => {
       const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
       session.acceptConsent()
-      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse())
       session.confirmDevices()
       await nextTick()
       expect(session.state.value).toBe('connecting')
@@ -1133,9 +1415,15 @@ describe('useInterviewSession', () => {
 
   // ---------------------------------------------------------------------------
   // Integrity flush acknowledgement (FINDING 4 — buffer was append-only)
+  //
+  // D-C changed WHEN acknowledgement happens: sendBeacon returned a
+  // synchronous boolean the old code branched on; fetch(..., { keepalive })
+  // returns a promise that will not settle before the page/navigation
+  // completes, so acknowledgement now happens unconditionally on dispatch,
+  // not conditionally on the (unobservable, at this point) flush outcome.
   // ---------------------------------------------------------------------------
 
-  describe('integrity beacon flush acknowledgement', () => {
+  describe('integrity flush acknowledgement — acknowledge on dispatch (D-C)', () => {
     async function liveSessionWithPending(pendingEvents: { type: string; ts: number }[]) {
       const flushed: unknown[][] = []
       const session = useInterviewSession({
@@ -1149,7 +1437,7 @@ describe('useInterviewSession', () => {
         },
       })
       session.acceptConsent()
-      mockFetchImpl.mockResolvedValueOnce(makeStartResponse())
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse())
       session.confirmDevices()
       await nextTick()
       currentMockProvider._emit('state', 'ready')
@@ -1160,42 +1448,31 @@ describe('useInterviewSession', () => {
       return { session, flushed, resizeHandler: resizeCall![1] as () => void }
     }
 
-    it('acknowledges exactly the flushed events when sendBeacon accepts them', async () => {
+    it('acknowledges exactly the dispatched events', async () => {
       const pendingEvents = [{ type: 'tab_hidden', ts: 1000, meta: null }]
       const { flushed, resizeHandler } = await liveSessionWithPending(pendingEvents)
 
       ;(window as Record<string, unknown>).innerWidth = 900
       resizeHandler()
 
+      expect(mockFlushIntegrityKeepalive).toHaveBeenCalled()
       expect(flushed).toHaveLength(1)
       expect(flushed[0]).toEqual(pendingEvents)
     })
 
-    it('does NOT acknowledge when sendBeacon refuses the payload (returns false)', async () => {
-      // sendBeacon returns false past Safari's 64 KB cap. Dropping the buffer on a
-      // refused flush would lose those events outright.
-      const pendingEvents = [{ type: 'tab_hidden', ts: 1000, meta: null }]
+    it('acknowledges on dispatch even before flushIntegrityKeepalive settles asynchronously', async () => {
+      // Simulate the real transport's shape: fire-and-forget, no return value
+      // the caller can branch on.
+      mockFlushIntegrityKeepalive.mockImplementationOnce(() => undefined)
+      const pendingEvents = [{ type: 'focus_lost', ts: 2000, meta: null }]
       const { flushed, resizeHandler } = await liveSessionWithPending(pendingEvents)
-      ;(navigator.sendBeacon as ReturnType<typeof vi.fn>).mockReturnValueOnce(false)
 
       ;(window as Record<string, unknown>).innerWidth = 900
       resizeHandler()
 
-      expect(navigator.sendBeacon).toHaveBeenCalled()
-      expect(flushed).toHaveLength(0)
-    })
-
-    it('does NOT acknowledge when sendBeacon throws', async () => {
-      const pendingEvents = [{ type: 'focus_lost', ts: 2000, meta: null }]
-      const { flushed, resizeHandler } = await liveSessionWithPending(pendingEvents)
-      ;(navigator.sendBeacon as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
-        throw new Error('sendBeacon not available')
-      })
-
-      ;(window as Record<string, unknown>).innerWidth = 900
-      expect(() => resizeHandler()).not.toThrow()
-
-      expect(flushed).toHaveLength(0)
+      // No await needed — acknowledgement is synchronous with dispatch, not
+      // gated on a promise settling.
+      expect(flushed).toHaveLength(1)
     })
   })
 })

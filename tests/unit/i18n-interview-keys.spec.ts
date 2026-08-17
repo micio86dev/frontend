@@ -52,6 +52,13 @@ const REQUIRED_KEYS = [
   'interview.terminal.absent_phrase.title',
   'interview.terminal.absent_phrase.body',
   'interview.terminal.absent_phrase.contact',
+  // candidate-session-auth Phase 3 (Task 3.5/3.6) — new honest failure copy.
+  // session_expired MUST NOT suggest requesting/using a new link will help
+  // (D-F) — enforced structurally below, not just by key presence.
+  'interview.terminal.session_expired.title',
+  'interview.terminal.session_expired.body',
+  'interview.terminal.spent_link.title',
+  'interview.terminal.spent_link.body',
 ]
 
 describe('i18n interview flow keys', () => {
@@ -71,4 +78,29 @@ describe('i18n interview flow keys', () => {
       }
     })
   }
+
+  // ---------------------------------------------------------------------------
+  // D-F: the expired-session terminal MUST NOT imply a new link will help — a
+  // candidate whose session expired after pausing has no self-serve path back
+  // in (a fresh sso-link is refused at the exchange pre-flight read for any
+  // non-`in_attesa` status). Enforced structurally, not just by key presence.
+  // ---------------------------------------------------------------------------
+
+  describe('session_expired copy never suggests a new link will help (D-F)', () => {
+    const linkWordPattern = /\blink\b/i
+
+    for (const locale of locales) {
+      it(`${locale}.json — session_expired body does not mention "link"`, () => {
+        const data = loadLocale(locale)
+        const body = getNestedKey(data, 'interview.terminal.session_expired.body') as string
+        expect(body).not.toMatch(linkWordPattern)
+      })
+
+      it(`${locale}.json — session_expired title does not mention "link"`, () => {
+        const data = loadLocale(locale)
+        const title = getNestedKey(data, 'interview.terminal.session_expired.title') as string
+        expect(title).not.toMatch(linkWordPattern)
+      })
+    }
+  })
 })

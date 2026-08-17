@@ -1,45 +1,46 @@
 /**
- * useIntegrityFlush — unit tests (Task 3.3 RED)
+ * useIntegrityFlush — unit tests (Task 3.3 RED; migrated onto the single
+ * authenticated transport by Task 1.7 RED / candidate-session-auth D-B, D-C)
  *
  * Coverage:
- *  - flush([...events]) calls $fetch POST /integrity with events mapped type → kind
- *  - flushViaBeacon uses absolute URL from runtimeConfig.public.apiBase
- *  - flushViaBeacon sends Blob with type 'application/json'
- *  - sendBeacon returns false → warning logged (64 KB Safari cap guard)
- *  - type → kind field mapping
- *  - pagehide handler calls flushViaBeacon with pending batch
+ *  - flush([...events]) calls candidateFetch POST /integrity with events mapped type → kind
+ *  - flushViaBeacon delegates to the shared flushIntegrityKeepalive transport
+ *    (fetch + keepalive + Authorization header — sendBeacon cannot set headers)
+ *  - flushViaBeacon's payload carries the mapped type → kind events
+ *  - pagehide handler flushes the pending batch AND acknowledges it on dispatch
+ *    (D-C: fetch(..., { keepalive: true }) will not settle before the page dies,
+ *    so acknowledgement can no longer wait for a synchronous sendBeacon return value)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { effectScope } from 'vue'
 import type { IntegrityEventInternal } from '~/app/utils/proctor-config'
 
+// ---------------------------------------------------------------------------
+// Hoisted mocks — candidate-api.ts is the single authenticated transport;
+// useIntegrityFlush no longer talks to ofetch or navigator.sendBeacon directly.
+// ---------------------------------------------------------------------------
+
+const { mockCandidateFetch, mockFlushIntegrityKeepalive } = vi.hoisted(() => ({
+  mockCandidateFetch: vi.fn(),
+  mockFlushIntegrityKeepalive: vi.fn(),
+}))
+
+vi.mock('~/app/utils/candidate-api', () => ({
+  candidateFetch: mockCandidateFetch,
+  flushIntegrityKeepalive: mockFlushIntegrityKeepalive,
+}))
+
 // Import after mocks are established
+// eslint-disable-next-line import/first
 import { useIntegrityFlush } from '~/app/composables/useIntegrityFlush'
-
-// ---------------------------------------------------------------------------
-// Hoisted mocks
-// ---------------------------------------------------------------------------
-
-const { mockFlushFetch } = vi.hoisted(() => ({
-  mockFlushFetch: vi.fn(),
-}))
-
-vi.mock('ofetch', () => ({
-  $fetch: mockFlushFetch,
-}))
 
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
 
-const mockSendBeacon = vi.fn(() => true)
-
 beforeEach(() => {
   vi.clearAllMocks()
-  mockSendBeacon.mockReturnValue(true)
-  vi.stubGlobal('navigator', { sendBeacon: mockSendBeacon })
-  // Re-stub after clearAllMocks resets the setup.ts stub
   vi.stubGlobal(
     'useRuntimeConfig',
     vi.fn(() => ({
@@ -67,28 +68,28 @@ const sampleEvents: IntegrityEventInternal[] = [
 // ---------------------------------------------------------------------------
 
 describe('useIntegrityFlush', () => {
-  describe('flush() — POST /integrity via $fetch', () => {
-    it('calls $fetch with /candidate/interview/integrity endpoint', async () => {
+  describe('flush() — POST /integrity via candidateFetch', () => {
+    it('calls candidateFetch with the /candidate/interview/integrity endpoint', async () => {
       const { flush } = useIntegrityFlush({ sessionId: 99 })
-      mockFlushFetch.mockResolvedValueOnce(undefined)
+      mockCandidateFetch.mockResolvedValueOnce(undefined)
 
       await flush(sampleEvents)
 
-      // Full resolved URL, not stringContaining: a substring assertion passes
-      // just as happily against the doubled-prefix '/api/api/...'.
-      expect(mockFlushFetch).toHaveBeenCalledWith(
-        'https://api.test/candidate/interview/integrity',
+      // candidateFetch resolves the URL internally (D-B) — the caller passes
+      // the API-relative path, not a pre-built absolute URL.
+      expect(mockCandidateFetch).toHaveBeenCalledWith(
+        '/candidate/interview/integrity',
         expect.any(Object)
       )
     })
 
     it('maps internal event type → kind field in the API payload', async () => {
       const { flush } = useIntegrityFlush({ sessionId: 99 })
-      mockFlushFetch.mockResolvedValueOnce(undefined)
+      mockCandidateFetch.mockResolvedValueOnce(undefined)
 
       await flush(sampleEvents)
 
-      const call = mockFlushFetch.mock.calls[0]
+      const call = mockCandidateFetch.mock.calls[0]
       const body = (call[1] as { body: { events: { kind: string; ts: string }[] } }).body
 
       expect(body.events).toHaveLength(3)
@@ -99,22 +100,22 @@ describe('useIntegrityFlush', () => {
 
     it('includes session_id in the payload', async () => {
       const { flush } = useIntegrityFlush({ sessionId: 42 })
-      mockFlushFetch.mockResolvedValueOnce(undefined)
+      mockCandidateFetch.mockResolvedValueOnce(undefined)
 
       await flush(sampleEvents)
 
-      const body = (mockFlushFetch.mock.calls[0][1] as { body: { session_id: number } }).body
+      const body = (mockCandidateFetch.mock.calls[0][1] as { body: { session_id: number } }).body
       expect(body.session_id).toBe(42)
     })
 
     it('does NOT include "type" field — only "kind" in event payload', async () => {
       const { flush } = useIntegrityFlush({ sessionId: 99 })
-      mockFlushFetch.mockResolvedValueOnce(undefined)
+      mockCandidateFetch.mockResolvedValueOnce(undefined)
 
       await flush(sampleEvents)
 
       const body = (
-        mockFlushFetch.mock.calls[0][1] as { body: { events: Record<string, unknown>[] } }
+        mockCandidateFetch.mock.calls[0][1] as { body: { events: Record<string, unknown>[] } }
       ).body
       for (const event of body.events) {
         expect(event).not.toHaveProperty('type')
@@ -122,75 +123,54 @@ describe('useIntegrityFlush', () => {
       }
     })
 
-    it('flush([]) → no-op; $fetch is NOT called (early return guard)', async () => {
+    it('flush([]) → no-op; candidateFetch is NOT called (early return guard)', async () => {
       const { flush } = useIntegrityFlush({ sessionId: 99 })
 
       await flush([])
 
-      expect(mockFlushFetch).not.toHaveBeenCalled()
+      expect(mockCandidateFetch).not.toHaveBeenCalled()
     })
   })
 
-  describe('flushViaBeacon() — navigator.sendBeacon', () => {
-    it('uses absolute URL built from runtimeConfig.public.apiBase', () => {
+  describe('flushViaBeacon() — delegates to the shared keepalive transport (D-C)', () => {
+    it('calls flushIntegrityKeepalive with the mapped type → kind payload', () => {
       const { flushViaBeacon } = useIntegrityFlush({ sessionId: 99 })
 
       flushViaBeacon(sampleEvents)
 
-      const [url] = mockSendBeacon.mock.calls[0] as [string, Blob]
-      expect(url).toBe('https://api.test/candidate/interview/integrity')
+      expect(mockFlushIntegrityKeepalive).toHaveBeenCalledWith(
+        expect.objectContaining({
+          session_id: 99,
+          events: [
+            expect.objectContaining({ kind: 'tab_hidden' }),
+            expect.objectContaining({ kind: 'focus_lost' }),
+            expect.objectContaining({ kind: 'face_absent' }),
+          ],
+        })
+      )
     })
 
-    it('sends a Blob with type application/json', () => {
-      const { flushViaBeacon } = useIntegrityFlush({ sessionId: 99 })
-
-      flushViaBeacon(sampleEvents)
-
-      const [, blob] = mockSendBeacon.mock.calls[0] as [string, Blob]
-      expect(blob).toBeInstanceOf(Blob)
-      expect(blob.type).toBe('application/json')
-    })
-
-    it('maps type → kind in the beacon payload', async () => {
-      const { flushViaBeacon } = useIntegrityFlush({ sessionId: 99 })
-
-      flushViaBeacon(sampleEvents)
-
-      const [, blob] = mockSendBeacon.mock.calls[0] as [string, Blob]
-      const text = await blob.text()
-      const parsed = JSON.parse(text) as { events: { kind: string }[] }
-
-      expect(parsed.events[0].kind).toBe('tab_hidden')
-      expect(parsed.events).toHaveLength(3)
-    })
-
-    it('logs a warning when sendBeacon returns false (64 KB Safari cap)', () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      mockSendBeacon.mockReturnValue(false)
+    it('does NOT call navigator.sendBeacon directly — sendBeacon cannot carry the Authorization header', () => {
+      const sendBeaconSpy = vi.fn()
+      vi.stubGlobal('navigator', { sendBeacon: sendBeaconSpy })
 
       const { flushViaBeacon } = useIntegrityFlush({ sessionId: 99 })
       flushViaBeacon(sampleEvents)
 
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('sendBeacon'), expect.anything())
-      warnSpy.mockRestore()
+      expect(sendBeaconSpy).not.toHaveBeenCalled()
     })
 
-    it('includes session_id in the beacon payload body (not in URL)', async () => {
+    it('includes session_id in the delegated payload', () => {
       const { flushViaBeacon } = useIntegrityFlush({ sessionId: 55 })
 
       flushViaBeacon(sampleEvents)
 
-      const [url, blob] = mockSendBeacon.mock.calls[0] as [string, Blob]
-      const text = await blob.text()
-      const parsed = JSON.parse(text) as { session_id: number }
-
-      expect(parsed.session_id).toBe(55)
-      // URL itself should not embed session_id
-      expect(url).not.toContain('session_id')
+      const [payload] = mockFlushIntegrityKeepalive.mock.calls[0] as [{ session_id: number }]
+      expect(payload.session_id).toBe(55)
     })
   })
 
-  describe('pagehide integration', () => {
+  describe('pagehide integration — acknowledge on dispatch (D-C)', () => {
     it('registers a pagehide listener', () => {
       const addSpy = vi.spyOn(window, 'addEventListener')
 
@@ -200,7 +180,7 @@ describe('useIntegrityFlush', () => {
       addSpy.mockRestore()
     })
 
-    it('pagehide handler flushes pending events via sendBeacon', () => {
+    it('pagehide handler flushes pending events via the shared keepalive transport', () => {
       let pagehideHandler: (() => void) | null = null
       vi.spyOn(window, 'addEventListener').mockImplementation((evt, handler) => {
         if (evt === 'pagehide') pagehideHandler = handler as () => void
@@ -212,9 +192,25 @@ describe('useIntegrityFlush', () => {
 
       pagehideHandler?.()
 
-      expect(mockSendBeacon).toHaveBeenCalled()
-      const [url] = mockSendBeacon.mock.calls[0] as [string, Blob]
-      expect(url).toBe('https://api.test/candidate/interview/integrity')
+      expect(mockFlushIntegrityKeepalive).toHaveBeenCalled()
+    })
+
+    it('clears the pending batch on dispatch, without waiting for the flush to settle', () => {
+      // fetch(..., { keepalive: true }) returns a promise that will not settle
+      // before the page dies — the old sendBeacon-return-value gate no longer
+      // applies. flushIntegrityKeepalive is fire-and-forget by construction.
+      let pagehideHandler: (() => void) | null = null
+      vi.spyOn(window, 'addEventListener').mockImplementation((evt, handler) => {
+        if (evt === 'pagehide') pagehideHandler = handler as () => void
+      })
+
+      const { addEvent, pendingEvents } = useIntegrityFlush({ sessionId: 99 })
+      addEvent({ type: 'tab_hidden', ts: '2025-01-01T00:00:00Z', meta: null })
+      expect(pendingEvents.value).toHaveLength(1)
+
+      pagehideHandler?.()
+
+      expect(pendingEvents.value).toHaveLength(0)
     })
   })
 
@@ -240,7 +236,7 @@ describe('useIntegrityFlush', () => {
       removeSpy.mockRestore()
     })
 
-    it('a disposed instance no longer beacons on pagehide', () => {
+    it('a disposed instance no longer flushes on pagehide', () => {
       let pagehideHandler: (() => void) | null = null
       vi.spyOn(window, 'addEventListener').mockImplementation((evt, handler) => {
         if (evt === 'pagehide') pagehideHandler = handler as () => void
@@ -261,7 +257,7 @@ describe('useIntegrityFlush', () => {
 
       // The listener is gone, so a pagehide can no longer reach this closure.
       pagehideHandler?.()
-      expect(mockSendBeacon).not.toHaveBeenCalled()
+      expect(mockFlushIntegrityKeepalive).not.toHaveBeenCalled()
     })
 
     it('the listener is torn down when the owning effect scope is disposed', () => {

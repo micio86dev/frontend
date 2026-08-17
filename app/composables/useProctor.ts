@@ -41,7 +41,7 @@ import {
   type IntegrityEventInternal,
   type IntegrityType,
 } from '~/app/utils/proctor-config'
-import { apiUrl } from '~/app/utils/api-url'
+import { candidateFetch } from '~/app/utils/candidate-api'
 
 // ---------------------------------------------------------------------------
 // Minimal structural types for @mediapipe/tasks-vision (dynamically imported)
@@ -514,15 +514,16 @@ export function useProctor(options: UseProctorOptions = {}): UseProctorReturn {
     if (!ctx) return
     ctx.drawImage(selfView, 0, 0)
     const jpeg = canvas.toDataURL('image/jpeg', 0.7)
-    // Best-effort POST to /snapshot; errors are silent
-    fetch(apiUrl('/candidate/interview/snapshot'), {
+    // Best-effort POST to /snapshot; errors are silent. Routed through the
+    // single authenticated transport (D-B) — this was previously a raw
+    // `fetch()` call that escaped the candidate-fetch guard.
+    candidateFetch('/candidate/interview/snapshot', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      body: {
         session_id: snapshotSessionId,
         image_base64: jpeg,
         ts: new Date().toISOString(),
-      }),
+      },
       keepalive: true,
     }).catch(() => {
       // 413/422 → log, continue interval
