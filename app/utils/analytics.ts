@@ -54,6 +54,29 @@ export interface GaConfigPayload {
 }
 
 /**
+ * The gtag stub, which MUST push the `arguments` object.
+ *
+ * `gtag.js` identifies a command tuple by checking that the pushed value is an
+ * `arguments` object. A rest-parameter Array — `(...args) => dataLayer.push(args)`
+ * — has an IDENTICAL TypeScript signature and is treated as an inert data push
+ * instead. Nothing errors: the script loads, the container registers itself,
+ * the dataLayer fills up, and not one command ever runs. No `_ga` cookie, no
+ * `/g/collect` beacon, zero in Realtime.
+ *
+ * The rest-parameter form is what TypeScript and every lint rule push you
+ * toward, which is exactly why this broke — `prefer-rest-params` cannot know
+ * that Google reads the argument object's shape. The contract is not
+ * expressible in the type system, so it is pinned in a test instead
+ * (tests/unit/analytics-gtag-stub.spec.ts).
+ */
+export function createGtagStub(target: { dataLayer?: unknown[] }): (...args: unknown[]) => void {
+  return function gtag(): void {
+    // eslint-disable-next-line prefer-rest-params
+    target.dataLayer?.push(arguments)
+  }
+}
+
+/**
  * The GA4 config object. Every field here exists to take something away.
  *
  * `page_location` is pinned empty because GA4 reads `window.location` itself
