@@ -5,7 +5,7 @@ Nuxt 4, SSR. The interview a candidate takes: SSO entry, device check, avatar se
 > **Bun only.** Bun is the sole package manager here: install, dev and build.
 > Node runs the SSR production runtime (Nitro `node-server`) and the Vitest/Playwright runners, nothing else.
 > `npm`, `pnpm`, `yarn`, `npx` and `pnpx` are not used — see `AGENTS.md` and the
-> pinned version catalogue in `openspec/changes/project-skeleton-ci/design.md`.
+> pinned version catalogue in `openspec/changes/archive/2026-07-16-project-skeleton-ci/design.md`.
 >
 > This file used to be the stock Nuxt starter README, listing three other
 > package managers ahead of bun. The first thing a new developer opened

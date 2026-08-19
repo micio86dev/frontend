@@ -42,7 +42,22 @@ export default defineNuxtConfig({
   },
 
   // i18n
-  modules: ['@nuxtjs/i18n'],
+  modules: ['@nuxtjs/i18n', '@sentry/nuxt/module'],
+
+  // Sentry — application error monitoring (C13, task 5.1, Nuxt half).
+  // Source-map upload is OFF unless a SENTRY_AUTH_TOKEN is present in the
+  // deploy environment: an unattended `enabled: true` default would make
+  // every local `nuxt build` attempt an authenticated network call it has no
+  // credentials for. `sentry.client.config.ts` / `sentry.server.config.ts`
+  // hold the actual DSN/PII/scrubbing posture.
+  sentry: {
+    sourceMapsUploadOptions: {
+      enabled: Boolean(process.env['SENTRY_AUTH_TOKEN']),
+      org: process.env['SENTRY_ORG'],
+      project: process.env['SENTRY_PROJECT'],
+      authToken: process.env['SENTRY_AUTH_TOKEN'],
+    },
+  },
   i18n: {
     defaultLocale: 'it',
     strategy: 'prefix_except_default',
@@ -106,6 +121,12 @@ export default defineNuxtConfig({
       // (app/utils/analytics-consent.ts) and defaults to denied.
       gaMeasurementId: '',
       clarityProjectId: '',
+      // C13 task 5.1 — Sentry. EMPTY means the SDK never initializes
+      // (app/utils/sentry-init.ts's `enabled` gate), the same "unset ID"
+      // posture as Clarity/GA4 above. Unlike those two, Sentry is NOT
+      // additionally gated on analytics consent — see
+      // sentry.client.config.ts for why.
+      sentryDsn: '',
     },
   },
 })

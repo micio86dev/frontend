@@ -1,6 +1,6 @@
 {
   "name": "frontend",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "private": true,
   "scripts": {
@@ -28,6 +28,7 @@
     "@lucide/vue": "^1.25.0",
     "@mediapipe/tasks-vision": "^0.10.35",
     "@nuxtjs/i18n": "^9.0",
+    "@sentry/nuxt": "^10.70.0",
     "@vueuse/core": "^14.3.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
