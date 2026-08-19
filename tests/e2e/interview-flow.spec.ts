@@ -117,19 +117,54 @@ async function injectDeviceMocks(
     // Mock getUserMedia with fake tracks (non-real MediaStream object).
     // navigator.mediaDevices is null in non-HTTPS (localhost without TLS);
     // we replace it wholesale.
-    const fakeStream = {
-      getTracks: () => [
-        { readyState: 'live', kind: 'video', stop: () => {} },
-        { readyState: 'live', kind: 'audio', stop: () => {} },
-      ],
-      getVideoTracks: () => [{ readyState: 'live', stop: () => {} }],
-      getAudioTracks: () => [{ readyState: 'live', stop: () => {} }],
+    //
+    // getSettings() + enumerateDevices()/add|removeEventListener are fixture
+    // FIDELITY (device-check-preview-and-device-selection D9) — they match the
+    // real platform surface useDeviceCheck/useMediaDeviceList now consume, not
+    // new test assertions.
+    const videoTrack = {
+      readyState: 'live',
+      kind: 'video',
+      stop: () => {},
+      getSettings: () => ({ deviceId: 'mock-camera-1', width: 1280, height: 720 }),
     }
+    const audioTrack = {
+      readyState: 'live',
+      kind: 'audio',
+      stop: () => {},
+      getSettings: () => ({ deviceId: 'mock-mic-1' }),
+    }
+    const fakeStream = {
+      getTracks: () => [videoTrack, audioTrack],
+      getVideoTracks: () => [videoTrack],
+      getAudioTracks: () => [audioTrack],
+    }
+
+    const deviceChangeListeners: Array<() => void> = []
 
     Object.defineProperty(navigator, 'mediaDevices', {
       writable: true,
       configurable: true,
-      value: { getUserMedia: async () => fakeStream },
+      value: {
+        getUserMedia: async () => fakeStream,
+        enumerateDevices: async () => [
+          { deviceId: 'mock-camera-1', kind: 'videoinput', label: 'Mock Camera', groupId: 'g1' },
+          {
+            deviceId: 'mock-mic-1',
+            kind: 'audioinput',
+            label: 'Mock Microphone',
+            groupId: 'g2',
+          },
+        ],
+        addEventListener: (type: string, cb: () => void) => {
+          if (type === 'devicechange') deviceChangeListeners.push(cb)
+        },
+        removeEventListener: (type: string, cb: () => void) => {
+          if (type !== 'devicechange') return
+          const idx = deviceChangeListeners.indexOf(cb)
+          if (idx !== -1) deviceChangeListeners.splice(idx, 1)
+        },
+      },
     })
 
     // Mock AudioContext — buffer filled with 148 → RMS ≈ 0.156 > MIC_SPEAK_THRESHOLD(0.04)
@@ -266,20 +301,54 @@ test.describe('Interview flow — E2E', () => {
 
       // Mock getUserMedia (camera + mic).
       // Replace navigator.mediaDevices wholesale to avoid null-access in non-HTTPS context.
+      // getSettings()/enumerateDevices()/add|removeEventListener are fixture FIDELITY
+      // (D9) matching the real platform surface, not new assertions.
       await page.addInitScript(() => {
-        const fakeStream = {
-          getTracks: () => [
-            { readyState: 'live', kind: 'video', stop: () => {} },
-            { readyState: 'live', kind: 'audio', stop: () => {} },
-          ],
-          getVideoTracks: () => [{ readyState: 'live', stop: () => {} }],
-          getAudioTracks: () => [{ readyState: 'live', stop: () => {} }],
+        const videoTrack = {
+          readyState: 'live',
+          kind: 'video',
+          stop: () => {},
+          getSettings: () => ({ deviceId: 'mock-camera-1', width: 1280, height: 720 }),
         }
+        const audioTrack = {
+          readyState: 'live',
+          kind: 'audio',
+          stop: () => {},
+          getSettings: () => ({ deviceId: 'mock-mic-1' }),
+        }
+        const fakeStream = {
+          getTracks: () => [videoTrack, audioTrack],
+          getVideoTracks: () => [videoTrack],
+          getAudioTracks: () => [audioTrack],
+        }
+        const deviceChangeListeners: Array<() => void> = []
         Object.defineProperty(navigator, 'mediaDevices', {
           writable: true,
           configurable: true,
           value: {
             getUserMedia: async () => fakeStream,
+            enumerateDevices: async () => [
+              {
+                deviceId: 'mock-camera-1',
+                kind: 'videoinput',
+                label: 'Mock Camera',
+                groupId: 'g1',
+              },
+              {
+                deviceId: 'mock-mic-1',
+                kind: 'audioinput',
+                label: 'Mock Microphone',
+                groupId: 'g2',
+              },
+            ],
+            addEventListener: (type: string, cb: () => void) => {
+              if (type === 'devicechange') deviceChangeListeners.push(cb)
+            },
+            removeEventListener: (type: string, cb: () => void) => {
+              if (type !== 'devicechange') return
+              const idx = deviceChangeListeners.indexOf(cb)
+              if (idx !== -1) deviceChangeListeners.splice(idx, 1)
+            },
           },
         })
       })

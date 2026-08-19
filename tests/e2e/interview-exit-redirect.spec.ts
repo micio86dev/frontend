@@ -132,21 +132,54 @@ async function mockExitRedirectTarget(page: Page) {
 }
 
 // Device mocks — getUserMedia + AudioContext, mirrors interview-flow.spec.ts precedent.
+// getSettings()/enumerateDevices()/add|removeEventListener are fixture FIDELITY
+// (device-check-preview-and-device-selection D9) matching the real platform surface,
+// not new assertions.
 async function injectDeviceMocks(page: Page) {
   await page.addInitScript(() => {
-    const fakeStream = {
-      getTracks: () => [
-        { readyState: 'live', kind: 'video', stop: () => {} },
-        { readyState: 'live', kind: 'audio', stop: () => {} },
-      ],
-      getVideoTracks: () => [{ readyState: 'live', stop: () => {} }],
-      getAudioTracks: () => [{ readyState: 'live', stop: () => {} }],
+    const videoTrack = {
+      readyState: 'live',
+      kind: 'video',
+      stop: () => {},
+      getSettings: () => ({ deviceId: 'mock-camera-1', width: 1280, height: 720 }),
     }
+    const audioTrack = {
+      readyState: 'live',
+      kind: 'audio',
+      stop: () => {},
+      getSettings: () => ({ deviceId: 'mock-mic-1' }),
+    }
+    const fakeStream = {
+      getTracks: () => [videoTrack, audioTrack],
+      getVideoTracks: () => [videoTrack],
+      getAudioTracks: () => [audioTrack],
+    }
+
+    const deviceChangeListeners: Array<() => void> = []
 
     Object.defineProperty(navigator, 'mediaDevices', {
       writable: true,
       configurable: true,
-      value: { getUserMedia: async () => fakeStream },
+      value: {
+        getUserMedia: async () => fakeStream,
+        enumerateDevices: async () => [
+          { deviceId: 'mock-camera-1', kind: 'videoinput', label: 'Mock Camera', groupId: 'g1' },
+          {
+            deviceId: 'mock-mic-1',
+            kind: 'audioinput',
+            label: 'Mock Microphone',
+            groupId: 'g2',
+          },
+        ],
+        addEventListener: (type: string, cb: () => void) => {
+          if (type === 'devicechange') deviceChangeListeners.push(cb)
+        },
+        removeEventListener: (type: string, cb: () => void) => {
+          if (type !== 'devicechange') return
+          const idx = deviceChangeListeners.indexOf(cb)
+          if (idx !== -1) deviceChangeListeners.splice(idx, 1)
+        },
+      },
     })
 
     const fakeBuffer = new Uint8Array(128).fill(148)
