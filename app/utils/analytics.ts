@@ -77,6 +77,39 @@ export function createGtagStub(target: { dataLayer?: unknown[] }): (...args: unk
 }
 
 /**
+ * Clarity's queue stub, which MUST exist BEFORE the tag script is injected.
+ *
+ * The tag script does not define `window.clarity` — it CALLS it, on its first
+ * line, to queue its own initialisation. Injecting the tag without this stub
+ * produces `TypeError: a[c] is not a function` inside a third-party file and
+ * nothing else: no failing build, no visible symptom, and a recorder that
+ * never records.
+ *
+ * `??=` rather than an unconditional assignment, because the real Clarity
+ * replaces this stub once it loads and drains `.q`. Overwriting it afterwards
+ * would throw away a live recorder and re-queue into an object nobody reads.
+ *
+ * Same contract as the gtag stub above, and dropped for the same reason: the
+ * queue takes `arguments`, which is what a modernising rewrite deletes first.
+ */
+export function createClarityStub(target: {
+  clarity?: ((...args: unknown[]) => void) & { q?: unknown[] }
+}): void {
+  target.clarity ??= Object.assign(
+    function clarity(): void {
+      const self = target.clarity
+      if (self === undefined) {
+        return
+      }
+      self.q ??= []
+      // eslint-disable-next-line prefer-rest-params
+      self.q.push(arguments)
+    },
+    { q: [] as unknown[] }
+  )
+}
+
+/**
  * The GA4 config object. Every field here exists to take something away.
  *
  * `page_location` is pinned empty because GA4 reads `window.location` itself

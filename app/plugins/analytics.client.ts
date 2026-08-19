@@ -1,4 +1,9 @@
-import { analyticsPlan, createGtagStub, gaConfigPayload } from '~/app/utils/analytics'
+import {
+  analyticsPlan,
+  createClarityStub,
+  createGtagStub,
+  gaConfigPayload,
+} from '~/app/utils/analytics'
 import { ANALYTICS_CONSENT_EVENT, readAnalyticsConsent } from '~/app/utils/analytics-consent'
 import { redactAnalyticsPath } from '~/app/utils/analytics-path'
 
@@ -59,6 +64,10 @@ function startGa(measurementId: string, pagePath: string): void {
 }
 
 function startClarity(projectId: string): void {
+  // The stub goes up FIRST. Clarity's tag calls `window.clarity` on its first
+  // line rather than defining it, so injecting the script alone throws inside
+  // a third-party file and the recorder silently never starts.
+  createClarityStub(window)
   injectScript(`https://www.clarity.ms/tag/${projectId}`, 'beai-clarity')
 }
 
