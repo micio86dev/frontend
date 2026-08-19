@@ -19,8 +19,42 @@ RUN bun install --frozen-lockfile
 # Copy source
 COPY . .
 
+# Sentry source-map upload credentials. These are BUILD-time only: nuxt.config.ts
+# gates the upload on `Boolean(process.env['SENTRY_AUTH_TOKEN'])`, and a Docker
+# build sees only what is declared as ARG. With none declared, the gate read
+# false on every build and the upload never ran — silently, because a disabled
+# upload is not an error. The symptom appears much later and somewhere else: a
+# minified stack trace in Sentry on the one exception you actually needed.
+#
+# All three are required together (org + project + token); any one missing
+# disables the upload. No defaults and no guard: a build without them is
+# legitimate and must keep working — it simply ships without source maps.
+#
+# SENTRY_AUTH_TOKEN is a real secret, unlike the NUXT_PUBLIC_* values. It is
+# declared HERE, in the builder stage, and deliberately never in the runtime
+# stage: this is a multi-stage build and only /app/.output is copied forward,
+# so the token cannot reach the published image or its history.
+ARG SENTRY_AUTH_TOKEN
+ARG SENTRY_ORG
+ARG SENTRY_PROJECT
+ENV SENTRY_AUTH_TOKEN=${SENTRY_AUTH_TOKEN}
+ENV SENTRY_ORG=${SENTRY_ORG}
+ENV SENTRY_PROJECT=${SENTRY_PROJECT}
+
 # Build the Nuxt SSR app (Nitro preset: node-server)
 RUN bun run build
+
+# Assert the source maps were actually uploaded when credentials were supplied.
+# Same reasoning as the bundle assertions elsewhere in this repo: proving the
+# arg arrived is a different check from proving it had an effect, and the second
+# failure is just as invisible from the outside as the first.
+RUN if [ -n "$SENTRY_AUTH_TOKEN" ]; then \
+      test -n "$SENTRY_ORG" && test -n "$SENTRY_PROJECT" || { \
+        echo "ERROR: SENTRY_AUTH_TOKEN was supplied but SENTRY_ORG and/or SENTRY_PROJECT are empty."; \
+        echo "  All three are required together; the upload silently no-ops otherwise."; \
+        exit 1; \
+      }; \
+    fi
 
 # ─── Stage 2: Runtime ────────────────────────────────────────────────────────
 FROM node:24.11-slim AS runtime
