@@ -26,7 +26,18 @@
       "mic_ok": "Microphone is working",
       "camera_error": "Camera not detected or not accessible. Please check your browser permissions.",
       "mic_error": "Microphone not detected or audio level is too low. Try speaking now.",
-      "continue": "Continue to Interview"
+      "continue": "Continue to Interview",
+      "camera_instruction": "Position yourself in the frame so we can check your camera.",
+      "mic_instruction": "Say a few words so we can check your microphone.",
+      "mic_detected": "Microphone level detected.",
+      "mic_unavailable": "We can't detect a microphone. Check that one is connected, then choose Retry.",
+      "recovery_title": "Permission needed",
+      "recovery_instructions": "Select the camera icon in your browser's address bar, allow camera and microphone for this page, then choose Retry.",
+      "retry": "Retry",
+      "camera_picker_label": "Camera",
+      "mic_picker_label": "Microphone",
+      "camera_fallback": "Camera {n}",
+      "mic_fallback": "Microphone {n}"
     },
     "live": {
       "timer_label": "Time remaining",

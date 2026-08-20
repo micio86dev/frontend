@@ -47,3 +47,49 @@ vi.stubGlobal(
   // Pass-through: returns the handler function itself so tests can invoke it
   (handler: (..._args: unknown[]) => unknown) => handler
 )
+
+// Nuxt auto-import. This app is ssr:false on /interview/**, so the real
+// useCookie only ever runs client-side — this stub mirrors that: it reads/
+// writes document.cookie directly (happy-dom supports it) through a reactive
+// ref, JSON-encoding non-string values the same way Nuxt's default codec
+// does. `path`/`maxAge` are honored (observable via document.cookie); Nuxt
+// itself is the one that turns `secure`/`sameSite`/`httpOnly` into real
+// Set-Cookie semantics in a browser — a stub cannot demonstrate a browser
+// security attribute, so those options are accepted but not re-verified here.
+vi.stubGlobal(
+  'useCookie',
+  vi.fn(<T>(name: string, opts: { default?: () => T; path?: string; maxAge?: number } = {}) => {
+    function readRaw(): string | undefined {
+      const match = document.cookie.split('; ').find((c) => c.startsWith(`${name}=`))
+      return match ? decodeURIComponent(match.slice(name.length + 1)) : undefined
+    }
+    function parse(raw: string | undefined): T {
+      if (raw === undefined) return opts.default ? opts.default() : (undefined as T)
+      try {
+        return JSON.parse(raw) as T
+      } catch {
+        return raw as unknown as T
+      }
+    }
+    const cookieRef = ref(parse(readRaw())) as { value: T }
+    watch(
+      cookieRef,
+      (value) => {
+        if (value === undefined || value === null) {
+          document.cookie = `${name}=; path=${opts.path ?? '/'}; max-age=0`
+          return
+        }
+        const serialized = typeof value === 'string' ? value : JSON.stringify(value)
+        let str = `${name}=${encodeURIComponent(serialized)}; path=${opts.path ?? '/'}`
+        if (opts.maxAge) str += `; max-age=${opts.maxAge}`
+        document.cookie = str
+      },
+      // sync flush: the real client-side useCookie write is effectively
+      // synchronous from the caller's perspective (document.cookie is set
+      // before the next microtask); tests assert on document.cookie
+      // immediately after a `.value =` write, so this stub must match.
+      { deep: true, flush: 'sync' }
+    )
+    return cookieRef
+  })
+)

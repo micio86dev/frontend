@@ -20,10 +20,12 @@
       </Button>
     </section>
 
-    <!-- Device check screen -->
+    <!-- Device check screen. max-w-xl (not max-w-md, DA4): max-w-md was sized for
+         the old 320px thumbnail — the native-ratio preview, two device pickers,
+         and the mic meter do not fit a 448px card. -->
     <section
       v-else-if="session.state.value === 'device_check'"
-      class="w-full max-w-md rounded-xl border border-border bg-card shadow-md"
+      class="w-full max-w-xl rounded-xl border border-border bg-card shadow-md"
       aria-labelledby="device-check-heading"
     >
       <h1 id="device-check-heading" class="sr-only">{{ $t('interview.device_check.title') }}</h1>

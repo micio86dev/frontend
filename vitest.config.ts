@@ -40,8 +40,10 @@ export default defineConfig({
         // Unit tests for business logic live in composable specs.
         'app/pages/interview/**',
         // Client-only browser-SDK components — covered by Playwright E2E (no VTU required).
+        // DeviceCheck.client.vue is NOT in this list (device-check-preview-and-device-
+        // selection Slice 5): it now has a real VTU spec (tests/unit/device-check.spec.ts,
+        // both composables mocked, per the change's Testing Strategy).
         'app/components/AvatarPlayer.client.vue',
-        'app/components/DeviceCheck.client.vue',
         'app/components/ProctorOverlay.client.vue',
       ],
       thresholds: {
