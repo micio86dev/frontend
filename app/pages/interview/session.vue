@@ -34,7 +34,34 @@
       </ClientOnly>
     </section>
 
-    <!-- Connecting / loading screen — shown until the provider handles are published -->
+    <!--
+      Between competencies (D12). With the interstitial gone, confirmDevices()
+      tears the provider down and rebuilds it while the candidate watches, and a
+      bare skeleton there reads as the avatar vanishing mid-conversation.
+
+      NO control and NO minimum display time: it is dismissed by the state
+      machine alone, so it can never quietly become the second interstitial this
+      change exists to remove.
+    -->
+    <section
+      v-else-if="session.state.value === 'connecting' && !avatarMounted && hasRunACompetency"
+      data-testid="transition-panel"
+      class="flex max-w-lg flex-col items-center gap-4 rounded-xl border border-border bg-card p-8 shadow-md"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <h2 class="text-xl font-semibold text-foreground">{{ $t('interview.transition.title') }}</h2>
+      <p class="text-sm text-muted-foreground">{{ $t('interview.transition.body') }}</p>
+      <p class="text-sm text-muted-foreground">
+        {{ session.endedCompetencies.value ?? 0 }} / {{ session.totalCompetencies.value ?? 0 }}
+      </p>
+    </section>
+
+    <!--
+      First connect — the plain skeleton stays. It follows a device check the
+      candidate has just interacted with, which sets a different expectation from
+      an avatar disappearing mid-interview.
+    -->
     <section
       v-else-if="session.state.value === 'connecting' && !avatarMounted"
       class="flex flex-col items-center gap-4"
@@ -419,6 +446,16 @@ function onDevicesConfirmed(stream: MediaStream, micDeviceId?: string): void {
 const avatarProvider = computed(() => session.activeProvider.value)
 const avatarConfig = computed(() => session.activeConfig.value)
 const avatarMounted = computed(() => avatarProvider.value !== null && avatarConfig.value !== null)
+
+/**
+ * True once at least one competency has ended (D12).
+ *
+ * Read from the server tally rather than a local flag: `endedCompetencies` is
+ * null until the first /end returns, which is exactly "no competency has run
+ * yet". A page-local boolean would be a second source for a fact the server
+ * already states — the shape of the defect this whole change removes.
+ */
+const hasRunACompetency = computed(() => (session.endedCompetencies.value ?? 0) > 0)
 
 const currentCaption = ref('')
 const QUESTION_TIME_LIMIT = 300 // 5 minutes default

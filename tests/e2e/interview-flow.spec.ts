@@ -686,22 +686,46 @@ test.describe('Interview flow — E2E', () => {
   })
 
   test.describe('Pause / Resume', () => {
-    test('end_of_question → pause → paused screen visible (structural — state machine covered by Vitest)', async ({
+    test.beforeEach(async ({ page }) => {
+      // This block had no setup: the test it replaced never got past consent, so
+      // it never needed any. Reaching `live` needs both the API routes and the
+      // device mocks.
+      await mockInterviewRoutes(page)
+      await injectDeviceMocks(page)
+    })
+
+    test('pausing a live question mutes, keeps the session, and resumes the SAME competency', async ({
       page,
     }) => {
-      await mockInterviewRoutes(page)
-
-      // Use English locale URL for consistent role-based locator
+      // The previous test here asserted only that the device-check heading was
+      // visible. It never reached `live`, never paused, never resumed — a test
+      // named for a behaviour it did not touch. Same shape as the assertion-free
+      // done-screen test replaced above.
       await page.goto(EN_INTERVIEW_URL)
       await page.getByRole('button', { name: /accept and continue/i }).click()
-
-      // After consent, device-check screen appears — assert it is visible.
-      // DeviceCheck.client.vue renders an h2; use level:2 to disambiguate from
-      // the sr-only h1 in the page template with the same text.
-      // (full end_of_question path requires real provider events; covered by unit tests)
-      await expect(page.getByRole('heading', { level: 2, name: /device check/i })).toBeVisible({
-        timeout: 5000,
+      await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+        timeout: 8000,
       })
+      await page.getByRole('button', { name: /continue to interview/i }).click()
+
+      const pauseButton = page.getByRole('button', { name: /^pause$/i })
+      await expect(pauseButton).toBeVisible({ timeout: 15000 })
+
+      await pauseButton.click()
+
+      // Paused: the resume control is reachable, and it is the IN-AVATAR panel —
+      // the provider session stays alive, which is the whole point of this pause.
+      const resumeButton = page.getByRole('button', { name: /^resume$/i })
+      await expect(resumeButton).toBeVisible({ timeout: 10000 })
+      await expect(pauseButton).toBeHidden()
+
+      await resumeButton.click()
+
+      // Back on the SAME competency: `live` again, no /start in between, so no
+      // done screen and no scheduled-pause screen.
+      await expect(pauseButton).toBeVisible({ timeout: 10000 })
+      await expect(page.getByTestId('done-screen')).toBeHidden()
+      await expect(page.getByRole('button', { name: /resume interview/i })).toBeHidden()
     })
   })
 
