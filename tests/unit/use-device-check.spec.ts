@@ -834,6 +834,59 @@ describe('useDeviceCheck', () => {
   })
 
   // -------------------------------------------------------------------------
+  // Slice 4 (Task 4.3) — check()'s initial acquisition gains the same D4
+  // fallback ladder as a switch: a stale cookie-sourced deviceId throws
+  // OverconstrainedError, so drop BOTH pins and retry unconstrained once.
+  // -------------------------------------------------------------------------
+
+  describe('check(preferred) — OverconstrainedError fallback ladder (D4)', () => {
+    it('OverconstrainedError on the preferred selection → retries unconstrained → succeeds', async () => {
+      getUserMediaSpy.mockRejectedValueOnce(new DOMException('gone', 'OverconstrainedError'))
+      const fallbackVideo = makeLiveVideoTrack({ deviceId: 'cam-fallback' })
+      const fallbackAudio = makeAudioTrack({ deviceId: 'mic-fallback' })
+      getUserMediaSpy.mockResolvedValueOnce(makeStream([fallbackVideo], [fallbackAudio]))
+
+      const { useDeviceCheck, buildConstraints } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check({ cameraId: 'cam-gone', micId: 'mic-gone' })
+
+      expect(getUserMediaSpy).toHaveBeenCalledTimes(2)
+      expect(getUserMediaSpy).toHaveBeenNthCalledWith(
+        1,
+        buildConstraints({ cameraId: 'cam-gone', micId: 'mic-gone' })
+      )
+      expect(getUserMediaSpy).toHaveBeenNthCalledWith(2, buildConstraints())
+      expect(dc.error.value).toBeNull()
+      expect(dc.cameraOk.value).toBe(true)
+      expect(dc.activeSelection.value).toEqual({ cameraId: 'cam-fallback', micId: 'mic-fallback' })
+    })
+
+    it('OverconstrainedError on both attempts → classified error, stays retryable', async () => {
+      getUserMediaSpy.mockRejectedValueOnce(new DOMException('gone', 'OverconstrainedError'))
+      getUserMediaSpy.mockRejectedValueOnce(new DOMException('denied', 'NotAllowedError'))
+
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check({ cameraId: 'cam-gone' })
+
+      expect(dc.error.value).toBe('denied')
+      expect(dc.cameraOk.value).toBe(false)
+      expect(dc.stream.value).toBeNull()
+    })
+
+    it('a non-overconstrained rejection on the FIRST attempt never retries (only one getUserMedia call)', async () => {
+      getUserMediaSpy.mockRejectedValueOnce(new DOMException('denied', 'NotAllowedError'))
+
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check({ cameraId: 'cam-1' })
+
+      expect(getUserMediaSpy).toHaveBeenCalledOnce()
+      expect(dc.error.value).toBe('denied')
+    })
+  })
+
+  // -------------------------------------------------------------------------
   // Slice 3 (Tasks 3.1-3.5) — switchCamera/switchMicrophone, the highest-risk
   // code in the change (D3, D10). One-live-stream invariant: release-before-
   // replace + generation guard.

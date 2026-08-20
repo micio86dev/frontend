@@ -174,6 +174,17 @@ export function nextMicLevel(prev: number, raw: number): number {
     : EMA_RELEASE_RAW * raw + EMA_RELEASE_PREV * prev
 }
 
+/**
+ * A failed acquisition attempt, carrying the already-classified reason so every
+ * caller can report the SAME classification `classifyError` would have
+ * produced, without re-inspecting the raw platform error.
+ */
+export class DeviceAcquisitionError extends Error {
+  constructor(public readonly reason: DeviceCheckError) {
+    super(reason)
+  }
+}
+
 function computeRms(buffer: Uint8Array): number {
   let sum = 0
   for (let i = 0; i < buffer.length; i++) {
@@ -269,6 +280,30 @@ export function useDeviceCheck(): UseDeviceCheckReturn {
     }
   }
 
+  /**
+   * getUserMedia with the D4 fallback ladder: a stale `exact` deviceId (the
+   * device was unplugged between the pre-flight enumeration and this
+   * acquisition — a real race, not the common case) throws
+   * OverconstrainedError. Drop BOTH pins and retry once, unconstrained,
+   * rather than the bare `catch {}` this composable shipped with originally.
+   * Used by both the initial check() and every switchCamera/switchMicrophone
+   * — same failure mode, same fix, one implementation.
+   */
+  async function acquireWithFallback(selection?: DeviceSelection): Promise<MediaStream> {
+    try {
+      return await navigator.mediaDevices.getUserMedia(buildConstraints(selection))
+    } catch (err) {
+      if (classifyError(err) !== 'overconstrained') {
+        throw new DeviceAcquisitionError(classifyError(err))
+      }
+      try {
+        return await navigator.mediaDevices.getUserMedia(buildConstraints())
+      } catch (err2) {
+        throw new DeviceAcquisitionError(classifyError(err2))
+      }
+    }
+  }
+
   function release(): void {
     disposed = true
     generation++
@@ -308,11 +343,11 @@ export function useDeviceCheck(): UseDeviceCheckReturn {
     let acquired: MediaStream
 
     try {
-      acquired = await navigator.mediaDevices.getUserMedia(buildConstraints(preferred))
+      acquired = await acquireWithFallback(preferred)
     } catch (err) {
       // cameraOk and micOk stay false; stream stays null. `succeeded` stays false so
       // the candidate can grant the permission and retry.
-      error.value = classifyError(err)
+      error.value = err instanceof DeviceAcquisitionError ? err.reason : 'unknown'
       return
     }
 
@@ -377,37 +412,24 @@ export function useDeviceCheck(): UseDeviceCheckReturn {
   }
 
   /**
-   * Acquisition attempt for `next` — including the OverconstrainedError →
-   * unconstrained retry ladder (D4's fallback, scoped here to a single switch
-   * rather than the cookie-driven initial check()) — then applies the result
-   * only if this attempt has not been superseded by a later switch or a
-   * release(). Called ONLY through queueSwitch(), never directly: the previous
-   * stream must already be stopped and `gen` already captured by the
-   * SYNCHRONOUS prefix in queueSwitch() before this (possibly queued, possibly
-   * deferred) acquisition ever starts.
+   * Acquisition attempt for `next` via the shared D4 fallback ladder
+   * (acquireWithFallback), applied only if this attempt has not been
+   * superseded by a later switch or a release(). Called ONLY through
+   * queueSwitch(), never directly: the previous stream must already be
+   * stopped and `gen` already captured by the SYNCHRONOUS prefix in
+   * queueSwitch() before this (possibly queued, possibly deferred)
+   * acquisition ever starts.
    */
   async function acquireForSwitch(gen: number, next: DeviceSelection): Promise<void> {
     let acquired: MediaStream
     try {
-      acquired = await navigator.mediaDevices.getUserMedia(buildConstraints(next))
+      acquired = await acquireWithFallback(next)
     } catch (err) {
-      if (classifyError(err) !== 'overconstrained') {
-        if (gen !== generation) return
-        error.value = classifyError(err)
-        cameraOk.value = false
-        switching.value = false
-        return
-      }
-      // Stale exact deviceId (D4 ladder): drop the constraint, retry unconstrained.
-      try {
-        acquired = await navigator.mediaDevices.getUserMedia(buildConstraints())
-      } catch (err2) {
-        if (gen !== generation) return
-        error.value = classifyError(err2)
-        cameraOk.value = false
-        switching.value = false
-        return
-      }
+      if (gen !== generation) return
+      error.value = err instanceof DeviceAcquisitionError ? err.reason : 'unknown'
+      cameraOk.value = false
+      switching.value = false
+      return
     }
 
     if (gen !== generation || disposed) {
