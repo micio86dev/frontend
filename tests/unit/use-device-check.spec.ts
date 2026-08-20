@@ -17,23 +17,27 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeLiveVideoTrack(): MediaStreamTrack {
+function makeLiveVideoTrack(
+  settings: Partial<{ deviceId: string; width: number; height: number }> = {}
+): MediaStreamTrack {
   return {
     kind: 'video',
     readyState: 'live',
     stop: vi.fn(),
     enabled: true,
     label: 'camera',
+    getSettings: () => ({ deviceId: 'default-cam', width: 1280, height: 720, ...settings }),
   } as unknown as MediaStreamTrack
 }
 
-function makeAudioTrack(): MediaStreamTrack {
+function makeAudioTrack(settings: Partial<{ deviceId: string }> = {}): MediaStreamTrack {
   return {
     kind: 'audio',
     readyState: 'live',
     stop: vi.fn(),
     enabled: true,
     label: 'microphone',
+    getSettings: () => ({ deviceId: 'default-mic', ...settings }),
   } as unknown as MediaStreamTrack
 }
 
@@ -95,20 +99,43 @@ describe('useDeviceCheck', () => {
   // Single getUserMedia call
   // -------------------------------------------------------------------------
 
-  it('check() calls getUserMedia exactly once with video+audio constraints', async () => {
+  it('check() calls getUserMedia exactly once with the resolved default constraints', async () => {
     const videoTrack = makeLiveVideoTrack()
     const audioTrack = makeAudioTrack()
     const stream = makeStream([videoTrack], [audioTrack])
     getUserMediaSpy.mockResolvedValue(stream)
 
-    const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+    const { useDeviceCheck, buildConstraints } = await import('~/app/composables/useDeviceCheck')
     const dc = useDeviceCheck()
 
     void dc.check()
     await Promise.resolve()
 
     expect(getUserMediaSpy).toHaveBeenCalledOnce()
-    expect(getUserMediaSpy).toHaveBeenCalledWith({ video: true, audio: true })
+    // Resolved-constraints shape (Task 2.1) — no preferred selection means the
+    // unconstrained default, produced by the same pure function `check()` uses
+    // internally to build a preferred-selection's constraints (Task 2.2).
+    expect(getUserMediaSpy).toHaveBeenCalledWith(buildConstraints())
+  })
+
+  it('check(preferred) requests exact deviceId constraints for the given selection', async () => {
+    const videoTrack = makeLiveVideoTrack()
+    const audioTrack = makeAudioTrack()
+    const stream = makeStream([videoTrack], [audioTrack])
+    getUserMediaSpy.mockResolvedValue(stream)
+
+    const { useDeviceCheck, buildConstraints } = await import('~/app/composables/useDeviceCheck')
+    const dc = useDeviceCheck()
+
+    await dc.check({ cameraId: 'cam-1', micId: 'mic-1' })
+
+    expect(getUserMediaSpy).toHaveBeenCalledWith(
+      buildConstraints({ cameraId: 'cam-1', micId: 'mic-1' })
+    )
+    expect(getUserMediaSpy).toHaveBeenCalledWith({
+      video: { deviceId: { exact: 'cam-1' } },
+      audio: { deviceId: { exact: 'mic-1' } },
+    })
   })
 
   it('getUserMedia is NOT called a second time after check()', async () => {
@@ -456,6 +483,345 @@ describe('useDeviceCheck', () => {
       getUserMediaSpy.mockResolvedValueOnce(makeStream([makeLiveVideoTrack()], [makeAudioTrack()]))
       await dc.check()
       expect(getUserMediaSpy).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Task 2.1/2.2 — pure functions (Extract-Before-Mock: no mocks needed)
+  // -------------------------------------------------------------------------
+
+  describe('buildConstraints (pure)', () => {
+    it('no selection → unconstrained default', async () => {
+      const { buildConstraints } = await import('~/app/composables/useDeviceCheck')
+      expect(buildConstraints()).toEqual({ video: true, audio: true })
+    })
+
+    it('cameraId only → exact video constraint, unconstrained audio', async () => {
+      const { buildConstraints } = await import('~/app/composables/useDeviceCheck')
+      expect(buildConstraints({ cameraId: 'cam-1' })).toEqual({
+        video: { deviceId: { exact: 'cam-1' } },
+        audio: true,
+      })
+    })
+
+    it('micId only → exact audio constraint, unconstrained video', async () => {
+      const { buildConstraints } = await import('~/app/composables/useDeviceCheck')
+      expect(buildConstraints({ micId: 'mic-1' })).toEqual({
+        video: true,
+        audio: { deviceId: { exact: 'mic-1' } },
+      })
+    })
+
+    it('both ids → exact constraints on both tracks', async () => {
+      const { buildConstraints } = await import('~/app/composables/useDeviceCheck')
+      expect(buildConstraints({ cameraId: 'cam-1', micId: 'mic-1' })).toEqual({
+        video: { deviceId: { exact: 'cam-1' } },
+        audio: { deviceId: { exact: 'mic-1' } },
+      })
+    })
+  })
+
+  describe('classifyError (pure)', () => {
+    it('NotAllowedError → denied', async () => {
+      const { classifyError } = await import('~/app/composables/useDeviceCheck')
+      expect(classifyError(new DOMException('x', 'NotAllowedError'))).toBe('denied')
+    })
+
+    it('SecurityError → denied', async () => {
+      const { classifyError } = await import('~/app/composables/useDeviceCheck')
+      expect(classifyError(new DOMException('x', 'SecurityError'))).toBe('denied')
+    })
+
+    it('NotFoundError → not_found', async () => {
+      const { classifyError } = await import('~/app/composables/useDeviceCheck')
+      expect(classifyError(new DOMException('x', 'NotFoundError'))).toBe('not_found')
+    })
+
+    it('DevicesNotFoundError → not_found', async () => {
+      const { classifyError } = await import('~/app/composables/useDeviceCheck')
+      expect(classifyError(new DOMException('x', 'DevicesNotFoundError'))).toBe('not_found')
+    })
+
+    it('NotReadableError → in_use', async () => {
+      const { classifyError } = await import('~/app/composables/useDeviceCheck')
+      expect(classifyError(new DOMException('x', 'NotReadableError'))).toBe('in_use')
+    })
+
+    it('TrackStartError → in_use', async () => {
+      const { classifyError } = await import('~/app/composables/useDeviceCheck')
+      expect(classifyError(new DOMException('x', 'TrackStartError'))).toBe('in_use')
+    })
+
+    it('OverconstrainedError → overconstrained', async () => {
+      const { classifyError } = await import('~/app/composables/useDeviceCheck')
+      expect(classifyError(new DOMException('x', 'OverconstrainedError'))).toBe('overconstrained')
+    })
+
+    it('an unrecognized DOMException name → unknown', async () => {
+      const { classifyError } = await import('~/app/composables/useDeviceCheck')
+      expect(classifyError(new DOMException('x', 'AbortError'))).toBe('unknown')
+    })
+
+    it('a non-Error value → unknown', async () => {
+      const { classifyError } = await import('~/app/composables/useDeviceCheck')
+      expect(classifyError('not an error')).toBe('unknown')
+    })
+  })
+
+  describe('clampPreviewRatio (pure)', () => {
+    it('a 16:9 ratio passes through unchanged', async () => {
+      const { clampPreviewRatio } = await import('~/app/composables/useDeviceCheck')
+      expect(clampPreviewRatio(16 / 9)).toBeCloseTo(16 / 9, 5)
+    })
+
+    it('a ratio below 3/4 (tall portrait) clamps to the 3/4 floor', async () => {
+      const { clampPreviewRatio } = await import('~/app/composables/useDeviceCheck')
+      expect(clampPreviewRatio(9 / 16)).toBeCloseTo(3 / 4, 5)
+    })
+
+    it('a ratio above 21/9 (ultra-wide) clamps to the 21/9 ceiling', async () => {
+      const { clampPreviewRatio } = await import('~/app/composables/useDeviceCheck')
+      expect(clampPreviewRatio(32 / 9)).toBeCloseTo(21 / 9, 5)
+    })
+  })
+
+  describe('nextMicLevel (pure EMA)', () => {
+    it('rising input uses the fast-attack coefficients (0.6/0.4)', async () => {
+      const { nextMicLevel } = await import('~/app/composables/useDeviceCheck')
+      // prev=0.1, raw=0.5 (rising) → 0.6*0.5 + 0.4*0.1 = 0.34
+      expect(nextMicLevel(0.1, 0.5)).toBeCloseTo(0.34, 5)
+    })
+
+    it('falling input uses the slow-release coefficients (0.15/0.85)', async () => {
+      const { nextMicLevel } = await import('~/app/composables/useDeviceCheck')
+      // prev=0.5, raw=0.1 (falling) → 0.15*0.1 + 0.85*0.5 = 0.44
+      expect(nextMicLevel(0.5, 0.1)).toBeCloseTo(0.44, 5)
+    })
+
+    it('equal input/prev takes the release branch and is a no-op', async () => {
+      const { nextMicLevel } = await import('~/app/composables/useDeviceCheck')
+      expect(nextMicLevel(0.3, 0.3)).toBeCloseTo(0.3, 5)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Task 2.2 — previewRatio seeded from getSettings()
+  // -------------------------------------------------------------------------
+
+  describe('previewRatio', () => {
+    it('seeds previewRatio from the video track getSettings() width/height', async () => {
+      const videoTrack = makeLiveVideoTrack({ width: 1920, height: 1080 })
+      getUserMediaSpy.mockResolvedValue(makeStream([videoTrack], [makeAudioTrack()]))
+
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check()
+
+      expect(dc.previewRatio.value).toBeCloseTo(1920 / 1080, 5)
+    })
+
+    it('clamps a portrait track ratio to the 3/4 floor', async () => {
+      const videoTrack = makeLiveVideoTrack({ width: 480, height: 640 })
+      getUserMediaSpy.mockResolvedValue(makeStream([videoTrack], [makeAudioTrack()]))
+
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check()
+
+      expect(dc.previewRatio.value).toBeCloseTo(3 / 4, 5)
+    })
+
+    it('stays null when the camera check fails', async () => {
+      getUserMediaSpy.mockRejectedValue(new DOMException('x', 'NotFoundError'))
+
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check()
+
+      expect(dc.previewRatio.value).toBeNull()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Task 2.3 — error classification wired into check()
+  // -------------------------------------------------------------------------
+
+  describe('error classification wired into check()', () => {
+    it('NotAllowedError rejection → error = denied', async () => {
+      getUserMediaSpy.mockRejectedValue(new DOMException('x', 'NotAllowedError'))
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check()
+      expect(dc.error.value).toBe('denied')
+    })
+
+    it('NotFoundError rejection → error = not_found', async () => {
+      getUserMediaSpy.mockRejectedValue(new DOMException('x', 'NotFoundError'))
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check()
+      expect(dc.error.value).toBe('not_found')
+    })
+
+    it('NotReadableError rejection → error = in_use', async () => {
+      getUserMediaSpy.mockRejectedValue(new DOMException('x', 'NotReadableError'))
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check()
+      expect(dc.error.value).toBe('in_use')
+    })
+
+    it('a successful check clears any previous error', async () => {
+      getUserMediaSpy.mockRejectedValueOnce(new DOMException('x', 'NotAllowedError'))
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check()
+      expect(dc.error.value).toBe('denied')
+
+      getUserMediaSpy.mockResolvedValueOnce(makeStream([makeLiveVideoTrack()], [makeAudioTrack()]))
+      await dc.check()
+      expect(dc.error.value).toBeNull()
+    })
+
+    it('navigator.mediaDevices missing → error = unsupported, no getUserMedia call attempted', async () => {
+      vi.stubGlobal('navigator', {})
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check()
+      expect(dc.error.value).toBe('unsupported')
+      expect(getUserMediaSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Task 2.2/2.4 — micUnavailable (the mic-gate dead-end fix, D6)
+  // -------------------------------------------------------------------------
+
+  describe('micUnavailable', () => {
+    it('no audio track in the acquired stream → micUnavailable = true, micOk stays false', async () => {
+      const videoTrack = makeLiveVideoTrack()
+      getUserMediaSpy.mockResolvedValue(makeStream([videoTrack], []))
+
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check()
+
+      expect(dc.micUnavailable.value).toBe(true)
+      expect(dc.micOk.value).toBe(false)
+      // Camera still passed — the mic gate blocks continue, but it is not a
+      // silent dead end: the flag is observable by the UI.
+      expect(dc.cameraOk.value).toBe(true)
+    })
+
+    it('AudioContext throws → micUnavailable = true (not just a silent catch)', async () => {
+      const videoTrack = makeLiveVideoTrack()
+      const audioTrack = makeAudioTrack()
+      getUserMediaSpy.mockResolvedValue(makeStream([videoTrack], [audioTrack]))
+      vi.stubGlobal(
+        'AudioContext',
+        vi.fn(() => {
+          throw new DOMException('Not supported', 'NotSupportedError')
+        })
+      )
+
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check()
+
+      expect(dc.micUnavailable.value).toBe(true)
+      expect(dc.micOk.value).toBe(false)
+    })
+
+    it('a working mic never sets micUnavailable', async () => {
+      const videoTrack = makeLiveVideoTrack()
+      const audioTrack = makeAudioTrack()
+      getUserMediaSpy.mockResolvedValue(makeStream([videoTrack], [audioTrack]))
+
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check()
+
+      expect(dc.micUnavailable.value).toBe(false)
+    })
+
+    it('release() then check() reopens a micUnavailable state (the dead-end fix)', async () => {
+      // First attempt: no audio track at all.
+      getUserMediaSpy.mockResolvedValueOnce(makeStream([makeLiveVideoTrack()], []))
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check()
+      expect(dc.micUnavailable.value).toBe(true)
+
+      // Candidate plugs in a mic and presses Retry (release() then check()).
+      dc.release()
+      expect(dc.micUnavailable.value).toBe(false)
+
+      getUserMediaSpy.mockResolvedValueOnce(makeStream([makeLiveVideoTrack()], [makeAudioTrack()]))
+      vi.stubGlobal(
+        'AudioContext',
+        vi.fn(() => makeAudioContext(true))
+      )
+      await dc.check()
+      vi.advanceTimersByTime(500)
+      await Promise.resolve()
+
+      expect(dc.micUnavailable.value).toBe(false)
+      expect(dc.micOk.value).toBe(true)
+      expect(getUserMediaSpy).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Task 2.2 — micLevel EMA output, driven through the real sampling timer
+  // -------------------------------------------------------------------------
+
+  describe('micLevel (EMA-smoothed, sampled every 100ms)', () => {
+    it('rises quickly on a loud sample, then settles slowly on silence', async () => {
+      const videoTrack = makeLiveVideoTrack()
+      const audioTrack = makeAudioTrack()
+      getUserMediaSpy.mockResolvedValue(makeStream([videoTrack], [audioTrack]))
+
+      // A mutable RMS source the AudioContext mock reads on every sample tick.
+      let currentFill = 128 // silence
+      const analyserNode: Partial<AnalyserNode> = {
+        fftSize: 256,
+        frequencyBinCount: 128,
+        getByteTimeDomainData: vi.fn((arr: Uint8Array) => arr.fill(currentFill)),
+        connect: vi.fn(),
+      }
+      vi.stubGlobal(
+        'AudioContext',
+        vi.fn(
+          () =>
+            ({
+              createAnalyser: () => analyserNode as AnalyserNode,
+              createMediaStreamSource: () => ({ connect: vi.fn() }),
+              close: vi.fn().mockResolvedValue(undefined),
+            }) as unknown as AudioContext
+        )
+      )
+
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check()
+
+      expect(dc.micLevel.value).toBe(0)
+
+      // Loud sample — fill=200 → raw RMS = |(200-128)/128| = 0.5625 on every
+      // bin. Rising from 0 takes the fast-attack branch:
+      // 0.6*0.5625 + 0.4*0 = 0.3375.
+      currentFill = 200
+      vi.advanceTimersByTime(100)
+      await Promise.resolve()
+      expect(dc.micLevel.value).toBeCloseTo(0.3375, 5)
+
+      // Silence again — raw RMS = 0, falling, slow-release branch:
+      // 0.15*0 + 0.85*0.3375 = 0.286875. Must NOT collapse to 0 in one tick —
+      // that is the flicker the asymmetric EMA exists to prevent.
+      currentFill = 128
+      vi.advanceTimersByTime(100)
+      await Promise.resolve()
+      expect(dc.micLevel.value).toBeCloseTo(0.286875, 5)
     })
   })
 })
