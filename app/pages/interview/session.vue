@@ -95,6 +95,29 @@
           />
         </ClientOnly>
       </template>
+
+      <!--
+        Paused mid-question.
+
+        The provider session stays up while paused — tearing it down would restart
+        the question from its opening line on resume — so `avatarMounted` is still
+        true and this branch keeps rendering. The standalone `paused` section below
+        is ordered AFTER this one in the v-if chain and therefore unreachable here,
+        which left a candidate who paused a live question with no way to resume.
+        That section still serves the between-competencies pause, where the
+        provider has already been unpublished.
+      -->
+      <div
+        v-else-if="session.state.value === 'paused'"
+        class="flex flex-col items-center gap-4 rounded-xl border border-border bg-card p-6"
+        data-testid="paused-live-panel"
+      >
+        <h2 class="text-lg font-semibold text-foreground">{{ $t('interview.paused.title') }}</h2>
+        <p class="text-sm text-muted-foreground">{{ $t('interview.paused.mic_muted') }}</p>
+        <Button @click="session.resume()">
+          {{ $t('interview.paused.resume') }}
+        </Button>
+      </div>
     </section>
 
     <!-- End of Question screen -->
@@ -387,9 +410,12 @@ const showExpiredSessionVariant = computed(() => {
 
 const confirmedStream = ref<MediaStream | null>(null)
 
-function onDevicesConfirmed(stream: MediaStream): void {
+function onDevicesConfirmed(stream: MediaStream, micDeviceId?: string): void {
   confirmedStream.value = stream
-  session.confirmDevices()
+  // The mic id travels with the stream: the avatar provider opens its own capture
+  // track and cannot inherit this one, so it would otherwise use the OS default
+  // rather than the device the candidate just tested.
+  session.confirmDevices(micDeviceId)
 }
 
 // ---------------------------------------------------------------------------

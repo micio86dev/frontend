@@ -215,6 +215,14 @@ export class TavusProvider implements InterviewProvider {
     this.call?.setLocalAudio(!this.call.localAudio())
   }
 
+  /**
+   * Assert an explicit mute state (pause/resume). Daily's `setLocalAudio` takes
+   * ENABLED, so the flag is inverted: muted === audio disabled.
+   */
+  async setMicMuted(muted: boolean): Promise<void> {
+    this.call?.setLocalAudio(!muted)
+  }
+
   async stop(): Promise<void> {
     if (this.call) {
       try {

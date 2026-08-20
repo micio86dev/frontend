@@ -251,6 +251,47 @@ describe('interview/session.vue — timer expiry and skip', () => {
 
     expect(session.pause).toHaveBeenCalled()
   })
+
+  // Pausing a LIVE question keeps the provider session up (tearing it down would
+  // restart the question from its opening line), so `avatarMounted` stays true —
+  // and the standalone `paused` section is ordered AFTER the avatar section in the
+  // v-if chain, so it never renders. Without a resume control inside the avatar
+  // branch the candidate pauses into a dead end with no way back.
+
+  it('offers a resume control while paused with the provider still mounted', async () => {
+    const session = makeSession({ state: 'paused' })
+    const wrapper = await mountPage(session)
+
+    const resumeButton = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('interview.paused.resume'))
+
+    expect(resumeButton).toBeDefined()
+
+    await resumeButton!.trigger('click')
+    expect(session.resume).toHaveBeenCalled()
+  })
+
+  it('hides the live controls while paused', async () => {
+    // Skip/pause/timer must not stay operable on a paused question.
+    const session = makeSession({ state: 'paused' })
+    const wrapper = await mountPage(session)
+
+    const labels = wrapper.findAll('button').map((b) => b.text())
+    expect(labels.some((l) => l.includes('interview.live.pause'))).toBe(false)
+  })
+
+  it('still renders the standalone paused screen when no provider is mounted', async () => {
+    // Pausing between competencies: the provider has already been unpublished.
+    const session = makeSession({ state: 'paused', provider: null })
+    const wrapper = await mountPage(session)
+
+    const resumeButton = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('interview.paused.resume'))
+
+    expect(resumeButton).toBeDefined()
+  })
 })
 
 describe('interview/session.vue — error/terminal → configurable error redirect', () => {

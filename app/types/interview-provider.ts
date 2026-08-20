@@ -71,6 +71,15 @@ export interface StartConfig {
    * Distinct from endPhrase to disambiguate last-question completion.
    */
   finalPhrase: string
+  /**
+   * The microphone the candidate selected during device check.
+   *
+   * The provider opens its OWN capture track for the conversational channel — it
+   * does not reuse the device-check MediaStream. Without this id it opens the OS
+   * default device, which is not necessarily the one the candidate just tested.
+   * Omitted means "provider default".
+   */
+  audioDeviceId?: string
 }
 
 /**
@@ -91,6 +100,15 @@ export interface InterviewProvider {
 
   /** Toggle microphone mute/unmute. */
   toggleMic(): Promise<void>
+
+  /**
+   * Set the microphone to an explicit mute state.
+   *
+   * Distinct from toggleMic() because pause/resume must be able to ASSERT a state
+   * rather than flip whatever the current one happens to be: a toggle called from a
+   * pause handler unmutes an already-muted candidate.
+   */
+  setMicMuted(muted: boolean): Promise<void>
 
   /** Tear down the session and release resources. */
   stop(): Promise<void>

@@ -85,6 +85,7 @@ function createMockProvider() {
   const startMock = vi.fn(async () => ({ providerSessionId: 'test-session-id' }))
   const stopMock = vi.fn(async () => undefined)
   const toggleMicMock = vi.fn(async () => undefined)
+  const setMicMutedMock = vi.fn(async (_muted: boolean) => undefined)
 
   function emit(evt: string, eventPayload: unknown) {
     for (const cb of listeners.get(evt) ?? []) cb(eventPayload)
@@ -97,6 +98,7 @@ function createMockProvider() {
     start: startMock,
     stop: stopMock,
     toggleMic: toggleMicMock,
+    setMicMuted: setMicMutedMock,
     nudgeWrapUp: vi.fn(),
     // Test helper to emit events
     _emit: emit,
@@ -216,12 +218,16 @@ async function flushPromises() {
 }
 
 // Create a session and advance to live state
-async function createLiveSession(questionIndex = '0', competencies = DEFAULT_COMPETENCIES) {
+async function createLiveSession(
+  questionIndex = '0',
+  competencies = DEFAULT_COMPETENCIES,
+  audioDeviceId?: string
+) {
   const session = useInterviewSession({ competencies })
   session.acceptConsent()
 
   mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ question_index: questionIndex }))
-  session.confirmDevices()
+  session.confirmDevices(audioDeviceId)
   await nextTick()
 
   // Provider emits ready
@@ -846,6 +852,113 @@ describe('useInterviewSession', () => {
 
       expect(session.state.value).toBe('end_of_question')
       expect(mockCandidateFetch.mock.calls.length).toBe(callsBefore)
+    })
+
+    // The Pause control is rendered while the session is `live` (session.vue), but
+    // pause() only ever accepted `end_of_question`. Pressing it mid-interview was a
+    // silent no-op — the candidate asked for a break and the recording kept running.
+
+    it('live → pause() → paused (no backend call)', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      expect(session.state.value).toBe('live')
+
+      const callsBefore = mockCandidateFetch.mock.calls.length
+      session.pause()
+      await nextTick()
+
+      expect(session.state.value).toBe('paused')
+      expect(mockCandidateFetch.mock.calls.length).toBe(callsBefore)
+    })
+
+    it('pausing a live question mutes the microphone', async () => {
+      // A pause that leaves the mic open is not a pause: the candidate believes
+      // they are off the record while their audio still reaches the provider.
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+
+      session.pause()
+      await flushPromises()
+
+      expect(currentMockProvider.setMicMuted).toHaveBeenCalledWith(true)
+    })
+
+    it('resuming from a live pause returns to live and unmutes', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+
+      session.pause()
+      await flushPromises()
+      session.resume()
+      await flushPromises()
+
+      expect(session.state.value).toBe('live')
+      expect(currentMockProvider.setMicMuted).toHaveBeenLastCalledWith(false)
+    })
+
+    it('resuming from an end_of_question pause returns to end_of_question, not live', async () => {
+      // resume() must return to wherever pause() was entered from. Sending an
+      // between-competencies pause back to `live` would render an interview screen
+      // whose provider has already been torn down.
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
+      currentMockProvider._emit('state', 'complete')
+      await flushPromises()
+      expect(session.state.value).toBe('end_of_question')
+
+      session.pause()
+      await flushPromises()
+      session.resume()
+      await flushPromises()
+
+      expect(session.state.value).toBe('end_of_question')
+    })
+
+    it('pause() is ignored from a non-pausable state', async () => {
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+
+      session.pause()
+      await nextTick()
+
+      expect(session.state.value).toBe('idle')
+    })
+  })
+
+  describe('microphone selection handoff', () => {
+    it('threads the confirmed audioDeviceId into the published StartConfig', async () => {
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+      session.acceptConsent()
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse())
+
+      session.confirmDevices('mic-actual')
+      await flushPromises()
+
+      expect(session.activeConfig.value?.audioDeviceId).toBe('mic-actual')
+    })
+
+    it('omits audioDeviceId when the device check reported no microphone id', async () => {
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+      session.acceptConsent()
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse())
+
+      session.confirmDevices()
+      await flushPromises()
+
+      expect(session.activeConfig.value?.audioDeviceId).toBeUndefined()
+    })
+
+    it('keeps the microphone selection across competencies', async () => {
+      // nextCompetency() re-enters confirmDevices() to issue the next provider
+      // session. Losing the id there would silently switch microphones halfway
+      // through the interview.
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES, 'mic-actual')
+
+      mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
+      currentMockProvider._emit('state', 'complete')
+      await flushPromises()
+
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ question_index: '1' }))
+      session.nextCompetency()
+      await flushPromises()
+
+      expect(session.activeConfig.value?.audioDeviceId).toBe('mic-actual')
     })
   })
 
