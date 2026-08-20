@@ -85,7 +85,8 @@ export interface UseInterviewSessionReturn {
   /** StartConfig for `activeProvider`; published together with it, never separately. */
   activeConfig: ShallowRef<StartConfig | null>
   acceptConsent: () => void
-  confirmDevices: () => void
+  /** @param audioDeviceId Microphone from device check; remembered for later competencies. */
+  confirmDevices: (audioDeviceId?: string) => void
   pause: () => void
   resume: () => void
   retry: () => void
@@ -191,6 +192,10 @@ export function useInterviewSession(
   let currentQuestionIndex: number = 0
   let isResuming = false
   let resizeListener: (() => void) | null = null
+  /** The state pause() was entered from, so resume() can return there. */
+  let pausedFrom: 'live' | 'end_of_question' | null = null
+  /** Microphone chosen at device check; reused for every subsequent competency. */
+  let confirmedAudioDeviceId: string | undefined
 
   // ---- Helpers -------------------------------------------------------------
 
@@ -467,6 +472,10 @@ export function useInterviewSession(
         conversationUrl: response.conversation_url ?? undefined,
         endPhrase: end_phrase,
         finalPhrase: final_phrase,
+        // Omitted, not set to undefined-as-a-value: the provider treats an absent
+        // id as "use the default device", which is the correct degradation when the
+        // browser withheld one.
+        ...(confirmedAudioDeviceId ? { audioDeviceId: confirmedAudioDeviceId } : {}),
       }
 
       // Publish for AvatarPlayer. provider.start() is deliberately NOT called here:
@@ -525,9 +534,19 @@ export function useInterviewSession(
     transitionTo('device_check')
   }
 
-  function confirmDevices() {
+  /**
+   * Begin (or re-begin) a question after the device check.
+   *
+   * `audioDeviceId` is the microphone the candidate settled on. It is REMEMBERED
+   * rather than required, because this function is also the entry point for
+   * nextCompetency() and retry(), which have no device check to read it from —
+   * dropping it there would silently switch microphones mid-interview.
+   */
+  function confirmDevices(audioDeviceId?: string) {
     if (isResuming) return
     isResuming = true
+
+    if (audioDeviceId !== undefined) confirmedAudioDeviceId = audioDeviceId
 
     // If there's an existing provider, stop it (resume-on-remount guard)
     if (provider) {
@@ -539,15 +558,39 @@ export function useInterviewSession(
     startSession(0)
   }
 
+  /**
+   * Pause the interview.
+   *
+   * Pausable from BOTH `live` and `end_of_question`. It used to accept only
+   * `end_of_question` while the page rendered the Pause control during `live` too,
+   * so pressing it mid-question was a silent no-op.
+   *
+   * From `live` the microphone is muted as well. A pause that leaves the mic open
+   * is not a pause: the candidate believes they are off the record while their audio
+   * still reaches the provider. The provider session itself stays up — tearing it
+   * down would restart the question from its opening line on resume.
+   */
   function pause() {
-    if (state.value === 'end_of_question') {
-      state.value = 'paused'
+    if (state.value !== 'live' && state.value !== 'end_of_question') return
+
+    pausedFrom = state.value
+    state.value = 'paused'
+
+    if (pausedFrom === 'live') {
+      provider?.setMicMuted(true).catch(() => {})
     }
   }
 
+  /** Resume to whichever state pause() was entered from — never a fixed destination. */
   function resume() {
-    if (state.value === 'paused') {
-      state.value = 'end_of_question'
+    if (state.value !== 'paused') return
+
+    const target = pausedFrom ?? 'end_of_question'
+    pausedFrom = null
+    state.value = target
+
+    if (target === 'live') {
+      provider?.setMicMuted(false).catch(() => {})
     }
   }
 

@@ -51,6 +51,7 @@
     },
     "paused": {
       "title": "Colloquio in pausa",
+      "mic_muted": "Il microfono è disattivato. Nessuna risposta viene registrata finché non riprendi.",
       "resume": "Riprendi"
     },
     "done": {

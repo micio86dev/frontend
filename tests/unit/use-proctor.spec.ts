@@ -1030,7 +1030,30 @@ describe('useProctor', () => {
 
     const body = (mockCandidateFetch.mock.calls[0]![1] as { body: Record<string, unknown> }).body
     expect(body['session_id']).toBe(7)
-    expect(body['image_base64']).toBe('data:image/jpeg;base64,test')
+    proctor.stop()
+  })
+
+  it('triggerSnapshot: sends RAW base64, stripping the data-URL prefix', async () => {
+    // canvas.toDataURL() returns "data:image/jpeg;base64,<payload>". Posting that
+    // whole string as image_base64 produced a hard 422 in production
+    // ("Image must be a JPEG (invalid magic bytes)"): every character of
+    // "dataimagejpegbase64" is itself in the base64 alphabet, so the server's
+    // non-strict decode did not fail — it MISALIGNED, and the decoded bytes no
+    // longer began with FF D8 FF.
+    mockCandidateFetch.mockClear().mockResolvedValue({ ok: true })
+
+    const { useProctor } = await import('~/app/composables/useProctor')
+    const proctor = useProctor({ getSessionId: () => 7 })
+    proctor.start(makeStream())
+    proctor.injectSelfView(makeVideoElement())
+
+    proctor.triggerSnapshot()
+    await Promise.resolve()
+
+    const body = (mockCandidateFetch.mock.calls[0]![1] as { body: Record<string, unknown> }).body
+    expect(body['image_base64']).toBe('test')
+    expect(String(body['image_base64'])).not.toContain('data:')
+    expect(String(body['image_base64'])).not.toContain(',')
     proctor.stop()
   })
 

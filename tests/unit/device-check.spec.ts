@@ -276,7 +276,25 @@ describe('DeviceCheck.client.vue — hard gate (D6)', () => {
 
     await wrapper.get('[data-testid="continue-button"]').trigger('click')
 
-    expect(wrapper.emitted('confirmed')).toEqual([[stream]])
+    expect(wrapper.emitted('confirmed')?.[0]?.[0]).toBe(stream)
+  })
+
+  it('clicking Continue also emits the microphone the candidate settled on', async () => {
+    // The avatar provider opens its OWN capture track and cannot read this stream.
+    // Without the id travelling with the handoff it falls back to the OS default —
+    // so the candidate tests one microphone and is then recorded through another.
+    const stream = new MediaStream()
+    const dc = makeDeviceCheck({
+      cameraOk: ref(true),
+      micOk: ref(true),
+      stream: ref(stream),
+      activeSelection: ref({ cameraId: 'cam-actual', micId: 'mic-actual' }),
+    })
+    const wrapper = await mountComponent(dc)
+
+    await wrapper.get('[data-testid="continue-button"]').trigger('click')
+
+    expect(wrapper.emitted('confirmed')?.[0]?.[1]).toBe('mic-actual')
   })
 })
 

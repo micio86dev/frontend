@@ -4,22 +4,33 @@
  * The SDK is injected as a mock factory — no real WebRTC/WebSocket connections.
  *
  * Real SDK API (LiveAvatarSession from @heygen/liveavatar-web-sdk@0.0.18):
- *   - Constructor: new LiveAvatarSession(sessionAccessToken: string)
- *   - Events (AgentEventsEnum string values):
+ *   - Constructor: new LiveAvatarSession(sessionAccessToken: string, config?: SessionConfig)
+ *   - Session events (SessionEvent string values):
+ *       "session.state_changed"  — SessionState transitions
+ *       "session.stream_ready"   — media tracks ready; attach() belongs HERE
+ *       "session.disconnected"   — carries a SessionDisconnectReason
+ *   - Agent events (AgentEventsEnum string values):
  *       "avatar.transcription" — avatar speech with payload { text: string }
  *       "user.transcription"   — candidate speech with payload { text: string }
- *   - Methods: start(), stop(), attach(el), startListening(), stopListening(),
- *              interrupt(), message(text)
+ *       "user.speak_started" / "avatar.speak_started" / "avatar.speak_ended"
+ *   - Methods: start(), stop(), attach(el), interrupt(), message(text)
+ *   - Microphone: session.voiceChat.mute() / unmute(); the local mic track is
+ *     published by the SDK's configureSession() ONLY when the constructor
+ *     received a truthy `voiceChat` config.
  *
  * Tests verify:
- *   - start() emits correct state transitions: connecting → ready → listening
+ *   - start() passes a CONVERSATIONAL, unmuted voiceChat config to the SDK
+ *   - attach() is deferred to "session.stream_ready", not called eagerly
+ *   - barge-in: "user.speak_started" while the avatar speaks → interrupt()
+ *   - completion is deferred to "avatar.speak_ended" when the avatar is mid-sentence
+ *   - "session.disconnected" for a non-client reason → 'error'
  *   - "avatar.transcription" SDK event fires the 'transcript' event with role 'avatar'
  *   - "user.transcription" SDK event fires the 'transcript' event with role 'user'
  *   - matchesEndPhrase match on avatar transcript → 'state' 'complete' emitted
  *   - Absent endPhrase → 'error' emitted before SDK init; state never reaches 'connecting'
  *   - Absent finalPhrase → same error path
  *   - stop() → 'state' 'stopped' emitted; SDK stop() called
- *   - toggleMic() → SDK stopListening() / startListening() called
+ *   - toggleMic() → voiceChat.mute() / unmute() called
  *   - SSR path: when sdkLoader throws (mimics SSR guard), provider emits 'error'
  */
 
@@ -31,21 +42,36 @@ import { HeyGenProvider } from '~/app/providers/heygen'
 // We inject a mock sdkLoader directly into the HeyGenProvider constructor.
 // The mock matches the REAL LiveAvatarSession API shape.
 
+interface MockVoiceChat {
+  mute: ReturnType<typeof vi.fn>
+  unmute: ReturnType<typeof vi.fn>
+  isMuted: boolean
+}
+
 interface MockSession {
   on: ReturnType<typeof vi.fn>
   start: ReturnType<typeof vi.fn>
   stop: ReturnType<typeof vi.fn>
   attach: ReturnType<typeof vi.fn>
-  startListening: ReturnType<typeof vi.fn>
-  stopListening: ReturnType<typeof vi.fn>
   interrupt: ReturnType<typeof vi.fn>
   message: ReturnType<typeof vi.fn>
+  voiceChat: MockVoiceChat
   // Internal helper to simulate SDK emitting an event
   _emit: (eventName: string, data: unknown) => void
 }
 
 function createMockSession(): MockSession {
   const handlers = new Map<string, ((data: unknown) => void)[]>()
+
+  const voiceChat: MockVoiceChat = {
+    isMuted: false,
+    mute: vi.fn(async () => {
+      voiceChat.isMuted = true
+    }),
+    unmute: vi.fn(async () => {
+      voiceChat.isMuted = false
+    }),
+  }
 
   const session: MockSession = {
     on: vi.fn((event: string, cb: (data: unknown) => void) => {
@@ -55,10 +81,9 @@ function createMockSession(): MockSession {
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
     attach: vi.fn(),
-    startListening: vi.fn().mockReturnValue(''),
-    stopListening: vi.fn().mockReturnValue(''),
     interrupt: vi.fn(),
     message: vi.fn().mockReturnValue(''),
+    voiceChat,
     _emit: (eventName: string, data: unknown) => {
       for (const cb of handlers.get(eventName) ?? []) {
         cb(data)
@@ -66,6 +91,14 @@ function createMockSession(): MockSession {
     },
   }
   return session
+}
+
+/** A <video> the provider is allowed to attach to (attach() requires HTMLMediaElement). */
+function makeMountEl(): HTMLVideoElement {
+  const el = document.createElement('video')
+  // jsdom has no media pipeline; play() is called on stream-ready and must not reject loudly.
+  el.play = vi.fn().mockResolvedValue(undefined)
+  return el
 }
 
 const PHRASES = {
@@ -89,6 +122,8 @@ describe('HeyGenProvider', () => {
   function makeProvider() {
     const loader = vi.fn().mockResolvedValue(mockSession)
     const provider = new HeyGenProvider(loader)
+    // `loader` is called as (token, sessionConfig) — the second argument is what
+    // decides whether the SDK ever publishes the candidate's microphone.
     provider.on('state', (s) => emittedStates.push(s as string))
     provider.on('transcript', (t) => emittedTranscripts.push(t))
     provider.on('error', (e) => emittedErrors.push(e))
@@ -109,14 +144,133 @@ describe('HeyGenProvider', () => {
     expect(emittedStates.indexOf('ready')).toBeLessThan(emittedStates.indexOf('listening'))
   })
 
-  it('calls SDK start() and startListening() on start()', async () => {
+  it('calls SDK start() on start()', async () => {
     const { provider } = makeProvider()
-    const el = document.createElement('div')
 
-    await provider.start(el, { dbSessionId: 1, ...PHRASES })
+    await provider.start(makeMountEl(), { dbSessionId: 1, ...PHRASES })
 
     expect(mockSession.start).toHaveBeenCalledOnce()
-    expect(mockSession.startListening).toHaveBeenCalledOnce()
+  })
+
+  // ---- Microphone publication (the defect that made the avatar deaf) ----
+
+  it('constructs the SDK session with a CONVERSATIONAL, unmuted voiceChat config', async () => {
+    // The SDK's configureSession() publishes the local microphone track ONLY when
+    // `config.voiceChat` is truthy. Constructing the session with no config at all
+    // means the candidate's audio never leaves the browser: they speak, and the
+    // avatar hears nothing. CONVERSATIONAL selects hands-free VAD turn-taking
+    // rather than push-to-talk.
+    const { provider, loader } = makeProvider()
+
+    await provider.start(makeMountEl(), { dbSessionId: 1, ...PHRASES })
+
+    expect(loader).toHaveBeenCalledOnce()
+    const sessionConfig = loader.mock.calls[0]![1] as {
+      voiceChat?: { mode?: string; defaultMuted?: boolean }
+    }
+    expect(sessionConfig?.voiceChat).toBeDefined()
+    expect(sessionConfig.voiceChat!.mode).toBe('CONVERSATIONAL')
+    expect(sessionConfig.voiceChat!.defaultMuted).toBe(false)
+  })
+
+  it('forwards the candidate-selected microphone deviceId to the SDK when supplied', async () => {
+    // The candidate picks a microphone in the device-check step. Without threading
+    // that choice through, the SDK silently opens the OS default device instead.
+    const { provider, loader } = makeProvider()
+
+    await provider.start(makeMountEl(), { dbSessionId: 1, ...PHRASES, audioDeviceId: 'mic-42' })
+
+    const sessionConfig = loader.mock.calls[0]![1] as { voiceChat?: { deviceId?: string } }
+    expect(sessionConfig.voiceChat!.deviceId).toBe('mic-42')
+  })
+
+  // ---- Stream attach timing ----
+
+  it('attaches the media element on "session.stream_ready", not eagerly after start()', async () => {
+    // attach() binds the avatar's video+audio tracks to the element. Calling it the
+    // instant start() resolves races the tracks actually existing; the SDK signals
+    // readiness with its own event.
+    const { provider } = makeProvider()
+    const el = makeMountEl()
+
+    await provider.start(el, { dbSessionId: 1, ...PHRASES })
+    expect(mockSession.attach).not.toHaveBeenCalled()
+
+    mockSession._emit('session.stream_ready', undefined)
+
+    expect(mockSession.attach).toHaveBeenCalledWith(el)
+  })
+
+  // ---- Turn-taking / barge-in ----
+
+  it('interrupts the avatar when the candidate starts speaking over it', async () => {
+    const { provider } = makeProvider()
+    await provider.start(makeMountEl(), { dbSessionId: 1, ...PHRASES })
+
+    mockSession._emit('avatar.speak_started', undefined)
+    mockSession._emit('user.speak_started', undefined)
+
+    expect(mockSession.interrupt).toHaveBeenCalledOnce()
+    expect(emittedStates).toContain('listening')
+  })
+
+  it('does NOT interrupt when the candidate speaks while the avatar is silent', async () => {
+    const { provider } = makeProvider()
+    await provider.start(makeMountEl(), { dbSessionId: 1, ...PHRASES })
+
+    mockSession._emit('user.speak_started', undefined)
+
+    expect(mockSession.interrupt).not.toHaveBeenCalled()
+  })
+
+  it('emits state speaking on "avatar.speak_started"', async () => {
+    const { provider } = makeProvider()
+    await provider.start(makeMountEl(), { dbSessionId: 1, ...PHRASES })
+
+    mockSession._emit('avatar.speak_started', undefined)
+
+    expect(emittedStates).toContain('speaking')
+  })
+
+  // ---- Deferred completion ----
+
+  it('defers complete to "avatar.speak_ended" when the end phrase arrives mid-sentence', async () => {
+    // Transcription lands while the avatar is still talking. Ending the question
+    // there cuts the closing sentence off in the candidate's ear.
+    const { provider } = makeProvider()
+    await provider.start(makeMountEl(), { dbSessionId: 1, ...PHRASES })
+
+    mockSession._emit('avatar.speak_started', undefined)
+    mockSession._emit('avatar.transcription', { text: PHRASES.endPhrase })
+
+    expect(emittedStates).not.toContain('complete')
+
+    mockSession._emit('avatar.speak_ended', undefined)
+
+    expect(emittedStates).toContain('complete')
+  })
+
+  // ---- Disconnection ----
+
+  it('emits error when the session disconnects for a non-client reason', async () => {
+    const { provider } = makeProvider()
+    await provider.start(makeMountEl(), { dbSessionId: 1, ...PHRASES })
+
+    mockSession._emit('session.disconnected', 'SERVER_INITIATED')
+
+    expect(emittedErrors.length).toBeGreaterThan(0)
+    const err = emittedErrors[0] as { code: string }
+    expect(err.code).toBe('disconnected')
+  })
+
+  it('emits stopped — not error — when the disconnect was client-initiated', async () => {
+    const { provider } = makeProvider()
+    await provider.start(makeMountEl(), { dbSessionId: 1, ...PHRASES })
+
+    mockSession._emit('session.disconnected', 'CLIENT_INITIATED')
+
+    expect(emittedErrors).toHaveLength(0)
+    expect(emittedStates).toContain('stopped')
   })
 
   // ---- Transcript events ----
@@ -254,33 +408,51 @@ describe('HeyGenProvider', () => {
 
   // ---- toggleMic() ----
 
-  it('toggleMic() calls SDK stopListening() when muting (first toggle)', async () => {
+  // startListening()/stopListening() only publish an AVATAR_START_LISTENING command
+  // event on the agent socket — they do NOT open or close the microphone. The mic
+  // lives on session.voiceChat, and asking the wrong object left the local track
+  // untouched no matter how many times the candidate pressed mute.
+
+  it('toggleMic() mutes through voiceChat on the first toggle', async () => {
     const { provider } = makeProvider()
-    const el = document.createElement('div')
-    await provider.start(el, { dbSessionId: 1, ...PHRASES })
+    await provider.start(makeMountEl(), { dbSessionId: 1, ...PHRASES })
 
     await provider.toggleMic()
 
-    expect(mockSession.stopListening).toHaveBeenCalledOnce()
+    expect(mockSession.voiceChat.mute).toHaveBeenCalledOnce()
+    expect(mockSession.voiceChat.isMuted).toBe(true)
   })
 
-  it('toggleMic() calls SDK startListening() when unmuting (second toggle)', async () => {
+  it('toggleMic() unmutes through voiceChat on the second toggle', async () => {
     const { provider } = makeProvider()
-    const el = document.createElement('div')
-    await provider.start(el, { dbSessionId: 1, ...PHRASES })
+    await provider.start(makeMountEl(), { dbSessionId: 1, ...PHRASES })
 
     await provider.toggleMic() // mute
     await provider.toggleMic() // unmute
 
-    // startListening called once on start() + once on second toggle
-    expect(mockSession.startListening).toHaveBeenCalledTimes(2)
+    expect(mockSession.voiceChat.unmute).toHaveBeenCalledOnce()
+    expect(mockSession.voiceChat.isMuted).toBe(false)
+  })
+
+  it('toggleMic() reads the live SDK mute state rather than a local mirror', async () => {
+    // A provider-local `micMuted` boolean drifts the moment anything else mutes the
+    // track (SDK-side mute, device loss), and the button then does the opposite of
+    // what its label says.
+    const { provider } = makeProvider()
+    await provider.start(makeMountEl(), { dbSessionId: 1, ...PHRASES })
+
+    mockSession.voiceChat.isMuted = true // muted out-of-band
+    await provider.toggleMic()
+
+    expect(mockSession.voiceChat.unmute).toHaveBeenCalledOnce()
+    expect(mockSession.voiceChat.mute).not.toHaveBeenCalled()
   })
 
   it('toggleMic() does nothing before start()', async () => {
     const { provider } = makeProvider()
     await provider.toggleMic()
-    expect(mockSession.stopListening).not.toHaveBeenCalled()
-    expect(mockSession.startListening).not.toHaveBeenCalled()
+    expect(mockSession.voiceChat.mute).not.toHaveBeenCalled()
+    expect(mockSession.voiceChat.unmute).not.toHaveBeenCalled()
   })
 
   // ---- nudgeWrapUp ----

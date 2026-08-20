@@ -13,12 +13,21 @@
  *
  * SDK: @heygen/liveavatar-web-sdk@0.0.18 — exports LiveAvatarSession.
  * Constructor: new LiveAvatarSession(sessionAccessToken: string, config?: SessionConfig)
- * Lifecycle: start() → attach(el) → stop()
- * Mic control: startListening() / stopListening()
+ * Lifecycle: start() → (SESSION_STREAM_READY) attach(el) → stop()
+ * Mic control: session.voiceChat.mute() / unmute()
  * Send message: message(text: string)
  * Interrupt barge-in: interrupt()
  * Events (AgentEventsEnum): AVATAR_TRANSCRIPTION, USER_TRANSCRIPTION,
- *   AVATAR_SPEAK_STARTED, AVATAR_SPEAK_ENDED
+ *   USER_SPEAK_STARTED, AVATAR_SPEAK_STARTED, AVATAR_SPEAK_ENDED
+ * Events (SessionEvent): SESSION_STREAM_READY, SESSION_DISCONNECTED
+ *
+ * MICROPHONE (the contract that makes this provider work at all):
+ * The SDK's internal `configureSession()` publishes the candidate's local audio
+ * track ONLY when the constructor received a truthy `voiceChat` config —
+ * `new LiveAvatarSession(token)` with no second argument produces a session that
+ * can speak but can never hear. `startListening()` does NOT compensate: it only
+ * emits an AVATAR_START_LISTENING command event on the agent socket.
+ * See legacy-demo/src/providers/heygen.ts, the demonstrated-working wiring.
  */
 
 import type {
@@ -38,16 +47,54 @@ type EventCallback = (payload: unknown) => void
  * Kept as a local interface to avoid importing the full SDK at module scope
  * and to allow injection of a mock in tests.
  */
+interface HeyGenVoiceChat {
+  readonly isMuted: boolean
+  mute(): Promise<void>
+  unmute(): Promise<void>
+}
+
 interface HeyGenSession {
-  on(event: string, handler: (data: Record<string, unknown>) => void): void
+  on(event: string, handler: (data: never) => void): void
   start(): Promise<void>
   stop(): Promise<void>
   attach(element: HTMLMediaElement): void
-  startListening(): string
-  stopListening(): string
   interrupt(): void
   message(text: string): string
+  readonly voiceChat: HeyGenVoiceChat
 }
+
+/**
+ * The `SessionConfig` subset this provider sets. Mirrors the SDK's own type rather
+ * than importing it — importing pulls the SDK in at module scope, which the SSR
+ * invariant above forbids.
+ */
+export interface HeyGenSessionConfig {
+  voiceChat: {
+    mode: 'CONVERSATIONAL' | 'PUSH_TO_TALK'
+    defaultMuted: boolean
+    deviceId?: string
+  }
+}
+
+/**
+ * SDK event names, as string literals.
+ *
+ * Deliberately NOT imported from the SDK's `SessionEvent`/`AgentEventsEnum`: those
+ * are runtime enums, and importing them at module scope would evaluate the SDK
+ * during SSR. The values are pinned by the unit tests against the shipped .d.ts.
+ */
+const SDK_EVENT = {
+  streamReady: 'session.stream_ready',
+  disconnected: 'session.disconnected',
+  userSpeakStarted: 'user.speak_started',
+  avatarSpeakStarted: 'avatar.speak_started',
+  avatarSpeakEnded: 'avatar.speak_ended',
+  userTranscription: 'user.transcription',
+  avatarTranscription: 'avatar.transcription',
+} as const
+
+/** SessionDisconnectReason value for a disconnect this client asked for. */
+const CLIENT_INITIATED = 'CLIENT_INITIATED'
 
 /**
  * HeyGen LiveAvatar provider.
@@ -66,26 +113,51 @@ export class HeyGenProvider implements InterviewProvider {
   private readonly listeners = new Map<ProviderEvent, EventCallback[]>()
   private session: HeyGenSession | null = null
   private phrases: { endPhrase: string; finalPhrase: string } | null = null
-  private micMuted = false
+  private avatarSpeaking = false
+  /**
+   * Set when the closing phrase is transcribed while the avatar is still talking.
+   * The actual 'complete' is emitted on AVATAR_SPEAK_ENDED so the sentence finishes
+   * in the candidate's ear before the question tears down.
+   */
+  private pendingComplete = false
 
   /**
    * Injectable SDK loader for testability.
    * Production default: dynamically imports the real SDK under import.meta.client guard.
    */
-  private readonly sdkLoader: (token: string) => Promise<HeyGenSession>
+  private readonly sdkLoader: (token: string, config: HeyGenSessionConfig) => Promise<HeyGenSession>
 
-  constructor(sdkLoader?: (token: string) => Promise<HeyGenSession>) {
+  constructor(sdkLoader?: (token: string, config: HeyGenSessionConfig) => Promise<HeyGenSession>) {
     if (sdkLoader) {
       this.sdkLoader = sdkLoader
     } else {
       // Production path: dynamic import guarded by import.meta.client
-      this.sdkLoader = async (token: string): Promise<HeyGenSession> => {
+      this.sdkLoader = async (
+        token: string,
+        config: HeyGenSessionConfig
+      ): Promise<HeyGenSession> => {
         /* v8 ignore next 3 — dead branch: import.meta.client is always true in production builds; unreachable via define in test builds */
         if (!import.meta.client) {
           throw new Error('HeyGenProvider: SDK must only be loaded in a client-side context.')
         }
         const sdk = await import('@heygen/liveavatar-web-sdk')
-        return new sdk.LiveAvatarSession(token) as unknown as HeyGenSession
+
+        // `voiceChat.mode` is a nominal enum in the SDK's types, so the string
+        // literal this provider carries is not structurally assignable even though
+        // the runtime values are identical ("CONVERSATIONAL"/"PUSH_TO_TALK").
+        //
+        // The target type is derived from the LOCAL `sdk` binding rather than a
+        // top-level `import type`: tests/unit/provider-anonymity.spec.ts scans the
+        // import lines textually and cannot tell `import type` from a value import
+        // — correctly so, since one keystroke turns the erased form into the one
+        // that evaluates the SDK during SSR and crashes the Nitro bundle.
+        type SdkSessionConfig = ConstructorParameters<typeof sdk.LiveAvatarSession>[1]
+
+        // The config is what makes the session able to HEAR — see the class comment.
+        return new sdk.LiveAvatarSession(
+          token,
+          config as unknown as SdkSessionConfig
+        ) as unknown as HeyGenSession
       }
     }
   }
@@ -119,56 +191,111 @@ export class HeyGenProvider implements InterviewProvider {
     }
 
     this.phrases = { endPhrase: cfg.endPhrase, finalPhrase: cfg.finalPhrase }
+    this.avatarSpeaking = false
+    this.pendingComplete = false
     this.emitState('connecting')
 
     try {
+      // CONVERSATIONAL = hands-free VAD turn-taking, NOT push-to-talk: the candidate
+      // just speaks. defaultMuted:false so the mic is live from the first second —
+      // there is no unmute affordance on the interview screen to recover from it.
+      const sessionConfig: HeyGenSessionConfig = {
+        voiceChat: {
+          mode: 'CONVERSATIONAL',
+          defaultMuted: false,
+          ...(cfg.audioDeviceId ? { deviceId: cfg.audioDeviceId } : {}),
+        },
+      }
+
       // Load the SDK session (either real SDK or injected mock)
-      this.session = await this.sdkLoader(cfg.sessionToken ?? '')
+      const session = await this.sdkLoader(cfg.sessionToken ?? '', sessionConfig)
+      this.session = session
 
-      // Wire SDK event handlers for transcript capture.
-      // AgentEventsEnum values (from @heygen/liveavatar-web-sdk):
-      //   "avatar.transcription" — avatar speech text
-      //   "user.transcription"   — candidate speech text
-      this.session.on('avatar.transcription', (data) => {
-        const text = String(data?.['text'] ?? '')
+      // ── Media attach ────────────────────────────────────────────────────────
+      // attach() binds the avatar's video+audio tracks to the element. It belongs on
+      // SESSION_STREAM_READY, not immediately after start(): start() resolves once the
+      // room is joined, which is not the same instant the tracks exist.
+      session.on(SDK_EVENT.streamReady, () => {
+        if (!(mountEl instanceof HTMLMediaElement)) return
+        session.attach(mountEl)
+        void mountEl.play?.().catch(() => {})
+        this.emitState('ready')
+      })
 
-        const entry: TranscriptEntry = {
-          role: 'avatar',
-          text,
-          ts: Date.now(),
+      // ── Disconnection ───────────────────────────────────────────────────────
+      // A dropped session used to be invisible: the candidate sat in front of a
+      // frozen avatar with the session machine still believing it was live.
+      session.on(SDK_EVENT.disconnected, (reason: never) => {
+        this.session = null
+        this.avatarSpeaking = false
+        if (String(reason) === CLIENT_INITIATED) {
+          this.emitState('stopped')
+        } else {
+          this.emit('error', { code: 'disconnected', message: 'provider_disconnected' })
         }
-        this.emit('transcript', entry)
+      })
 
-        // Completion detection: check avatar speech against the project-language phrases
-        if (this.phrases && matchesEndPhrase(text, this.phrases)) {
+      // ── Turn-taking and barge-in ────────────────────────────────────────────
+      // The candidate talking over the avatar must cut the avatar off, the way a
+      // person would stop when interrupted. Server-side VAD also handles this in
+      // CONVERSATIONAL mode, so a throwing interrupt() is not fatal.
+      session.on(SDK_EVENT.userSpeakStarted, () => {
+        this.emitState('listening')
+        if (!this.avatarSpeaking) return
+        this.avatarSpeaking = false
+        try {
+          session.interrupt()
+        } catch {
+          /* server VAD covers barge-in in CONVERSATIONAL mode */
+        }
+      })
+
+      session.on(SDK_EVENT.avatarSpeakStarted, () => {
+        this.avatarSpeaking = true
+        this.emitState('speaking')
+      })
+
+      session.on(SDK_EVENT.avatarSpeakEnded, () => {
+        this.avatarSpeaking = false
+        this.emitState('ready')
+        // The closing phrase has now been spoken in full → the question is done.
+        if (this.pendingComplete) {
+          this.pendingComplete = false
           this.emitState('complete')
         }
       })
 
-      this.session.on('user.transcription', (data) => {
-        const text = String(data?.['text'] ?? '')
+      // ── Transcripts ─────────────────────────────────────────────────────────
+      // Only the final *_TRANSCRIPTION events; the *_CHUNK variants would persist
+      // duplicate partials.
+      session.on(SDK_EVENT.avatarTranscription, (data: never) => {
+        const text = String((data as { text?: unknown })?.text ?? '')
 
-        const entry: TranscriptEntry = {
-          role: 'user',
-          text,
-          ts: Date.now(),
+        this.emit('transcript', { role: 'avatar', text, ts: Date.now() } satisfies TranscriptEntry)
+
+        // Completion detection: the avatar marks a question done by SPEAKING the
+        // configured phrase. Defer to AVATAR_SPEAK_ENDED if it is still mid-sentence.
+        if (this.phrases && matchesEndPhrase(text, this.phrases)) {
+          if (this.avatarSpeaking) this.pendingComplete = true
+          else this.emitState('complete')
         }
-        this.emit('transcript', entry)
       })
 
-      // Start the LiveAvatar session (connects to HeyGen via LiveKit/WebRTC)
-      await this.session.start()
+      session.on(SDK_EVENT.userTranscription, (data: never) => {
+        const text = String((data as { text?: unknown })?.text ?? '')
 
-      // Attach the media stream to the provided mount element
-      if (mountEl instanceof HTMLMediaElement) {
-        this.session.attach(mountEl)
-      }
+        this.emit('transcript', { role: 'user', text, ts: Date.now() } satisfies TranscriptEntry)
+      })
 
+      // Start the LiveAvatar session (connects to HeyGen via LiveKit/WebRTC and,
+      // because sessionConfig.voiceChat is set, publishes the candidate's mic).
+      await session.start()
+
+      // Emitted unconditionally rather than left to SESSION_STREAM_READY alone: the
+      // session machine leaves its loading skeleton on 'ready'/'listening', and a
+      // stream-ready event that never arrives would strand the candidate there.
       this.emitState('ready')
       this.emitState('listening')
-
-      // Start listening so the candidate can speak
-      this.session.startListening()
 
       return {}
     } catch {
@@ -179,14 +306,25 @@ export class HeyGenProvider implements InterviewProvider {
     }
   }
 
+  /**
+   * Mute/unmute the always-on conversational microphone.
+   *
+   * Reads `voiceChat.isMuted` rather than a provider-local mirror: anything that
+   * mutes the track out-of-band (SDK-side mute, device loss) would desynchronise a
+   * local boolean, and the button would then do the opposite of its label.
+   */
   async toggleMic(): Promise<void> {
-    if (!this.session) return
-    this.micMuted = !this.micMuted
-    if (this.micMuted) {
-      this.session.stopListening()
-    } else {
-      this.session.startListening()
-    }
+    const voiceChat = this.session?.voiceChat
+    if (!voiceChat) return
+    await this.setMicMuted(!voiceChat.isMuted)
+  }
+
+  async setMicMuted(muted: boolean): Promise<void> {
+    const voiceChat = this.session?.voiceChat
+    if (!voiceChat) return
+    if (voiceChat.isMuted === muted) return
+    if (muted) await voiceChat.mute()
+    else await voiceChat.unmute()
   }
 
   async stop(): Promise<void> {

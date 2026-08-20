@@ -513,7 +513,21 @@ export function useProctor(options: UseProctorOptions = {}): UseProctorReturn {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     ctx.drawImage(selfView, 0, 0)
-    const jpeg = canvas.toDataURL('image/jpeg', 0.7)
+
+    // toDataURL returns "data:image/jpeg;base64,<payload>"; the endpoint's
+    // `image_base64` field wants the PAYLOAD ONLY.
+    //
+    // Sending the whole data URL produced a hard 422 on every snapshot in
+    // production ("Image must be a JPEG (invalid magic bytes)"), and the failure
+    // mode is worth spelling out because it is not the obvious one: the server
+    // decodes with strict:false, and every character of "dataimagejpegbase64" is
+    // itself in the base64 alphabet. So the decode did not reject the prefix — it
+    // consumed it, shifting the payload out of alignment, and the resulting bytes
+    // no longer started with FF D8 FF. A stricter decoder would have failed
+    // loudly on the ':' and ';' instead.
+    const imageBase64 = canvas.toDataURL('image/jpeg', 0.7).split(',')[1] ?? ''
+    if (!imageBase64) return
+
     // Best-effort POST to /snapshot; errors are silent. Routed through the
     // single authenticated transport (D-B) — this was previously a raw
     // `fetch()` call that escaped the candidate-fetch guard.
@@ -521,7 +535,7 @@ export function useProctor(options: UseProctorOptions = {}): UseProctorReturn {
       method: 'POST',
       body: {
         session_id: snapshotSessionId,
-        image_base64: jpeg,
+        image_base64: imageBase64,
         ts: new Date().toISOString(),
       },
       keepalive: true,
