@@ -20,10 +20,15 @@ const forwardedProps = useForwardProps(delegatedProps)
     v-bind="forwardedProps"
     :class="
       cn(
-        // D8/§16 rule 10 — upstream ships `focus:bg-accent`, which resolves to
-        // --color-accent (3.7:1, fails WCAG AA). Repointed to --color-accent-dark
-        // (main.css:41) at scaffold time so the highlighted option stays AA-compliant.
-        'focus:bg-accent-dark focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm [&_svg:not([class*=size-])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2 relative flex w-full cursor-default items-center outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0',
+        // D8/§16 rule 10 — upstream ships the un-suffixed accent background paired
+        // with the near-black foreground token, which resolves to --color-accent
+        // (3.7:1, fails WCAG AA). Repointed to --color-accent-dark (main.css:41)
+        // AND white text (5.4:1, AA-compliant) — both halves of the pair must
+        // change together, matching backoffice/app/components/ui/select/SelectItem.vue
+        // exactly. Reka-ui drives `data-highlighted` from the same native
+        // focus/blur state as `:focus`, so `focus:` alone covers the highlighted
+        // state; see DESIGN.md:702,913-917.
+        'focus:bg-accent-dark focus:text-white not-data-[variant=destructive]:focus:**:text-white gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm [&_svg:not([class*=size-])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2 relative flex w-full cursor-default items-center outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0',
         props.class
       )
     "
