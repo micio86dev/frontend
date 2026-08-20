@@ -41,7 +41,6 @@
     },
     "live": {
       "timer_label": "Time remaining",
-      "skip": "Skip question",
       "pause": "Pause"
     },
     "end_of_question": {
@@ -92,6 +91,11 @@
         "3": "You can pause between questions, but you cannot go back to an answer you have already given.",
         "4": "There is nothing to do at the end: the result is sent automatically to whoever invited you."
       }
+    },
+    "scheduled_pause": {
+      "title": "Break",
+      "body": "Take a moment. Resume the interview whenever you are ready.",
+      "resume": "Resume interview"
     }
   },
   "analytics_consent": {
