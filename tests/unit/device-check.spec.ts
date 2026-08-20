@@ -18,23 +18,32 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { ref, nextTick, type Ref } from 'vue'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { DeviceCheckError, DeviceSelection } from '~/app/composables/useDeviceCheck'
+import type { MediaDeviceOption } from '~/app/composables/useMediaDeviceList'
+import { Select } from '~/app/components/ui/select'
 
 // ---------------------------------------------------------------------------
-// Hoisted composable mock
+// Hoisted composable mocks
 // ---------------------------------------------------------------------------
 
-const { mockUseDeviceCheck } = vi.hoisted(() => ({ mockUseDeviceCheck: vi.fn() }))
+const { mockUseDeviceCheck, mockUseMediaDeviceList } = vi.hoisted(() => ({
+  mockUseDeviceCheck: vi.fn(),
+  mockUseMediaDeviceList: vi.fn(),
+}))
 
 vi.mock('~/composables/useDeviceCheck', () => ({
   useDeviceCheck: mockUseDeviceCheck,
   // Real constant, not a mock: the meter's threshold marker reads it directly
   // from the composable module (same value the composable gates on).
   MIC_SPEAK_THRESHOLD: 0.04,
+}))
+
+vi.mock('~/composables/useMediaDeviceList', () => ({
+  useMediaDeviceList: mockUseMediaDeviceList,
 }))
 
 // ---------------------------------------------------------------------------
@@ -78,17 +87,48 @@ function makeDeviceCheck(overrides: Partial<MockDeviceCheck> = {}): MockDeviceCh
   }
 }
 
+interface MockMediaDeviceList {
+  cameras: Ref<MediaDeviceOption[]>
+  microphones: Ref<MediaDeviceOption[]>
+  preferredCameraId: Ref<string | null>
+  preferredMicId: Ref<string | null>
+  refresh: ReturnType<typeof vi.fn>
+  validatePreferences: ReturnType<typeof vi.fn>
+  persist: ReturnType<typeof vi.fn>
+  start: ReturnType<typeof vi.fn>
+  stop: ReturnType<typeof vi.fn>
+}
+
+function makeMediaDeviceList(overrides: Partial<MockMediaDeviceList> = {}): MockMediaDeviceList {
+  return {
+    cameras: ref([]),
+    microphones: ref([]),
+    preferredCameraId: ref(null),
+    preferredMicId: ref(null),
+    refresh: vi.fn().mockResolvedValue(undefined),
+    validatePreferences: vi.fn().mockReturnValue({ cameraId: null, micId: null }),
+    persist: vi.fn(),
+    start: vi.fn(),
+    stop: vi.fn(),
+    ...overrides,
+  }
+}
+
 function globalConfig() {
   return {
     mocks: { $t: (key: string) => key },
   }
 }
 
-async function mountComponent(deviceCheck: MockDeviceCheck) {
+async function mountComponent(
+  deviceCheck: MockDeviceCheck,
+  mediaDeviceList: MockMediaDeviceList = makeMediaDeviceList()
+) {
   mockUseDeviceCheck.mockReturnValue(deviceCheck)
+  mockUseMediaDeviceList.mockReturnValue(mediaDeviceList)
   const { default: DeviceCheck } = await import('~/app/components/DeviceCheck.client.vue')
   const wrapper = mount(DeviceCheck, { global: globalConfig() })
-  await nextTick()
+  await flushPromises()
   return wrapper
 }
 
@@ -279,6 +319,176 @@ describe('DeviceCheck.client.vue — Retry control', () => {
     const wrapper = await mountComponent(dc)
     const alert = wrapper.get('[data-testid="recovery-alert"]')
     expect(alert.text()).toContain('interview.device_check.recovery_instructions')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Slice 6 (Task 6.4) — device pickers wired to useMediaDeviceList +
+// useDeviceCheck.switchCamera/switchMicrophone. Reka-ui's SelectContent is
+// Teleport-rendered only while open, so these tests assert the WIRING via the
+// non-portalled Select root component (model-value binding, disabled state,
+// update:model-value -> switch call) rather than the portalled dropdown
+// items — actual dropdown interaction is Playwright's job (task 6.1-6.3).
+// ---------------------------------------------------------------------------
+
+describe('DeviceCheck.client.vue — mount-time orchestration (D4 data flow)', () => {
+  it('refreshes (pre-flight), validates preferences, then checks with the validated selection', async () => {
+    const callOrder: string[] = []
+    const mdl = makeMediaDeviceList({
+      refresh: vi.fn(() => {
+        callOrder.push('refresh')
+        return Promise.resolve()
+      }),
+      validatePreferences: vi.fn(() => {
+        callOrder.push('validatePreferences')
+        return { cameraId: 'cam-9', micId: 'mic-9' }
+      }),
+    })
+    const dc = makeDeviceCheck({
+      check: vi.fn((sel?: DeviceSelection) => {
+        callOrder.push(`check:${JSON.stringify(sel)}`)
+        return Promise.resolve()
+      }),
+    })
+
+    await mountComponent(dc, mdl)
+
+    // refresh() runs twice — pre-flight (ids only) and post-grant (labels,
+    // D4 data flow) — with validatePreferences()/check() sandwiched between
+    // the two.
+    expect(callOrder).toEqual([
+      'refresh',
+      'validatePreferences',
+      `check:${JSON.stringify({ cameraId: 'cam-9', micId: 'mic-9' })}`,
+      'refresh',
+    ])
+  })
+
+  it('on a successful acquisition, persists the reconciled activeSelection and starts the devicechange subscription', async () => {
+    const mdl = makeMediaDeviceList()
+    const dc = makeDeviceCheck({
+      cameraOk: ref(true),
+      error: ref(null),
+      activeSelection: ref({ cameraId: 'cam-actual', micId: 'mic-actual' }),
+    })
+
+    await mountComponent(dc, mdl)
+
+    expect(mdl.persist).toHaveBeenCalledWith({ cameraId: 'cam-actual', micId: 'mic-actual' })
+    expect(mdl.start).toHaveBeenCalledOnce()
+  })
+
+  it('does NOT persist when the acquisition failed (nothing real to reconcile to)', async () => {
+    const mdl = makeMediaDeviceList()
+    const dc = makeDeviceCheck({ cameraOk: ref(false), error: ref('not_found') })
+
+    await mountComponent(dc, mdl)
+
+    expect(mdl.persist).not.toHaveBeenCalled()
+  })
+
+  it('stops the devicechange subscription on unmount', async () => {
+    const mdl = makeMediaDeviceList()
+    const wrapper = await mountComponent(makeDeviceCheck(), mdl)
+
+    wrapper.unmount()
+
+    expect(mdl.stop).toHaveBeenCalledOnce()
+  })
+})
+
+describe('DeviceCheck.client.vue — device pickers (D11 item 2)', () => {
+  it('renders two Select pickers bound to the composable-reported active selection', async () => {
+    const dc = makeDeviceCheck({
+      cameraOk: ref(true),
+      activeSelection: ref({ cameraId: 'cam-1', micId: 'mic-1' }),
+    })
+    const wrapper = await mountComponent(dc)
+
+    const selects = wrapper.findAllComponents(Select)
+    expect(selects).toHaveLength(2)
+    expect(selects[0]!.props('modelValue')).toBe('cam-1')
+    expect(selects[1]!.props('modelValue')).toBe('mic-1')
+  })
+
+  it('picking a camera calls switchCamera with the selected deviceId', async () => {
+    const mdl = makeMediaDeviceList({
+      cameras: ref([
+        { deviceId: 'cam-1', label: 'Cam 1', isFallbackLabel: false },
+        { deviceId: 'cam-2', label: 'Cam 2', isFallbackLabel: false },
+      ]),
+    })
+    const dc = makeDeviceCheck({ cameraOk: ref(true) })
+    const wrapper = await mountComponent(dc, mdl)
+
+    const cameraSelect = wrapper.findAllComponents(Select)[0]!
+    await cameraSelect.vm.$emit('update:modelValue', 'cam-2')
+
+    expect(dc.switchCamera).toHaveBeenCalledWith('cam-2')
+    expect(dc.switchMicrophone).not.toHaveBeenCalled()
+  })
+
+  it('picking a microphone calls switchMicrophone with the selected deviceId', async () => {
+    const mdl = makeMediaDeviceList({
+      microphones: ref([{ deviceId: 'mic-2', label: 'Mic 2', isFallbackLabel: false }]),
+    })
+    const dc = makeDeviceCheck({ cameraOk: ref(true) })
+    const wrapper = await mountComponent(dc, mdl)
+
+    const micSelect = wrapper.findAllComponents(Select)[1]!
+    await micSelect.vm.$emit('update:modelValue', 'mic-2')
+
+    expect(dc.switchMicrophone).toHaveBeenCalledWith('mic-2')
+    expect(dc.switchCamera).not.toHaveBeenCalled()
+  })
+
+  it('a successful switch persists the reconciled activeSelection', async () => {
+    const mdl = makeMediaDeviceList()
+    const activeSelection = ref<DeviceSelection>({ cameraId: 'cam-1', micId: 'mic-1' })
+    const dc = makeDeviceCheck({
+      cameraOk: ref(true),
+      activeSelection,
+      switchCamera: vi.fn(async (id: string) => {
+        activeSelection.value = { cameraId: id, micId: 'mic-1' }
+      }),
+    })
+    const wrapper = await mountComponent(dc, mdl)
+    mdl.persist.mockClear() // clear the mount-time persist() call
+
+    const cameraSelect = wrapper.findAllComponents(Select)[0]!
+    await cameraSelect.vm.$emit('update:modelValue', 'cam-2')
+    await flushPromises()
+
+    expect(mdl.persist).toHaveBeenCalledWith({ cameraId: 'cam-2', micId: 'mic-1' })
+  })
+
+  it('both pickers are disabled while a switch is in flight', async () => {
+    const dc = makeDeviceCheck({ cameraOk: ref(true), switching: ref(true) })
+    const wrapper = await mountComponent(dc)
+
+    const selects = wrapper.findAllComponents(Select)
+    expect(selects[0]!.props('disabled')).toBe(true)
+    expect(selects[1]!.props('disabled')).toBe(true)
+  })
+
+  it('both pickers are permanently disabled once Continue has been pressed (A7)', async () => {
+    const stream = new MediaStream()
+    const dc = makeDeviceCheck({
+      cameraOk: ref(true),
+      micOk: ref(true),
+      switching: ref(false),
+      stream: ref(stream),
+    })
+    const wrapper = await mountComponent(dc)
+
+    let selects = wrapper.findAllComponents(Select)
+    expect(selects[0]!.props('disabled')).toBe(false)
+
+    await wrapper.get('[data-testid="continue-button"]').trigger('click')
+
+    selects = wrapper.findAllComponents(Select)
+    expect(selects[0]!.props('disabled')).toBe(true)
+    expect(selects[1]!.props('disabled')).toBe(true)
   })
 })
 

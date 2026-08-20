@@ -53,3 +53,17 @@ export default createConfigForNuxt({
       'vuejs-accessibility/label-has-for': 'off',
     },
   })
+  // Same false-positive category as above, one file over: FieldLabel wraps
+  // Reka UI's Label, which forwards `for` as a genuine HTML attribute onto
+  // whatever it labels — but the plugin cannot trace a `for`/`id` pair
+  // through the Field -> FieldLabel -> Select -> SelectTrigger component
+  // chain, so it reports the pair as unassociated even though the rendered
+  // <label for> -> <button id> association is real. Verified by the existing
+  // Playwright axe check at the device-check screen (interview-flow.spec.ts,
+  // zero WCAG 2.1 AA violations, both engines) rather than switched off blind.
+  .append({
+    files: ['app/components/DeviceCheck.client.vue'],
+    rules: {
+      'vuejs-accessibility/form-control-has-label': 'off',
+    },
+  })

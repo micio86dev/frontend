@@ -45,6 +45,11 @@ const REQUIRED_KEYS = [
   'interview.device_check.recovery_title',
   'interview.device_check.recovery_instructions',
   'interview.device_check.retry',
+  // Slice 6 — device picker labels + numbered fallback names (D11 item 2).
+  'interview.device_check.camera_picker_label',
+  'interview.device_check.mic_picker_label',
+  'interview.device_check.camera_fallback',
+  'interview.device_check.mic_fallback',
   'interview.live.timer_label',
   'interview.live.skip',
   'interview.live.pause',

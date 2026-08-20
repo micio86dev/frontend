@@ -33,6 +33,74 @@
     </div>
     <FieldDescription>{{ $t('interview.device_check.camera_instruction') }}</FieldDescription>
 
+    <!-- Camera + microphone pickers (D11 item 2). 44px trigger (--spacing-control),
+         border-input (§16 rule 8, applies here per D8). Disabled while a switch is
+         in flight or permanently after Continue (A7). Blank platform labels fall
+         back to a numbered "Camera N" / "Microphone N" name. -->
+    <Field>
+      <FieldLabel for="device-check-camera-select">
+        {{ $t('interview.device_check.camera_picker_label') }}
+      </FieldLabel>
+      <Select
+        :model-value="deviceCheck.activeSelection.value.cameraId ?? undefined"
+        :disabled="pickersDisabled"
+        @update:model-value="onCameraChange"
+      >
+        <SelectTrigger
+          id="device-check-camera-select"
+          data-testid="camera-select-trigger"
+          class="h-(--spacing-control) w-full"
+        >
+          <SelectValue :placeholder="$t('interview.device_check.camera_picker_label')" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem
+            v-for="(camera, index) in mediaDeviceList.cameras.value"
+            :key="camera.deviceId"
+            :value="camera.deviceId"
+          >
+            {{
+              camera.isFallbackLabel
+                ? $t('interview.device_check.camera_fallback', { n: index + 1 })
+                : camera.label
+            }}
+          </SelectItem>
+        </SelectContent>
+      </Select>
+    </Field>
+
+    <Field>
+      <FieldLabel for="device-check-mic-select">
+        {{ $t('interview.device_check.mic_picker_label') }}
+      </FieldLabel>
+      <Select
+        :model-value="deviceCheck.activeSelection.value.micId ?? undefined"
+        :disabled="pickersDisabled"
+        @update:model-value="onMicChange"
+      >
+        <SelectTrigger
+          id="device-check-mic-select"
+          data-testid="mic-select-trigger"
+          class="h-(--spacing-control) w-full"
+        >
+          <SelectValue :placeholder="$t('interview.device_check.mic_picker_label')" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem
+            v-for="(mic, index) in mediaDeviceList.microphones.value"
+            :key="mic.deviceId"
+            :value="mic.deviceId"
+          >
+            {{
+              mic.isFallbackLabel
+                ? $t('interview.device_check.mic_fallback', { n: index + 1 })
+                : mic.label
+            }}
+          </SelectItem>
+        </SelectContent>
+      </Select>
+    </Field>
+
     <!-- Status rows — indicator dots are decorative (aria-hidden); the adjacent
          text carries the semantics. Today each state was announced twice
          (role=status + aria-label on the dot AND the visible text row). -->
@@ -101,7 +169,13 @@
          Retry. No failure state on this screen may be terminal. -->
     <Alert v-if="showRecovery" variant="destructive" data-testid="recovery-alert">
       <AlertTitle>{{ $t('interview.device_check.recovery_title') }}</AlertTitle>
-      <AlertDescription>
+      <!-- The vendored destructive variant sets *:data-[slot=alert-description]:text-destructive/90
+           on the Alert root, but AlertDescription also hardcodes text-muted-foreground on
+           itself; both are single-class-selector specificity, so which one wins depends on
+           Tailwind's generated CSS order rather than markup nesting — an axe-caught AA
+           contrast failure. Passing the same color explicitly here lets tailwind-merge (used
+           inside AlertDescription's own cn()) deterministically drop text-muted-foreground. -->
+      <AlertDescription class="text-destructive/90">
         {{ recoveryMessage }}
       </AlertDescription>
     </Alert>
@@ -110,9 +184,15 @@
     </Button>
 
     <!-- Continue — the mic gate is deliberately hard (D6): a spoken assessment
-         with a dead microphone is unusable. -->
+         with a dead microphone is unusable. disabled:opacity-90 overrides the
+         vendored default's disabled:opacity-50: WCAG 1.4.3 exempts inactive
+         controls from the contrast minimum, but this button is disabled by
+         DEFAULT on first paint (before the mic has had a chance to pass) and
+         axe scans this screen in that exact state — so it must independently
+         hold >=4.5:1 rather than rely on the exemption. -->
     <Button
       data-testid="continue-button"
+      class="disabled:opacity-90"
       :disabled="!deviceCheck.cameraOk.value || !deviceCheck.micOk.value"
       @click="handleContinue"
     >
@@ -137,13 +217,21 @@
  *
  * .client.vue enforces SSR isolation — this component is never server-rendered.
  */
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useDeviceCheck, MIC_SPEAK_THRESHOLD } from '~/composables/useDeviceCheck'
+import { useMediaDeviceList } from '~/composables/useMediaDeviceList'
 import { Alert, AlertTitle, AlertDescription } from '~/components/ui/alert'
 import { Button } from '~/components/ui/button'
 import { Skeleton } from '~/components/ui/skeleton'
 import { Progress } from '~/components/ui/progress'
-import { FieldDescription } from '~/components/ui/field'
+import { Field, FieldLabel, FieldDescription } from '~/components/ui/field'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '~/components/ui/select'
 
 const emit = defineEmits<{
   confirmed: [stream: MediaStream]
@@ -163,7 +251,23 @@ const MIC_METER_DISPLAY_CEILING = 0.35
 
 const previewEl = ref<HTMLVideoElement | null>(null)
 const deviceCheck = useDeviceCheck()
+const mediaDeviceList = useMediaDeviceList()
 const checked = ref(false)
+const confirmed = ref(false)
+
+// Pickers disable while a switch is in flight, and PERMANENTLY once the
+// candidate has continued (A7) — no switch may follow the handoff.
+const pickersDisabled = computed(() => deviceCheck.switching.value || confirmed.value)
+
+// Keeps the preview <video> element's srcObject in sync with whatever stream
+// the composable currently owns — the initial check(), a Retry, and every
+// device switch all flow through this single reactive assignment.
+watch(
+  () => deviceCheck.stream.value,
+  (stream) => {
+    if (previewEl.value) previewEl.value.srcObject = stream
+  }
+)
 
 const micMeterPercent = computed(() =>
   Math.min(100, Math.round((deviceCheck.micLevel.value / MIC_METER_DISPLAY_CEILING) * 100))
@@ -197,14 +301,27 @@ const recoveryMessage = computed(() =>
     : t('interview.device_check.recovery_instructions')
 )
 
-onMounted(async () => {
-  await deviceCheck.check()
+/**
+ * D4 data flow: pre-flight enumerate (ids only, labels may be blank) ->
+ * validate the stored cookie preference against it (drops a stale id, the
+ * PRIMARY fallback mechanism) -> check() with the surviving pins -> on
+ * success, reconcile the cookie to what was ACTUALLY obtained -> post-grant
+ * enumerate (labels now populated) -> subscribe to devicechange.
+ */
+async function runInitialCheck(): Promise<void> {
+  await mediaDeviceList.refresh()
+  const preferred = mediaDeviceList.validatePreferences()
+  await deviceCheck.check(preferred)
   checked.value = true
 
-  if (deviceCheck.stream.value && previewEl.value) {
-    previewEl.value.srcObject = deviceCheck.stream.value
+  if (deviceCheck.cameraOk.value && deviceCheck.error.value === null) {
+    mediaDeviceList.persist(deviceCheck.activeSelection.value)
   }
-})
+  await mediaDeviceList.refresh()
+  mediaDeviceList.start()
+}
+
+onMounted(runInitialCheck)
 
 // Stream lifecycle: on confirmation the stream is handed to ProctorOverlay and managed
 // there (spec.md clause (d), single getUserMedia before confirmation). If this
@@ -215,6 +332,7 @@ let handedOff = false
 function handleContinue(): void {
   if (deviceCheck.stream.value) {
     handedOff = true
+    confirmed.value = true
     emit('confirmed', deviceCheck.stream.value)
   }
 }
@@ -222,15 +340,31 @@ function handleContinue(): void {
 async function handleRetry(): Promise<void> {
   deviceCheck.release()
   checked.value = false
-  await deviceCheck.check()
-  checked.value = true
+  await runInitialCheck()
+}
 
-  if (deviceCheck.stream.value && previewEl.value) {
-    previewEl.value.srcObject = deviceCheck.stream.value
+async function onCameraChange(deviceId: unknown): Promise<void> {
+  if (typeof deviceId !== 'string') return
+  await deviceCheck.switchCamera(deviceId)
+  reconcileAfterSwitch()
+}
+
+async function onMicChange(deviceId: unknown): Promise<void> {
+  if (typeof deviceId !== 'string') return
+  await deviceCheck.switchMicrophone(deviceId)
+  reconcileAfterSwitch()
+}
+
+/** Rewrites the cookie to whatever was ACTUALLY obtained by the switch — the
+ * same D4 step 4 reconciliation the initial check() performs. */
+function reconcileAfterSwitch(): void {
+  if (deviceCheck.error.value === null) {
+    mediaDeviceList.persist(deviceCheck.activeSelection.value)
   }
 }
 
 onUnmounted(() => {
+  mediaDeviceList.stop()
   if (handedOff) {
     // Mic RMS polling is this component's concern only; the stream is not ours to stop.
     deviceCheck.stopMicSampling()

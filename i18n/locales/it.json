@@ -33,7 +33,11 @@
       "mic_unavailable": "Non rileviamo alcun microfono. Verifica che sia collegato, quindi seleziona Riprova.",
       "recovery_title": "Autorizzazione necessaria",
       "recovery_instructions": "Seleziona l'icona della fotocamera nella barra degli indirizzi del browser, consenti l'accesso a fotocamera e microfono per questa pagina, quindi seleziona Riprova.",
-      "retry": "Riprova"
+      "retry": "Riprova",
+      "camera_picker_label": "Fotocamera",
+      "mic_picker_label": "Microfono",
+      "camera_fallback": "Fotocamera {n}",
+      "mic_fallback": "Microfono {n}"
     },
     "live": {
       "timer_label": "Tempo rimanente",

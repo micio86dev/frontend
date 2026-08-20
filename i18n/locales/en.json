@@ -33,7 +33,11 @@
       "mic_unavailable": "We can't detect a microphone. Check that one is connected, then choose Retry.",
       "recovery_title": "Permission needed",
       "recovery_instructions": "Select the camera icon in your browser's address bar, allow camera and microphone for this page, then choose Retry.",
-      "retry": "Retry"
+      "retry": "Retry",
+      "camera_picker_label": "Camera",
+      "mic_picker_label": "Microphone",
+      "camera_fallback": "Camera {n}",
+      "mic_fallback": "Microphone {n}"
     },
     "live": {
       "timer_label": "Time remaining",

@@ -351,6 +351,32 @@ test.describe('Interview flow — E2E', () => {
             },
           },
         })
+
+        // Mock AudioContext too — this fixture was missing it (a latent gap:
+        // the REAL AudioContext.createMediaStreamSource() rejects a
+        // duck-typed fakeStream that is not an actual MediaStream instance,
+        // which the pre-Slice-5 component silently absorbed via its bare
+        // catch{} with no visible consequence. Slice 5's micUnavailable
+        // recovery Alert made that same failure user-visible, surfacing this
+        // fixture gap via axe — buffer filled with 148 → RMS ≈ 0.156, above
+        // MIC_SPEAK_THRESHOLD (0.04), so the mic genuinely passes here,
+        // matching this describe block's "Happy path" intent.
+        const fakeBuffer = new Uint8Array(128).fill(148)
+        const fakeAnalyser = {
+          fftSize: 256,
+          frequencyBinCount: 128,
+          getByteTimeDomainData: (buf: Uint8Array) => {
+            for (let i = 0; i < buf.length; i++) buf[i] = fakeBuffer[i] ?? 148
+          },
+        }
+        ;(window as Record<string, unknown>).AudioContext = class {
+          createAnalyser() {
+            return fakeAnalyser
+          }
+          createMediaStreamSource() {
+            return { connect: () => {} }
+          }
+        }
       })
     })
 
@@ -738,6 +764,289 @@ test.describe('Interview flow — E2E', () => {
 
       sendBeaconCalls.push(...storedCalls)
       expect(sendBeaconCalls).toEqual([])
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Slice 6 (Tasks 6.1-6.3) — device switching, cookie fallback, denied-permission
+  // recovery. These scenarios land in the slice that BUILDS the behaviour (D9
+  // correction to the proposal) — they must not arrive already green.
+  // ---------------------------------------------------------------------------
+
+  test.describe('Device switching, cookie fallback, denied-permission recovery (D3/D4/D6, Slice 6)', () => {
+    const DEFAULT_CAM = { deviceId: 'cam-default', label: 'Default Camera' }
+    const ALT_CAM = { deviceId: 'cam-alt', label: 'Alt Camera' }
+    const DEFAULT_MIC = { deviceId: 'mic-default', label: 'Default Microphone' }
+
+    // A getUserMedia mock that inspects the requested deviceId (if any) and
+    // returns a stream whose video track's `label` identifies which camera was
+    // actually acquired — the E2E-observable signal these tests assert on.
+    // AudioContext returns a constant above-threshold RMS so the mic gate
+    // passes immediately, isolating these scenarios to the camera/permission
+    // behaviour under test.
+    async function injectSwitchableDeviceMocks(
+      page: Parameters<typeof test>[0] extends { page: infer P } ? P : never
+    ) {
+      // addInitScript's page function accepts exactly ONE serialized arg — cams
+      // and mic must travel together in a single object, not as two positional
+      // parameters (a second positional param silently binds to `undefined`).
+      await page.addInitScript(
+        ({
+          cams,
+          mic,
+        }: {
+          cams: { deviceId: string; label: string }[]
+          mic: { deviceId: string; label: string }
+        }) => {
+          function makeStream(camLabel: string) {
+            return {
+              getTracks: () => [
+                { readyState: 'live', kind: 'video', stop: () => {}, label: camLabel },
+                { readyState: 'live', kind: 'audio', stop: () => {}, label: mic.label },
+              ],
+              getVideoTracks: () => [
+                {
+                  readyState: 'live',
+                  stop: () => {},
+                  label: camLabel,
+                  getSettings: () => ({
+                    deviceId: cams.find((c) => c.label === camLabel)?.deviceId ?? cams[0]!.deviceId,
+                    width: 1280,
+                    height: 720,
+                  }),
+                },
+              ],
+              getAudioTracks: () => [
+                {
+                  readyState: 'live',
+                  stop: () => {},
+                  label: mic.label,
+                  getSettings: () => ({ deviceId: mic.deviceId }),
+                },
+              ],
+            }
+          }
+
+          const deviceChangeListeners: Array<() => void> = []
+
+          Object.defineProperty(navigator, 'mediaDevices', {
+            writable: true,
+            configurable: true,
+            value: {
+              getUserMedia: async (constraints: MediaStreamConstraints) => {
+                const requestedId =
+                  typeof constraints.video === 'object' &&
+                  constraints.video &&
+                  'deviceId' in constraints.video
+                    ? ((constraints.video as { deviceId?: { exact?: string } }).deviceId?.exact ??
+                      null)
+                    : null
+                const cam = cams.find((c) => c.deviceId === requestedId) ?? cams[0]!
+                return makeStream(cam.label)
+              },
+              enumerateDevices: async () => [
+                ...cams.map((c) => ({
+                  deviceId: c.deviceId,
+                  kind: 'videoinput',
+                  label: c.label,
+                  groupId: `g-${c.deviceId}`,
+                })),
+                { deviceId: mic.deviceId, kind: 'audioinput', label: mic.label, groupId: 'g-mic' },
+              ],
+              addEventListener: (type: string, cb: () => void) => {
+                if (type === 'devicechange') deviceChangeListeners.push(cb)
+              },
+              removeEventListener: (type: string, cb: () => void) => {
+                if (type !== 'devicechange') return
+                const idx = deviceChangeListeners.indexOf(cb)
+                if (idx !== -1) deviceChangeListeners.splice(idx, 1)
+              },
+            },
+          })
+
+          const fakeBuffer = new Uint8Array(128).fill(200) // RMS ~0.5625, above threshold
+          const fakeAnalyser = {
+            fftSize: 256,
+            frequencyBinCount: 128,
+            getByteTimeDomainData: (buf: Uint8Array) => {
+              for (let i = 0; i < buf.length; i++) buf[i] = fakeBuffer[i] ?? 200
+            },
+          }
+          ;(window as Record<string, unknown>).AudioContext = class {
+            createAnalyser() {
+              return fakeAnalyser
+            }
+            createMediaStreamSource() {
+              return { connect: () => {} }
+            }
+          }
+        },
+        { cams: [DEFAULT_CAM, ALT_CAM], mic: DEFAULT_MIC }
+      )
+    }
+
+    // Reads the picker's DISPLAYED value (SelectValue), not video.srcObject:
+    // real Chromium's HTMLMediaElement.srcObject setter requires an actual
+    // MediaStream instance and silently rejects a duck-typed mock object, so
+    // the video element itself is not an observable signal here. The picker's
+    // rendered text is exactly what a candidate perceives, and is driven by
+    // the SAME deviceCheck.activeSelection the switch reconciles.
+    async function getActiveCameraLabel(
+      page: Parameters<typeof test>[0] extends { page: infer P } ? P : never
+    ): Promise<string> {
+      const text = await page.getByRole('combobox', { name: /camera/i }).textContent()
+      return (text ?? '').trim()
+    }
+
+    test('switching the camera mid-check hands the SWITCHED stream to the interview on continue', async ({
+      page,
+    }) => {
+      await mockInterviewRoutes(page)
+      await injectSwitchableDeviceMocks(page)
+      await page.goto(EN_INTERVIEW_URL)
+
+      await page.getByRole('button', { name: /accept and continue/i }).click()
+      const cameraPicker = page.getByRole('combobox', { name: /camera/i })
+      await expect(cameraPicker).toBeVisible()
+
+      // Starts on the default camera.
+      await expect.poll(() => getActiveCameraLabel(page)).toBe(DEFAULT_CAM.label)
+
+      await cameraPicker.click()
+      await page.getByRole('option', { name: ALT_CAM.label }).click()
+
+      // The switch settles: the picker re-enables and the preview now carries
+      // the ALT camera's track — release-before-replace, never two live streams.
+      await expect(cameraPicker).toBeEnabled()
+      await expect.poll(() => getActiveCameraLabel(page)).toBe(ALT_CAM.label)
+
+      const continueButton = page.getByRole('button', { name: /continue to interview/i })
+      await expect(continueButton).toBeEnabled({ timeout: 8000 })
+      await continueButton.click()
+
+      // Handoff succeeds with the switched stream: the interview proceeds past
+      // the device-check screen (no crash, no dead-end).
+      await expect(page.getByRole('heading', { level: 2, name: /device check/i })).toHaveCount(0)
+    })
+
+    test('a stale cookie device id falls back to the system default, and the preference is rewritten', async ({
+      page,
+    }) => {
+      await mockInterviewRoutes(page)
+      await injectSwitchableDeviceMocks(page)
+
+      // A cookie pointing at a camera id that no longer exists on this
+      // "machine" (D4 step 1 — the primary fallback mechanism).
+      await page.addInitScript(() => {
+        document.cookie = `beai_device_prefs=${encodeURIComponent(
+          JSON.stringify({ c: 'cam-unplugged-long-ago', m: 'mic-unplugged-long-ago' })
+        )}; path=/`
+      })
+
+      await page.goto(EN_INTERVIEW_URL)
+      await page.getByRole('button', { name: /accept and continue/i }).click()
+      await expect(page.getByRole('combobox', { name: /camera/i })).toBeVisible()
+
+      // Never dead-ends: the default device is acquired despite the stale ids.
+      await expect.poll(() => getActiveCameraLabel(page)).toBe(DEFAULT_CAM.label)
+      await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+        timeout: 8000,
+      })
+
+      // The cookie is rewritten to what was ACTUALLY obtained — never left
+      // pointing at devices that no longer exist.
+      //
+      // WebKit-only exception: the webServer here is plain HTTP
+      // (127.0.0.1:3000, playwright.config.ts). Chromium treats localhost/
+      // 127.0.0.1 as a "potentially trustworthy origin" and allows a
+      // `Secure`-flagged cookie to be set there anyway; WebKit does not
+      // extend that exception and silently refuses the rewrite (D4's
+      // `secure: true`, correct and required in production, which is always
+      // HTTPS — an NFR). The pre-set stale cookie this test wrote via plain
+      // `document.cookie` (no Secure flag) is unaffected by that and stays
+      // exactly as written, which is what this assertion would otherwise
+      // catch as a false failure. Every other assertion above (default
+      // device acquired, Continue enabled) still runs identically on WebKit.
+      if (test.info().project.name !== 'webkit') {
+        const cookieValue = await page.evaluate(() => {
+          const match = document.cookie.split('; ').find((c) => c.startsWith('beai_device_prefs='))
+          return match ? JSON.parse(decodeURIComponent(match.split('=')[1] ?? '')) : null
+        })
+        expect(cookieValue).toEqual({ c: DEFAULT_CAM.deviceId, m: DEFAULT_MIC.deviceId })
+      }
+    })
+
+    test('a denied permission shows browser-neutral recovery copy; Retry re-triggers the check and recovers', async ({
+      page,
+    }) => {
+      await mockInterviewRoutes(page)
+
+      await page.addInitScript(() => {
+        let attempt = 0
+        Object.defineProperty(navigator, 'mediaDevices', {
+          writable: true,
+          configurable: true,
+          value: {
+            getUserMedia: async () => {
+              attempt += 1
+              if (attempt === 1) {
+                const err = new DOMException('Permission denied', 'NotAllowedError')
+                throw err
+              }
+              const track = (kind: 'video' | 'audio') => ({
+                readyState: 'live',
+                kind,
+                stop: () => {},
+                label: `${kind}-recovered`,
+                getSettings: () => ({ deviceId: `${kind}-recovered`, width: 1280, height: 720 }),
+              })
+              const videoTrack = track('video')
+              const audioTrack = track('audio')
+              return {
+                getTracks: () => [videoTrack, audioTrack],
+                getVideoTracks: () => [videoTrack],
+                getAudioTracks: () => [audioTrack],
+              }
+            },
+            enumerateDevices: async () => [],
+            addEventListener: () => {},
+            removeEventListener: () => {},
+          },
+        })
+
+        const fakeBuffer = new Uint8Array(128).fill(200)
+        const fakeAnalyser = {
+          fftSize: 256,
+          frequencyBinCount: 128,
+          getByteTimeDomainData: (buf: Uint8Array) => {
+            for (let i = 0; i < buf.length; i++) buf[i] = fakeBuffer[i] ?? 200
+          },
+        }
+        ;(window as Record<string, unknown>).AudioContext = class {
+          createAnalyser() {
+            return fakeAnalyser
+          }
+          createMediaStreamSource() {
+            return { connect: () => {} }
+          }
+        }
+      })
+
+      await page.goto(EN_INTERVIEW_URL)
+      await page.getByRole('button', { name: /accept and continue/i }).click()
+
+      // The recovery Alert is shown — browser-neutral guidance (D7), no failure
+      // state on this screen is terminal.
+      await expect(page.getByText(/camera icon in your browser's address bar/i)).toBeVisible()
+      const retryButton = page.getByRole('button', { name: /retry/i })
+      await expect(retryButton).toBeVisible()
+
+      await retryButton.click()
+
+      // release() then check() re-runs getUserMedia — this time it succeeds.
+      await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+        timeout: 8000,
+      })
     })
   })
 })
