@@ -319,6 +319,54 @@ describe('interview/session.vue — timer expiry and skip', () => {
     expect(wrapper.findComponent({ name: 'InterviewTimer' }).props('seconds')).toBe(fullLimit)
   })
 
+  // D12 — the inter-competency gap.
+  //
+  // With the interstitial gone, `confirmDevices()` tears the provider down and
+  // rebuilds it while the candidate watches. A bare skeleton there reads as the
+  // avatar vanishing mid-conversation. The FIRST connect keeps the skeleton: it
+  // follows a device check the candidate just interacted with, which is a
+  // different expectation entirely.
+
+  it('shows the transition panel between competencies, not a bare skeleton', async () => {
+    const session = makeSession({ state: 'live' })
+    const wrapper = await mountPage(session)
+
+    // A competency has run: the provider was published at least once.
+    session.endedCompetencies.value = 1
+    session.totalCompetencies.value = 3
+    session.activeProvider.value = null
+    session.activeConfig.value = null
+    session.state.value = 'connecting'
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="transition-panel"]').exists()).toBe(true)
+  })
+
+  it('keeps the plain skeleton on the FIRST connect', async () => {
+    const session = makeSession({ state: 'connecting', provider: null })
+    const wrapper = await mountPage(session)
+
+    expect(wrapper.find('[data-testid="transition-panel"]').exists()).toBe(false)
+  })
+
+  it('the transition panel carries no control — it must never become a second interstitial', async () => {
+    const session = makeSession({ state: 'live' })
+    const wrapper = await mountPage(session)
+
+    session.endedCompetencies.value = 2
+    session.totalCompetencies.value = 5
+    session.activeProvider.value = null
+    session.activeConfig.value = null
+    session.state.value = 'connecting'
+    await nextTick()
+
+    const panel = wrapper.find('[data-testid="transition-panel"]')
+    expect(panel.exists()).toBe(true)
+    expect(panel.findAll('button')).toHaveLength(0)
+    expect(panel.attributes('aria-live')).toBe('polite')
+    expect(panel.attributes('aria-busy')).toBe('true')
+  })
+
   it('renders NO skip control — a competency must not be skippable', async () => {
     const session = makeSession({ state: 'live' })
     const wrapper = await mountPage(session)

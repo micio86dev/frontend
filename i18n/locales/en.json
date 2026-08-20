@@ -96,6 +96,10 @@
       "title": "Break",
       "body": "Take a moment. Resume the interview whenever you are ready.",
       "resume": "Resume interview"
+    },
+    "transition": {
+      "title": "One moment",
+      "body": "Preparing the next question."
     }
   },
   "analytics_consent": {

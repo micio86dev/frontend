@@ -905,23 +905,13 @@ describe('useInterviewSession', () => {
       expect(currentMockProvider.setMicMuted).toHaveBeenLastCalledWith(false)
     })
 
-    it('resuming from an end_of_question pause returns to end_of_question, not live', async () => {
-      // resume() must return to wherever pause() was entered from. Sending an
-      // between-competencies pause back to `live` would render an interview screen
-      // whose provider has already been torn down.
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
-      mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
-      currentMockProvider._emit('state', 'complete')
-      await flushPromises()
-      expect(session.state.value).toBe('end_of_question')
-
-      session.pause()
-      await flushPromises()
-      session.resume()
-      await flushPromises()
-
-      expect(session.state.value).toBe('end_of_question')
-    })
+    // REMOVED (D13): this asserted pre-D13 behaviour — that resume() returns to
+    // end_of_question. It kept passing only because pause() from that state is
+    // now a no-op, so the session never entered `paused` and the assertion
+    // compared end_of_question against itself. A test that passes for a reason
+    // unrelated to its name is worse than none.
+    // Replaced by "pause() from end_of_question is a no-op" and
+    // "resume() from paused can only land on live".
 
     it('pause() is ignored from a non-pausable state', async () => {
       const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })

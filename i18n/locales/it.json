@@ -96,6 +96,10 @@
       "title": "Pausa",
       "body": "Prenditi un momento. Quando sei pronto, riprendi il colloquio.",
       "resume": "Riprendi il colloquio"
+    },
+    "transition": {
+      "title": "Un attimo",
+      "body": "Sto preparando la prossima domanda."
     }
   },
   "analytics_consent": {
