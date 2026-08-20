@@ -87,16 +87,20 @@ const MOCK_START_RESPONSE = {
   },
 }
 
-const MOCK_START_LAST_RESPONSE = {
-  ...MOCK_START_RESPONSE,
-  question_context: {
-    ...MOCK_START_RESPONSE.question_context,
-    question_index: 2, // last (0-indexed in 3-total = index 2)
-    total_questions: 3,
-  },
-}
+// MOCK_START_LAST_RESPONSE lived here. It fed a `question_index` the client used
+// to decide for itself that the interview was over — the arithmetic D11 removed.
+// Which competency is last is the server's answer now, carried by /end's
+// directive, so a /start fixture cannot express it any more.
 
-const MOCK_END_RESPONSE = { status: 'ok' }
+// /end drives the flow now (D7). A body without `next_action` is what a
+// pre-v0.24.0 server returned, and the client degrades it to the pause screen —
+// so a fixture missing it silently tests the degraded path instead of the real
+// one. Helpers below build the three real directives.
+const MOCK_END_RESPONSE = { ended_competencies: 1, total_competencies: 3, next_action: 'continue' }
+
+function endDirective(ended: number, total: number, action: 'continue' | 'pause' | 'done') {
+  return { ended_competencies: ended, total_competencies: total, next_action: action }
+}
 
 // ---------------------------------------------------------------------------
 // Device mocks — getUserMedia + AudioContext, so device check completes
@@ -465,20 +469,123 @@ test.describe('Interview flow — E2E', () => {
       await checkA11y(page, '[data-slot="select-content"]')
     })
 
-    test('done screen shows after all competencies completed', async ({ page }) => {
-      // Mock /start to return last competency (question_index+1 >= total)
-      await page.route('**/api/candidate/interview/start', (route) => {
+    test('the done directive takes the candidate straight to the done screen', async ({ page }) => {
+      // The previous version of this test asserted NOTHING — it clicked consent
+      // and ended. It was green because it could not fail, while claiming to
+      // cover the screen a candidate reaches at the end of their assessment.
+      await page.route('**/api/candidate/interview/end', (route) =>
         route.fulfill({
-          status: 201,
+          status: 200,
           contentType: 'application/json',
-          body: JSON.stringify(MOCK_START_LAST_RESPONSE),
+          body: JSON.stringify(endDirective(3, 3, 'done')),
         })
-      })
+      )
 
       await page.goto(EN_INTERVIEW_URL)
-
-      // Accept consent (English locale)
       await page.getByRole('button', { name: /accept and continue/i }).click()
+      await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+        timeout: 8000,
+      })
+      await page.getByRole('button', { name: /continue to interview/i }).click()
+
+      // Drive the mock provider to completion — the only path to /end.
+      await page.waitForFunction(
+        () => Boolean((window as never as Record<string, unknown>).__mockInterviewProvider),
+        null,
+        { timeout: 15000 }
+      )
+      await page.evaluate(() => {
+        const p = (window as never as Record<string, { emitFinalPhrase: () => void }>)
+          .__mockInterviewProvider
+        p.emitFinalPhrase()
+      })
+
+      await expect(page.getByTestId('done-screen')).toBeVisible({ timeout: 15000 })
+    })
+
+    test('a continue directive advances with NO screen and no candidate click', async ({
+      page,
+    }) => {
+      // The flow this change exists to deliver. A pause screen appearing here
+      // would mean the client is still deciding for itself.
+      await page.route('**/api/candidate/interview/end', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(endDirective(1, 3, 'continue')),
+        })
+      )
+
+      await page.goto(EN_INTERVIEW_URL)
+      await page.getByRole('button', { name: /accept and continue/i }).click()
+      await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+        timeout: 8000,
+      })
+      await page.getByRole('button', { name: /continue to interview/i }).click()
+
+      await page.waitForFunction(
+        () => Boolean((window as never as Record<string, unknown>).__mockInterviewProvider),
+        null,
+        { timeout: 15000 }
+      )
+      await page.evaluate(() => {
+        const p = (window as never as Record<string, { emitEndPhrase: () => void }>)
+          .__mockInterviewProvider
+        p.emitEndPhrase()
+      })
+
+      // POSITIVE signal first: the Pause control renders only while `live`, so
+      // seeing it means a NEW competency actually started. Asserting only the
+      // absence of the other screens would pass just as happily if the page had
+      // died — the same hole as the assertion-free test this replaced.
+      await expect(page.getByRole('button', { name: /^pause$/i })).toBeVisible({ timeout: 15000 })
+      await expect(page.getByTestId('done-screen')).toBeHidden()
+      await expect(page.getByRole('button', { name: /resume interview/i })).toBeHidden()
+    })
+
+    test('a pause directive shows the scheduled-pause screen and waits for the candidate', async ({
+      page,
+    }) => {
+      await page.route('**/api/candidate/interview/end', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(endDirective(2, 6, 'pause')),
+        })
+      )
+
+      await page.goto(EN_INTERVIEW_URL)
+      await page.getByRole('button', { name: /accept and continue/i }).click()
+      await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+        timeout: 8000,
+      })
+      await page.getByRole('button', { name: /continue to interview/i }).click()
+
+      await page.waitForFunction(
+        () => Boolean((window as never as Record<string, unknown>).__mockInterviewProvider),
+        null,
+        { timeout: 15000 }
+      )
+      await page.evaluate(() => {
+        const p = (window as never as Record<string, { emitEndPhrase: () => void }>)
+          .__mockInterviewProvider
+        p.emitEndPhrase()
+      })
+
+      await expect(page.getByRole('button', { name: /resume interview/i })).toBeVisible({
+        timeout: 15000,
+      })
+    })
+
+    test('the live screen offers no Skip control', async ({ page }) => {
+      await page.goto(EN_INTERVIEW_URL)
+      await page.getByRole('button', { name: /accept and continue/i }).click()
+      await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+        timeout: 8000,
+      })
+      await page.getByRole('button', { name: /continue to interview/i }).click()
+
+      await expect(page.getByRole('button', { name: /^skip$/i })).toHaveCount(0)
     })
   })
 
