@@ -33,7 +33,14 @@ const MOCK_START_RESPONSE = {
   },
 }
 
-const MOCK_END_RESPONSE = { status: 'ok' }
+// /end carries the directive that ends the interview (D7). `{status:'ok'}` is a
+// pre-v0.24.0 body: the client sees no `next_action`, degrades to the pause
+// screen, and `done` — the state this whole spec is about — never arrives.
+const MOCK_END_RESPONSE = {
+  ended_competencies: 3,
+  total_competencies: 3,
+  next_action: 'done',
+}
 
 const EXIT_REDIRECT_URL = 'https://hr.acme.example.com/beai/done?ref=acme-672'
 
