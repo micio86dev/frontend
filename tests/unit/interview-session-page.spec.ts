@@ -281,6 +281,52 @@ describe('interview/session.vue — timer expiry and skip', () => {
     expect(labels.some((l) => l.includes('interview.live.pause'))).toBe(false)
   })
 
+  // Pausing unmounts the `v-if="live"` block and with it InterviewTimer, whose
+  // `remaining` is component-local. Resuming mounts a fresh instance. Unless the
+  // page owns the remaining time, every pause hands the candidate a full new
+  // 5 minutes — unlimited time per question for anyone who notices.
+
+  it('does NOT restart the countdown when a paused question resumes', async () => {
+    const session = makeSession({ state: 'live' })
+    const wrapper = await mountPage(session)
+
+    const timerBefore = wrapper.findComponent({ name: 'InterviewTimer' })
+    expect(timerBefore.exists()).toBe(true)
+    const fullLimit = timerBefore.props('seconds') as number
+
+    // The timer reports progress as it ticks; the page must retain it.
+    timerBefore.vm.$emit('tick', fullLimit - 137)
+    await nextTick()
+
+    session.state.value = 'paused'
+    await nextTick()
+    expect(wrapper.findComponent({ name: 'InterviewTimer' }).exists()).toBe(false)
+
+    session.state.value = 'live'
+    await nextTick()
+
+    const timerAfter = wrapper.findComponent({ name: 'InterviewTimer' })
+    expect(timerAfter.exists()).toBe(true)
+    expect(timerAfter.props('seconds')).toBe(fullLimit - 137)
+  })
+
+  it('restarts the countdown at the full limit for a new competency', async () => {
+    // Resuming a pause must preserve the clock; starting the NEXT question must not.
+    const session = makeSession({ state: 'live' })
+    const wrapper = await mountPage(session)
+
+    const timer = wrapper.findComponent({ name: 'InterviewTimer' })
+    const fullLimit = timer.props('seconds') as number
+    timer.vm.$emit('tick', 42)
+    await nextTick()
+
+    // A new competency issues a new DB session id.
+    session.sessionId.value = 99
+    await nextTick()
+
+    expect(wrapper.findComponent({ name: 'InterviewTimer' }).props('seconds')).toBe(fullLimit)
+  })
+
   it('still renders the standalone paused screen when no provider is mounted', async () => {
     // Pausing between competencies: the provider has already been unpublished.
     const session = makeSession({ state: 'paused', provider: null })

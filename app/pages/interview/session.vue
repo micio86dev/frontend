@@ -75,7 +75,11 @@
         <InterviewCaption :text="currentCaption" />
 
         <div class="flex items-center justify-between">
-          <InterviewTimer :seconds="questionTimeLimit" @expired="onTimerExpired" />
+          <InterviewTimer
+            :seconds="questionRemaining"
+            @tick="questionRemaining = $event"
+            @expired="onTimerExpired"
+          />
           <div class="flex gap-2">
             <Button variant="outline" size="sm" @click="session.pause()">
               {{ $t('interview.live.pause') }}
@@ -430,7 +434,31 @@ const avatarConfig = computed(() => session.activeConfig.value)
 const avatarMounted = computed(() => avatarProvider.value !== null && avatarConfig.value !== null)
 
 const currentCaption = ref('')
-const questionTimeLimit = 300 // 5 minutes default
+const QUESTION_TIME_LIMIT = 300 // 5 minutes default
+
+/**
+ * Seconds left on the current question — owned HERE, not by InterviewTimer.
+ *
+ * The timer renders inside the `v-if="state === 'live'"` block, so pausing
+ * unmounts it and takes its internal countdown with it. While it owned the
+ * value, every resume mounted a fresh instance starting from the full limit:
+ * pause, resume, and the candidate had five more minutes, as often as they
+ * liked. On an assessment that is a fairness hole, not a cosmetic bug.
+ *
+ * Keeping it on the page outlives the unmount, so a pause suspends the clock
+ * and a resume continues from the same second.
+ */
+const questionRemaining = ref(QUESTION_TIME_LIMIT)
+
+// A new competency gets a full clock — the pause exemption above must not leak
+// across questions. Keyed on the DB session id, which /start reissues per
+// competency, rather than on the `live` transition, which a resume also makes.
+watch(
+  () => session.sessionId.value,
+  () => {
+    questionRemaining.value = QUESTION_TIME_LIMIT
+  }
+)
 
 // AvatarPlayer state changes are handled internally by the session machine
 function onProviderState(): void {}
