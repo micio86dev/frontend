@@ -17,28 +17,36 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Stateful mock tracks: stop() flips readyState to 'ended', mirroring the real
+// platform (Task 3.1 — "previous tracks readyState !== 'live' after switch").
 function makeLiveVideoTrack(
   settings: Partial<{ deviceId: string; width: number; height: number }> = {}
 ): MediaStreamTrack {
-  return {
+  const track = {
     kind: 'video',
     readyState: 'live',
-    stop: vi.fn(),
     enabled: true,
     label: 'camera',
     getSettings: () => ({ deviceId: 'default-cam', width: 1280, height: 720, ...settings }),
-  } as unknown as MediaStreamTrack
+  } as unknown as MediaStreamTrack & { readyState: string }
+  track.stop = vi.fn(() => {
+    track.readyState = 'ended'
+  })
+  return track
 }
 
 function makeAudioTrack(settings: Partial<{ deviceId: string }> = {}): MediaStreamTrack {
-  return {
+  const track = {
     kind: 'audio',
     readyState: 'live',
-    stop: vi.fn(),
     enabled: true,
     label: 'microphone',
     getSettings: () => ({ deviceId: 'default-mic', ...settings }),
-  } as unknown as MediaStreamTrack
+  } as unknown as MediaStreamTrack & { readyState: string }
+  track.stop = vi.fn(() => {
+    track.readyState = 'ended'
+  })
+  return track
 }
 
 function makeStream(
@@ -822,6 +830,194 @@ describe('useDeviceCheck', () => {
       vi.advanceTimersByTime(100)
       await Promise.resolve()
       expect(dc.micLevel.value).toBeCloseTo(0.286875, 5)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Slice 3 (Tasks 3.1-3.5) — switchCamera/switchMicrophone, the highest-risk
+  // code in the change (D3, D10). One-live-stream invariant: release-before-
+  // replace + generation guard.
+  // -------------------------------------------------------------------------
+
+  describe('switchCamera / switchMicrophone — one-live-stream invariant (D3)', () => {
+    async function checkedDeviceCheck(
+      videoTrack = makeLiveVideoTrack({ deviceId: 'cam-0' }),
+      audioTrack = makeAudioTrack({ deviceId: 'mic-0' })
+    ) {
+      getUserMediaSpy.mockResolvedValueOnce(makeStream([videoTrack], [audioTrack]))
+      const { useDeviceCheck } = await import('~/app/composables/useDeviceCheck')
+      const dc = useDeviceCheck()
+      await dc.check()
+      return { dc, videoTrack, audioTrack }
+    }
+
+    it('Task 3.1 — stops every track of the previous stream before the replacement resolves', async () => {
+      const { dc, videoTrack: oldVideo, audioTrack: oldAudio } = await checkedDeviceCheck()
+
+      let resolveSwitch!: (s: MediaStream) => void
+      const deferred = new Promise<MediaStream>((resolve) => {
+        resolveSwitch = resolve
+      })
+      getUserMediaSpy.mockReturnValueOnce(deferred)
+
+      const switchPromise = dc.switchCamera('cam-1')
+      // BEFORE the replacement stream resolves, the old tracks must already be
+      // stopped — release-before-replace is an ordering, not a race (D3).
+      expect(oldVideo.readyState).not.toBe('live')
+      expect(oldAudio.readyState).not.toBe('live')
+      expect(oldVideo.stop).toHaveBeenCalled()
+      expect(oldAudio.stop).toHaveBeenCalled()
+
+      resolveSwitch(makeStream([makeLiveVideoTrack({ deviceId: 'cam-1' })], [makeAudioTrack()]))
+      await switchPromise
+    })
+
+    it('Task 3.1 — the new stream becomes active and activeSelection reconciles to it', async () => {
+      const { dc } = await checkedDeviceCheck()
+
+      getUserMediaSpy.mockResolvedValueOnce(
+        makeStream(
+          [makeLiveVideoTrack({ deviceId: 'cam-1' })],
+          [makeAudioTrack({ deviceId: 'mic-0' })]
+        )
+      )
+      await dc.switchCamera('cam-1')
+
+      expect(dc.activeSelection.value).toEqual({ cameraId: 'cam-1', micId: 'mic-0' })
+      expect(dc.cameraOk.value).toBe(true)
+      expect(dc.switching.value).toBe(false)
+    })
+
+    it('Task 3.1 — switchMicrophone preserves the current camera selection', async () => {
+      const { dc } = await checkedDeviceCheck()
+
+      getUserMediaSpy.mockResolvedValueOnce(
+        makeStream(
+          [makeLiveVideoTrack({ deviceId: 'cam-0' })],
+          [makeAudioTrack({ deviceId: 'mic-1' })]
+        )
+      )
+      await dc.switchMicrophone('mic-1')
+
+      expect(getUserMediaSpy).toHaveBeenLastCalledWith({
+        video: { deviceId: { exact: 'cam-0' } },
+        audio: { deviceId: { exact: 'mic-1' } },
+      })
+      expect(dc.activeSelection.value).toEqual({ cameraId: 'cam-0', micId: 'mic-1' })
+    })
+
+    it('Task 3.2 — switch fails mid-flight: nothing hot, an actionable error surfaces, pickers stay usable', async () => {
+      const { dc, videoTrack: oldVideo } = await checkedDeviceCheck()
+
+      getUserMediaSpy.mockRejectedValueOnce(new DOMException('busy', 'NotReadableError'))
+      await dc.switchCamera('cam-broken')
+
+      // Nothing is left live: the old camera was already stopped, and the
+      // failed replacement never became active.
+      expect(oldVideo.readyState).not.toBe('live')
+      expect(dc.stream.value).toBeNull()
+      expect(dc.cameraOk.value).toBe(false)
+      expect(dc.error.value).toBe('in_use')
+      // switching resets to false so the pickers are usable again — the
+      // candidate can pick a different device instead of being stuck.
+      expect(dc.switching.value).toBe(false)
+    })
+
+    it('Task 3.3 — stale deviceId → OverconstrainedError → retries unconstrained → reconciles', async () => {
+      const { dc } = await checkedDeviceCheck()
+
+      getUserMediaSpy.mockRejectedValueOnce(new DOMException('gone', 'OverconstrainedError'))
+      const fallbackVideo = makeLiveVideoTrack({ deviceId: 'cam-fallback' })
+      const fallbackAudio = makeAudioTrack({ deviceId: 'mic-fallback' })
+      getUserMediaSpy.mockResolvedValueOnce(makeStream([fallbackVideo], [fallbackAudio]))
+
+      await dc.switchCamera('cam-unplugged')
+
+      expect(getUserMediaSpy).toHaveBeenCalledTimes(3) // initial check() + failed switch + unconstrained retry
+      expect(getUserMediaSpy).toHaveBeenLastCalledWith({ video: true, audio: true })
+      expect(dc.error.value).toBeNull()
+      expect(dc.cameraOk.value).toBe(true)
+      // Reconciled to what was ACTUALLY obtained, not the stale requested id.
+      expect(dc.activeSelection.value).toEqual({ cameraId: 'cam-fallback', micId: 'mic-fallback' })
+    })
+
+    it('Task 3.3 — OverconstrainedError on the unconstrained retry too → classified error, retryable', async () => {
+      const { dc } = await checkedDeviceCheck()
+
+      getUserMediaSpy.mockRejectedValueOnce(new DOMException('gone', 'OverconstrainedError'))
+      getUserMediaSpy.mockRejectedValueOnce(new DOMException('still gone', 'NotFoundError'))
+
+      await dc.switchCamera('cam-unplugged')
+
+      expect(dc.error.value).toBe('not_found')
+      expect(dc.cameraOk.value).toBe(false)
+      expect(dc.switching.value).toBe(false)
+    })
+
+    it('Task 3.4 — two rapid switches: only the latest stream survives, the superseded one is stopped', async () => {
+      const { dc } = await checkedDeviceCheck()
+
+      const firstVideo = makeLiveVideoTrack({ deviceId: 'cam-1' })
+      const firstAudio = makeAudioTrack({ deviceId: 'mic-0' })
+      getUserMediaSpy.mockResolvedValueOnce(makeStream([firstVideo], [firstAudio]))
+
+      const secondVideo = makeLiveVideoTrack({ deviceId: 'cam-2' })
+      const secondAudio = makeAudioTrack({ deviceId: 'mic-0' })
+      getUserMediaSpy.mockResolvedValueOnce(makeStream([secondVideo], [secondAudio]))
+
+      // Fire both without awaiting the first — a rapid double-switch.
+      const p1 = dc.switchCamera('cam-1')
+      const p2 = dc.switchCamera('cam-2')
+      await Promise.all([p1, p2])
+
+      expect(dc.activeSelection.value.cameraId).toBe('cam-2')
+      expect(dc.stream.value).not.toBeNull()
+      expect(dc.stream.value!.getVideoTracks()[0]).toBe(secondVideo)
+      // The intermediate (cam-1) stream never stays live — superseded, stopped.
+      expect(firstVideo.readyState).not.toBe('live')
+      expect(firstVideo.stop).toHaveBeenCalled()
+    })
+
+    it('Task 3.5 — release() during an in-flight switch stops the late-arriving stream and never activates it', async () => {
+      const { dc } = await checkedDeviceCheck()
+
+      let resolveSwitch!: (s: MediaStream) => void
+      const deferred = new Promise<MediaStream>((resolve) => {
+        resolveSwitch = resolve
+      })
+      getUserMediaSpy.mockReturnValueOnce(deferred)
+
+      const switchPromise = dc.switchCamera('cam-1')
+
+      // Unmount fires while the switch's getUserMedia is still pending.
+      dc.release()
+      expect(dc.stream.value).toBeNull()
+
+      const lateVideo = makeLiveVideoTrack({ deviceId: 'cam-1' })
+      const lateAudio = makeAudioTrack({ deviceId: 'mic-1' })
+      resolveSwitch(makeStream([lateVideo], [lateAudio]))
+      await switchPromise
+
+      // The late-arriving stream must never become active — it is stopped on
+      // arrival instead (the ONLY thing that stops a stream that did not exist
+      // when release() ran).
+      expect(dc.stream.value).toBeNull()
+      expect(lateVideo.stop).toHaveBeenCalled()
+      expect(lateAudio.stop).toHaveBeenCalled()
+      expect(dc.activeSelection.value).toEqual({})
+    })
+
+    it('Task 3.7 — a switch never calls getUserMedia before the initial check() has completed', async () => {
+      const { dc } = await checkedDeviceCheck()
+      const callsAfterInitialCheck = getUserMediaSpy.mock.calls.length
+      expect(callsAfterInitialCheck).toBe(1)
+
+      getUserMediaSpy.mockResolvedValueOnce(makeStream([makeLiveVideoTrack()], [makeAudioTrack()]))
+      await dc.switchCamera('cam-1')
+
+      // The switch is a SEPARATE, explicit call — check()'s own single-acquisition
+      // contract (Task 2.7 / spec.md clause (d)) is unaffected.
+      expect(getUserMediaSpy).toHaveBeenCalledTimes(2)
     })
   })
 })
