@@ -18,10 +18,22 @@
  * Timer — countdown component for the live interview screen.
  *
  * Props:
- *   seconds — initial countdown in seconds
+ *   seconds — countdown to start from, in seconds. NOT necessarily the full
+ *             question limit: on resume the parent hands back what was left.
  *
  * Emits:
+ *   tick    — the remaining seconds, every second. The parent OWNS the remaining
+ *             time; this component only counts.
  *   expired — when the countdown reaches 0
+ *
+ * WHY THE PARENT OWNS THE REMAINING TIME:
+ * This component is rendered inside the interview page's `v-if="state === 'live'"`
+ * block, so pausing unmounts it and destroys `remaining` with the instance.
+ * Keeping the countdown here meant every resume mounted a fresh instance that
+ * restarted from the full limit — a candidate who paused and resumed repeatedly
+ * got unlimited time on a question. On an assessment that is a fairness hole,
+ * not a cosmetic bug. Emitting each tick lets the page persist the value across
+ * the unmount and hand it straight back.
  *
  * SSR-safe: uses Vue's onMounted/onUnmounted with setInterval.
  * All text is i18n-keyed (D31).
@@ -33,6 +45,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  tick: [remaining: number]
   expired: []
 }>()
 
@@ -54,6 +67,9 @@ function tick(): void {
     return
   }
   remaining.value -= 1
+  // Reported BEFORE the expiry branch: the parent must see the final 0, or a
+  // remount would re-arm it with the last non-zero value it happened to keep.
+  emit('tick', remaining.value)
   if (remaining.value <= 0) {
     if (intervalId !== null) {
       clearInterval(intervalId)

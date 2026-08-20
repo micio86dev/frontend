@@ -58,6 +58,65 @@ describe('InterviewTimer.vue', () => {
     expect(timerEl.exists()).toBe(true)
   })
 
+  // The countdown must survive an unmount. InterviewTimer lives inside the
+  // `v-if="state === 'live'"` block, so pausing unmounts it and destroys its
+  // internal `remaining`; resuming mounts a NEW instance that restarts from the
+  // full limit. A candidate could pause/resume repeatedly for unlimited time on
+  // a question — a fairness hole in an assessment product. The owner of the
+  // remaining time therefore has to be the parent, and the timer has to report
+  // it on every tick.
+
+  it('emits its remaining value on every tick so a parent can persist it', async () => {
+    vi.useFakeTimers()
+    const { default: Timer } = await import('../../app/components/InterviewTimer.vue')
+    const wrapper = mount(Timer, {
+      props: { seconds: 5 },
+      global: { mocks: { $t: (k: string) => k } },
+    })
+
+    vi.advanceTimersByTime(1000)
+    await nextTick()
+    vi.advanceTimersByTime(1000)
+    await nextTick()
+
+    const ticks = wrapper.emitted('tick')
+    expect(ticks).toBeTruthy()
+    expect(ticks!.map((args) => args[0])).toEqual([4, 3])
+    vi.useRealTimers()
+  })
+
+  it('resumes from a partial value rather than restarting', async () => {
+    vi.useFakeTimers()
+    const { default: Timer } = await import('../../app/components/InterviewTimer.vue')
+    // What a remount after a pause looks like: the parent hands back what was left.
+    const wrapper = mount(Timer, {
+      props: { seconds: 12 },
+      global: { mocks: { $t: (k: string) => k } },
+    })
+
+    expect(wrapper.text()).toContain('00:12')
+    vi.advanceTimersByTime(1000)
+    await nextTick()
+    expect(wrapper.text()).toContain('00:11')
+    vi.useRealTimers()
+  })
+
+  it('emits the final 0 tick before expiring, so the parent never re-arms a full clock', async () => {
+    vi.useFakeTimers()
+    const { default: Timer } = await import('../../app/components/InterviewTimer.vue')
+    const wrapper = mount(Timer, {
+      props: { seconds: 1 },
+      global: { mocks: { $t: (k: string) => k } },
+    })
+
+    vi.advanceTimersByTime(1000)
+    await nextTick()
+
+    expect(wrapper.emitted('tick')!.map((args) => args[0])).toEqual([0])
+    expect(wrapper.emitted('expired')).toBeTruthy()
+    vi.useRealTimers()
+  })
+
   it('counts down and emits expired via interval', async () => {
     vi.useFakeTimers()
     const { default: Timer } = await import('../../app/components/InterviewTimer.vue')
