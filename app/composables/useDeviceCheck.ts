@@ -27,8 +27,10 @@ import { ref, type Ref } from 'vue'
 
 // ── Tunables ────────────────────────────────────────────────────────────────
 
-/** RMS above this level (0–1) = "candidate has spoken" — mic confirmed OK */
-const MIC_SPEAK_THRESHOLD = 0.04
+/** RMS above this level (0–1) = "candidate has spoken" — mic confirmed OK.
+ * Exported so the view can place the meter's threshold marker (D5) at the
+ * SAME value the composable gates on, rather than duplicating the constant. */
+export const MIC_SPEAK_THRESHOLD = 0.04
 
 /** How often (ms) the mic RMS is sampled during the check window */
 const MIC_SAMPLE_INTERVAL_MS = 100

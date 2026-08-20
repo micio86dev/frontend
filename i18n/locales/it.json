@@ -26,7 +26,14 @@
       "mic_ok": "Microfono operativo",
       "camera_error": "Fotocamera non rilevata o non accessibile. Controlla le autorizzazioni del browser.",
       "mic_error": "Microfono non rilevato o il livello audio è troppo basso. Prova a parlare.",
-      "continue": "Continua al colloquio"
+      "continue": "Continua al colloquio",
+      "camera_instruction": "Posizionati nell'inquadratura per permetterci di verificare la fotocamera.",
+      "mic_instruction": "Pronuncia alcune parole per permetterci di verificare il microfono.",
+      "mic_detected": "Livello del microfono rilevato.",
+      "mic_unavailable": "Non rileviamo alcun microfono. Verifica che sia collegato, quindi seleziona Riprova.",
+      "recovery_title": "Autorizzazione necessaria",
+      "recovery_instructions": "Seleziona l'icona della fotocamera nella barra degli indirizzi del browser, consenti l'accesso a fotocamera e microfono per questa pagina, quindi seleziona Riprova.",
+      "retry": "Riprova"
     },
     "live": {
       "timer_label": "Tempo rimanente",
