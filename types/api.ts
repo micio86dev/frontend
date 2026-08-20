@@ -106,17 +106,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Attempt login and return a token pair
+         * Attempt login and return an access token; sets the refresh cookie
          * @description POST /api/auth/login
          *     Public — no auth middleware.
-         *
-         *     Token model (D4 — jwt-auth rotation):
-         *     - Access token: standard TTL (30 min), used for all API requests.
-         *     - Refresh token: re-issues a new access token via POST /api/auth/refresh.
-         *       jwt-auth rotation: the SAME bearer token is posted to /refresh; the old
-         *       token's jti is denylisted and a new token is returned. There is no separate
-         *       long-lived opaque refresh token — the "refresh_token" field carries the
-         *       same access token string returned at login.
          */
         post: operations["auth.login"];
         delete?: never;
@@ -135,12 +127,11 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Refresh the access token
+         * Refresh the access token via the httpOnly refresh cookie
          * @description POST /api/auth/refresh
-         *     Protected: auth:api
-         *
-         *     Uses jwt-auth's native token ROTATION: the current bearer access token is
-         *     presented and a new access token is returned; the old token's jti is denylisted.
+         *     PUBLIC — authenticated by cookie + RequireRefreshCsrfHeader, NEVER
+         *     auth:api (D8): an expired access token is exactly when this endpoint
+         *     must still work.
          */
         post: operations["auth.refresh"];
         delete?: never;
@@ -159,7 +150,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Logout — denylist the current token's jti + invalidate Spatie permission cache
+         * Logout — denylist the current token's jti, revoke its refresh family,
+         *     clear the refresh cookie, invalidate the Spatie permission cache
          * @description POST /api/auth/logout
          *     Protected: auth:api
          */
@@ -605,6 +597,14 @@ export interface paths {
          *     (8) Last-question CAS: Participant::where(id, status=in_corso)->update(in_valutazione).
          *         Only if $won === 1: dispatch FinalizeInterview::dispatch($pid)->afterCommit().
          *     (9) COMMIT. Return 200.
+         *
+         *     PR4 (design D7, F1 fix): step (5)'s `reconcileTranscript()` now THROWS
+         *     `ProviderTranscriptShapeException` on a shape-mismatched transcript response
+         *     instead of silently degrading to `[]`. Because the throw happens BEFORE
+         *     `replaceUtterances()` runs its DELETE, and propagates out of THIS transaction
+         *     closure, `DB::transaction()` rolls back the ENTIRE txn automatically — the
+         *     DELETE never commits, ended_at is never stamped, and FinalizeInterview is
+         *     never dispatched. Caught below and surfaced as 502 (Upstream classification).
          */
         post: operations["interview.end"];
         delete?: never;
@@ -795,6 +795,22 @@ export interface paths {
         get: operations["admin.participants.evaluation.download"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/participants/{id}/recover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["participantRecovery.store"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1465,14 +1481,14 @@ export interface components {
         };
         /** SessionReviewResource */
         SessionReviewResource: {
-            id: number;
-            participant_id: number;
+            id: string;
+            participant_id: string;
             competency_code: string;
-            question_index: number;
+            question_index: string;
             provider: string;
-            provider_session_ref: string | null;
+            provider_session_ref: string;
             status: string;
-            ended_reason: string | null;
+            ended_reason: string;
             started_at: string | null;
             ended_at: string | null;
             duration_seconds: number | null;
@@ -1511,12 +1527,12 @@ export interface components {
         };
         /** SessionSummaryResource */
         SessionSummaryResource: {
-            id: number;
+            id: string;
             competency_code: string;
-            question_index: number;
+            question_index: string;
             provider: string;
             status: string;
-            ended_reason: string | null;
+            ended_reason: string;
             started_at: string | null;
             ended_at: string | null;
             duration_seconds: string | null;
@@ -1944,7 +1960,6 @@ export interface operations {
                 content: {
                     "application/json": {
                         access_token: string;
-                        refresh_token: string;
                         /** @constant */
                         token_type: "bearer";
                     };
@@ -1985,7 +2000,26 @@ export interface operations {
                     };
                 };
             };
-            401: components["responses"]["AuthenticationException"];
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        error: "refresh_token_invalid";
+                    } | {
+                        /** @constant */
+                        error: "refresh_token_revoked";
+                    } | {
+                        /** @constant */
+                        error: "refresh_token_expired";
+                    } | {
+                        /** @constant */
+                        error: "refresh_token_reused";
+                    };
+                };
+            };
         };
     };
     "auth.logout": {
@@ -2034,7 +2068,7 @@ export interface operations {
                              * @description user-profile-self-service: previously the column and
                              *     $fillable entry existed but /auth/me never returned it.
                              */
-                            locale: string | null;
+                            locale: string;
                             /**
                              * @description user-avatar-image (design D4): the SAME signer ProfileResource
                              *     uses — /auth/me is the shell-identity contract useCurrentUser
@@ -2283,11 +2317,11 @@ export interface operations {
                         exported_at: string;
                         templates: {
                             name: string;
-                            description: string | null;
+                            description: string;
                             provider: string;
-                            config: unknown[];
+                            config: string;
                             /** @description Persona is optional: a template may be pure provider config. */
-                            persona: unknown[] | null;
+                            persona: string | null;
                         }[];
                     };
                 };
@@ -2413,6 +2447,13 @@ export interface operations {
                     "application/json": {
                         /** @constant */
                         message: "Conflict: participant has already completed this assessment.";
+                        /** @constant */
+                        reason: "completed";
+                    } | {
+                        /** @constant */
+                        message: "Conflict: this participant's assessment failed and must be re-opened by an operator before a new link can be issued.";
+                        /** @constant */
+                        reason: "failed";
                     };
                 };
             };
@@ -2629,6 +2670,19 @@ export interface operations {
                     };
                 };
             };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        status: "down";
+                        /** @constant */
+                        reason: "cors_allowed_origins_empty";
+                    };
+                };
+            };
         };
     };
     "integrity.store": {
@@ -2708,6 +2762,17 @@ export interface operations {
             401: components["responses"]["AuthenticationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: components["responses"]["ValidationException"];
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        error: "provider_error";
+                    };
+                };
+            };
         };
     };
     "organization.show": {
@@ -3038,6 +3103,52 @@ export interface operations {
             401: components["responses"]["AuthenticationException"];
         };
     };
+    "participantRecovery.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    reason?: string | null;
+                };
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        status: "in_attesa";
+                        competencies_reset: string[];
+                        utterances_discarded: number;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        reason: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
     "profile.show": {
         parameters: {
             query?: never;
@@ -3343,6 +3454,7 @@ export interface operations {
                             count: number;
                             oldest_age_seconds: Record<string, never> | null;
                         };
+                        redis_eviction_policy: string;
                     };
                 };
             };
@@ -3360,6 +3472,7 @@ export interface operations {
                         };
                         queue: null;
                         failed: null;
+                        redis_eviction_policy: string;
                     };
                 };
             };
@@ -3570,6 +3683,13 @@ export interface operations {
                     "application/json": {
                         /** @constant */
                         message: "Conflict: participant has already completed this assessment.";
+                        /** @constant */
+                        reason: "completed";
+                    } | {
+                        /** @constant */
+                        message: "Conflict: this participant's assessment failed and must be re-opened by an operator before a new link can be issued.";
+                        /** @constant */
+                        reason: "failed";
                     };
                 };
             };
