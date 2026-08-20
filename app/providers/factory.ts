@@ -94,6 +94,7 @@ function createMockProvider(): InterviewProvider & {
       return { providerSessionId: 'mock-session-id' }
     },
     async toggleMic() {},
+    async setMicMuted(_muted: boolean) {},
     async stop() {
       emitState('stopped')
     },

@@ -234,7 +234,17 @@ import {
 } from '~/components/ui/select'
 
 const emit = defineEmits<{
-  confirmed: [stream: MediaStream]
+  /**
+   * Handoff on Continue.
+   *
+   * The second payload is the microphone deviceId actually in use, read back from
+   * getSettings() — not the one that was requested. The avatar provider opens its
+   * own capture track and cannot inherit this stream, so without the id it falls
+   * back to the OS default: the candidate tests one microphone and is recorded
+   * through another. Undefined when the browser exposed no id (permissions can
+   * withhold it), which the provider reads as "use your default".
+   */
+  confirmed: [stream: MediaStream, micDeviceId: string | undefined]
 }>()
 
 const { t } = useI18n()
@@ -333,7 +343,11 @@ function handleContinue(): void {
   if (deviceCheck.stream.value) {
     handedOff = true
     confirmed.value = true
-    emit('confirmed', deviceCheck.stream.value)
+    emit(
+      'confirmed',
+      deviceCheck.stream.value,
+      deviceCheck.activeSelection.value.micId ?? undefined
+    )
   }
 }
 
