@@ -50,14 +50,28 @@ export type SessionState =
   | 'error'
   | 'terminal'
 
+/**
+ * What the server says happens after a competency ends (D7).
+ *
+ * `noop` is not a server value — it is how this composable represents an HTTP
+ * 409, the loser of the avatar-complete/timer race. It has no directive and
+ * must not transition.
+ */
+export type EndDirective = 'continue' | 'pause' | 'done' | 'noop'
+
 export type TerminalReason = '403' | 'absent_phrase' | 'session_expired' | 'malformed_response'
 
-/** Reason passed to POST /end when the candidate (or the timer) cuts a question short. */
-export type EndQuestionReason = 'timeout' | 'skipped'
+/**
+ * Reason passed to POST /end when a question is cut short.
+ *
+ * `timeout` only. The Skip control is gone (D11): a candidate must not be able
+ * to skip a competency, so the timer is the sole client-side early end. The API
+ * still accepts `skipped` — removing an enum value from a shipped contract is
+ * churn with no benefit — but nothing here can produce it.
+ */
+export type EndQuestionReason = 'timeout'
 
 export interface UseInterviewSessionOptions {
-  /** Ordered list of competency codes from C6 bootstrap (used for last-competency detection). */
-  competencies: string[]
   /** Pending integrity events for sendBeacon flush on resize. Managed externally by useProctor. */
   getPendingIntegrityEvents?: () => IntegrityEventInternal[]
   /**
@@ -76,6 +90,10 @@ export interface UseInterviewSessionReturn {
   terminalReason: ReturnType<typeof ref<TerminalReason | null>>
   /** DB session id from the latest /start response — null until the first /start succeeds. */
   sessionId: ReturnType<typeof ref<number | null>>
+  /** Competencies ended so far, from the /end directive. Null until the first /end. */
+  endedCompetencies: ReturnType<typeof ref<number | null>>
+  /** Total competencies in the project, from the /end directive. */
+  totalCompetencies: ReturnType<typeof ref<number | null>>
   /**
    * Provider awaiting mount by AvatarPlayer; null whenever no question is in flight.
    * shallowRef, not ref: providers hold SDK/WebRTC handles that must never be wrapped
@@ -173,27 +191,25 @@ function isValidStartResponse(response: unknown): response is {
 // ---------------------------------------------------------------------------
 
 export function useInterviewSession(
-  options: UseInterviewSessionOptions
+  options: UseInterviewSessionOptions = {}
 ): UseInterviewSessionReturn {
-  const { competencies } = options
-
   // ---- State ---------------------------------------------------------------
   const state = ref<SessionState>('idle')
   const retryAttemptCount = ref(0)
   const currentCompetencyIndex = ref(0)
   const terminalReason = ref<TerminalReason | null>(null)
   const sessionId = ref<number | null>(null)
+  /** Server-fed progress (D6/D7). Never derived here — deriving it is the defect. */
+  const endedCompetencies = ref<number | null>(null)
+  const totalCompetencies = ref<number | null>(null)
   const activeProvider = shallowRef<InterviewProvider | null>(null)
   const activeConfig = shallowRef<StartConfig | null>(null)
 
   // ---- Internal refs -------------------------------------------------------
   let provider: InterviewProvider | null = null
   let currentSessionId: number | null = null
-  let currentQuestionIndex: number = 0
   let isResuming = false
   let resizeListener: (() => void) | null = null
-  /** The state pause() was entered from, so resume() can return there. */
-  let pausedFrom: 'live' | 'end_of_question' | null = null
   /** Microphone chosen at device check; reused for every subsequent competency. */
   let confirmedAudioDeviceId: string | undefined
 
@@ -320,39 +336,63 @@ export function useInterviewSession(
     }
   }
 
-  async function callEnd(endedReason: 'completed' | EndQuestionReason) {
-    if (!currentSessionId) return
+  async function callEnd(
+    endedReason: 'completed' | EndQuestionReason
+  ): Promise<EndDirective | null> {
+    if (!currentSessionId) return null
 
     try {
-      await candidateFetch('/candidate/interview/end', {
+      const response = await candidateFetch<{
+        ended_competencies?: number
+        total_competencies?: number
+        next_action?: string
+      }>('/candidate/interview/end', {
         method: 'POST',
         body: {
           session_id: currentSessionId,
           ended_reason: endedReason,
         },
       })
+
+      // Progress is server-fed. The page renders these; it never derives them.
+      if (typeof response?.ended_competencies === 'number') {
+        endedCompetencies.value = response.ended_competencies
+      }
+      if (typeof response?.total_competencies === 'number') {
+        totalCompetencies.value = response.total_competencies
+      }
+
+      const action = response?.next_action
+      // An unrecognised value is treated exactly like an absent one.
+      return action === 'continue' || action === 'pause' || action === 'done' ? action : null
     } catch (err) {
       // 401 → distinct, non-retryable terminal — checked BEFORE 403 so a
       // cleared/expired session is never mistaken for a gate refusal.
       if (err instanceof CandidateUnauthorizedError) {
         terminalReason.value = 'session_expired'
         transitionTo('terminal')
-        return
+
+        return null
       }
 
       const status =
         (err as Record<string, unknown>)?.status ?? (err as Record<string, unknown>)?.statusCode
       if (status === 409) {
-        // 409 = successful no-op (race condition: both avatar-complete and timer fired)
-        return
+        // 409 = the loser of the avatar-complete/timer race. Distinct from
+        // "no directive": the winner is already advancing, so this caller must
+        // not transition at all.
+        return 'noop'
       }
       if (status === 403) {
         terminalReason.value = '403'
         transitionTo('terminal')
-        return
+
+        return null
       }
-      // Other errors on /end — log but don't block the transition
+      // Other errors on /end — log; the caller degrades to the pause screen
       console.warn('[useInterviewSession] /end unexpected error:', err)
+
+      return null
     }
   }
 
@@ -409,14 +449,35 @@ export function useInterviewSession(
     }
   }
 
-  /** Transition out of a finished question: done on the last competency, else end_of_question. */
-  function advanceAfterQuestion() {
-    // Check current state — it may have been set to terminal by a 403 from /end
+  /**
+   * Act on the server's directive (D11).
+   *
+   * The client no longer decides whether the interview continues. It used to
+   * compare `question_index + 1` against a competency list the page never
+   * filled, so the comparison was `0 >= 0` and EVERY interview ended after one
+   * question. Whether to continue, pause or finish is tenant policy — SA-04
+   * cadence lives on the project — and the server answers it.
+   *
+   * `null` means "we did not get an answer": a stale server, a stripped body, an
+   * unrecognised future value. All of them degrade to `pause`, which shows the
+   * screen asking the candidate to continue. Degrading to `done` would end an
+   * interview that is not over — the exact defect being removed here.
+   */
+  function advanceAfterQuestion(directive: EndDirective | null) {
+    // May already be terminal from a 403 on /end.
     if (state.value === 'terminal') return
 
-    // Last-competency detection: question_index is 0-based
-    const isLastCompetency = currentQuestionIndex + 1 >= competencies.length
-    transitionTo(isLastCompetency ? 'done' : 'end_of_question')
+    // HTTP 409 — the loser of the avatar-complete/timer race. It has no
+    // directive and must not act: the winner is already advancing.
+    if (directive === 'noop') return
+
+    if (directive === 'continue') {
+      confirmDevices()
+
+      return
+    }
+
+    transitionTo(directive === 'done' ? 'done' : 'end_of_question')
   }
 
   function handleProviderComplete() {
@@ -456,7 +517,12 @@ export function useInterviewSession(
       const { end_phrase, final_phrase } = response.question_context
       currentSessionId = Number(response.session_id)
       sessionId.value = currentSessionId
-      currentQuestionIndex = Number(response.question_context.question_index)
+      // `question_index` is deliberately NOT stored: it was only ever read to
+      // derive last-competency detection, which the server owns now. It also
+      // carries a pre-existing off-by-one (-1 on the first competency of every
+      // project, because `position` is written 0-based while the query subtracts
+      // one), so keeping it around invites someone to compute progress from it.
+      // `competency_ordinal` is the field to trust.
 
       // Create provider
       provider = createProvider(response.provider as 'heygen' | 'tavus', isMock())
@@ -570,28 +636,38 @@ export function useInterviewSession(
    * still reaches the provider. The provider session itself stays up — tearing it
    * down would restart the question from its opening line on resume.
    */
+  /**
+   * Pause a LIVE question (D13). The mic is muted and the provider session is
+   * kept alive; a pause that leaves the mic open is not a pause.
+   *
+   * `live` is now the ONLY entry. `end_of_question` no longer offers a Pause
+   * control because it IS the scheduled-pause screen — a Pause button on a pause
+   * screen is meaningless.
+   *
+   * INVARIANT: assigns `state.value` DIRECTLY and must never be routed through
+   * `transitionTo()`, which calls `clearActiveProvider()` for the terminal
+   * states. `paused` is deliberately absent from that list; routing it there as
+   * a "consistency" cleanup would unmount AvatarPlayer and destroy the very
+   * session this pause exists to preserve.
+   */
   function pause() {
-    if (state.value !== 'live' && state.value !== 'end_of_question') return
+    if (state.value !== 'live') return
 
-    pausedFrom = state.value
     state.value = 'paused'
-
-    if (pausedFrom === 'live') {
-      provider?.setMicMuted(true).catch(() => {})
-    }
+    provider?.setMicMuted(true).catch(() => {})
   }
 
-  /** Resume to whichever state pause() was entered from — never a fixed destination. */
+  /**
+   * Resume to `live` — the only possible destination now that `live` is the only
+   * entry. The old `pausedFrom ?? 'end_of_question'` fallback is gone: under the
+   * new flow that screen calls /start for the NEXT competency, so the fallback
+   * would have torn the avatar down and restarted the current question.
+   */
   function resume() {
     if (state.value !== 'paused') return
 
-    const target = pausedFrom ?? 'end_of_question'
-    pausedFrom = null
-    state.value = target
-
-    if (target === 'live') {
-      provider?.setMicMuted(false).catch(() => {})
-    }
+    state.value = 'live'
+    provider?.setMicMuted(false).catch(() => {})
   }
 
   function retry() {
@@ -616,9 +692,9 @@ export function useInterviewSession(
   async function endQuestion(reason: EndQuestionReason): Promise<void> {
     if (state.value !== 'live') return
 
-    await callEnd(reason)
+    const directive = await callEnd(reason)
     stopProvider()
-    advanceAfterQuestion()
+    advanceAfterQuestion(directive)
   }
 
   async function teardown() {
@@ -636,6 +712,8 @@ export function useInterviewSession(
     currentCompetencyIndex,
     terminalReason,
     sessionId,
+    endedCompetencies,
+    totalCompetencies,
     activeProvider,
     activeConfig,
     acceptConsent,

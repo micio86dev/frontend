@@ -168,6 +168,13 @@ function makeFetchError(status: number) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // clearAllMocks calls mockClear(), which resets recorded calls but NOT the
+  // queue left by mockResolvedValueOnce/mockRejectedValueOnce. Any value a test
+  // queued and did not consume therefore leaked into the next one — and a RED
+  // test queues for behaviour that does not exist yet, so it leaks by
+  // construction. That produced a dozen failures in tests nobody had touched,
+  // each one an off-by-one against its neighbour's fixture.
+  mockCandidateFetch.mockReset()
   vi.useFakeTimers()
   currentMockProvider = createMockProvider()
   // Re-wire after clearAllMocks (which resets mockImplementation)
@@ -402,10 +409,18 @@ describe('useInterviewSession', () => {
       expect(session.state.value).toBe('end_of_question')
     })
 
-    it('/end 200 on last competency (question_index=4, total=5) → state done', async () => {
+    it('/end says done on the last competency → state done', async () => {
+      // Superseded by D11: this used to assert client-side last-competency
+      // detection from `question_index + 1 >= competencies.length`. That
+      // comparison ran against a list the page never filled, so it was `0 >= 0`
+      // and ended every interview after one question. The server decides now.
       const session = await createLiveSession('4', DEFAULT_COMPETENCIES)
 
-      mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
+      mockCandidateFetch.mockResolvedValueOnce({
+        ended_competencies: 5,
+        total_competencies: 5,
+        next_action: 'done',
+      })
 
       currentMockProvider._emit('state', 'complete')
       await flushPromises()
@@ -413,16 +428,19 @@ describe('useInterviewSession', () => {
       expect(session.state.value).toBe('done')
     })
 
-    it('/end 409 treated as successful no-op → end_of_question (race condition)', async () => {
+    it('/end 409 causes NO transition — the race loser must not act', async () => {
+      // Superseded by D11. It used to advance to `end_of_question`, which was
+      // harmless only because both racers advanced to the same place. Under a
+      // directive-driven machine the loser has no directive, and the winner is
+      // already advancing.
       const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
 
-      // 409 from /end = race: already ended; treat as 200
       mockCandidateFetch.mockRejectedValueOnce(makeFetchError(409))
 
       currentMockProvider._emit('state', 'complete')
       await flushPromises()
 
-      expect(session.state.value).toBe('end_of_question')
+      expect(session.state.value).toBe('live')
     })
   })
 
@@ -785,7 +803,11 @@ describe('useInterviewSession', () => {
 
     it('reaching `done` on the last competency → clears the candidate session', async () => {
       const session = await createLiveSession('4', DEFAULT_COMPETENCIES) // last competency
-      mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
+      mockCandidateFetch.mockResolvedValueOnce({
+        ended_competencies: 5,
+        total_competencies: 5,
+        next_action: 'done',
+      }) // /end 200 — server says the interview is over
 
       currentMockProvider._emit('state', 'complete')
       await flushPromises()
@@ -819,29 +841,19 @@ describe('useInterviewSession', () => {
   })
 
   describe('pause / resume (client-side only)', () => {
-    it('end_of_question → pause() → paused (no backend call)', async () => {
+    // REMOVED by D13: `end_of_question` is now the SA-04 scheduled-pause screen,
+    // so it no longer carries a Pause control — a Pause button on a pause screen
+    // is meaningless, and that control was the only trigger for this edge.
+    // Its replacement lives in "pause narrows to live": pause() from
+    // end_of_question is a no-op.
+
+    it('paused → resume() → live (no backend call)', async () => {
+      // Destination changed by D13: `live` is the only entry edge now, so it is
+      // also the only place resume() can land. The old `?? 'end_of_question'`
+      // fallback would send a mid-competency resume to the scheduled-pause
+      // screen, whose Continue calls /start for the NEXT competency — tearing
+      // the avatar down and losing the turn in progress.
       const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
-
-      mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
-      currentMockProvider._emit('state', 'complete')
-      await flushPromises()
-
-      expect(session.state.value).toBe('end_of_question')
-
-      const callsBefore = mockCandidateFetch.mock.calls.length
-      session.pause()
-      await nextTick()
-
-      expect(session.state.value).toBe('paused')
-      expect(mockCandidateFetch.mock.calls.length).toBe(callsBefore)
-    })
-
-    it('paused → resume() → end_of_question (no backend call)', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
-
-      mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
-      currentMockProvider._emit('state', 'complete')
-      await flushPromises()
 
       session.pause()
       await nextTick()
@@ -850,7 +862,7 @@ describe('useInterviewSession', () => {
       session.resume()
       await nextTick()
 
-      expect(session.state.value).toBe('end_of_question')
+      expect(session.state.value).toBe('live')
       expect(mockCandidateFetch.mock.calls.length).toBe(callsBefore)
     })
 
@@ -918,6 +930,173 @@ describe('useInterviewSession', () => {
       await nextTick()
 
       expect(session.state.value).toBe('idle')
+    })
+  })
+
+  describe('server-directed flow (D11)', () => {
+    // The client stops deciding whether the interview continues. It used to
+    // compare a question index against a competency list the page never filled,
+    // so `0 >= 0` was true and every interview ended after one question. The
+    // server now says what happens next and this composable obeys it.
+
+    it('next_action=continue starts the next competency with no screen in between', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+
+      mockCandidateFetch.mockResolvedValueOnce({
+        ended_competencies: 1,
+        total_competencies: 3,
+        next_action: 'continue',
+      })
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ question_index: '1' }))
+
+      currentMockProvider._emit('state', 'complete')
+      await flushPromises()
+
+      expect(session.state.value).toBe('connecting')
+    })
+
+    it('next_action=pause shows the scheduled-pause screen and calls no /start', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+
+      mockCandidateFetch.mockResolvedValueOnce({
+        ended_competencies: 2,
+        total_competencies: 6,
+        next_action: 'pause',
+      })
+
+      const callsBefore = mockCandidateFetch.mock.calls.length
+      currentMockProvider._emit('state', 'complete')
+      await flushPromises()
+
+      expect(session.state.value).toBe('end_of_question')
+      expect(mockCandidateFetch.mock.calls.length).toBe(callsBefore + 1)
+    })
+
+    it('next_action=done goes straight to the done screen', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+
+      mockCandidateFetch.mockResolvedValueOnce({
+        ended_competencies: 3,
+        total_competencies: 3,
+        next_action: 'done',
+      })
+
+      currentMockProvider._emit('state', 'complete')
+      await flushPromises()
+
+      expect(session.state.value).toBe('done')
+    })
+
+    it('exposes the server progress counts', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+
+      mockCandidateFetch.mockResolvedValueOnce({
+        ended_competencies: 2,
+        total_competencies: 5,
+        next_action: 'pause',
+      })
+
+      currentMockProvider._emit('state', 'complete')
+      await flushPromises()
+
+      expect(session.endedCompetencies.value).toBe(2)
+      expect(session.totalCompetencies.value).toBe(5)
+    })
+
+    it('an absent directive degrades to pause, never to done', async () => {
+      // A stale server, a proxy that strips the body, an unknown future value:
+      // all land on the screen that asks the candidate to press continue. The
+      // failure mode that must never happen is silently ending an interview that
+      // is not over — that is the defect this change removes.
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+
+      mockCandidateFetch.mockResolvedValueOnce(undefined)
+
+      currentMockProvider._emit('state', 'complete')
+      await flushPromises()
+
+      expect(session.state.value).toBe('end_of_question')
+    })
+
+    it('an unrecognised directive value also degrades to pause', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+
+      mockCandidateFetch.mockResolvedValueOnce({
+        ended_competencies: 1,
+        total_competencies: 3,
+        next_action: 'teleport',
+      })
+
+      currentMockProvider._emit('state', 'complete')
+      await flushPromises()
+
+      expect(session.state.value).toBe('end_of_question')
+    })
+
+    it('HTTP 409 causes NO transition at all', async () => {
+      // 409 is the loser of the avatar-complete/timer race. Both callers used to
+      // advance, harmlessly, because they advanced to the same state. Under a
+      // directive-driven machine the loser has no directive and must not act.
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+
+      mockCandidateFetch.mockRejectedValueOnce({ status: 409 })
+
+      currentMockProvider._emit('state', 'complete')
+      await flushPromises()
+
+      expect(session.state.value).toBe('live')
+    })
+  })
+
+  describe('Skip is gone (D11)', () => {
+    it('endQuestion only accepts timeout', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+
+      mockCandidateFetch.mockResolvedValueOnce({
+        ended_competencies: 1,
+        total_competencies: 3,
+        next_action: 'continue',
+      })
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ question_index: '1' }))
+
+      await session.endQuestion('timeout')
+      await flushPromises()
+
+      const endCall = mockCandidateFetch.mock.calls.find((c) => c[0] === '/candidate/interview/end')
+      expect((endCall![1] as { body: Record<string, unknown> }).body.ended_reason).toBe('timeout')
+    })
+  })
+
+  describe('pause narrows to live (D13)', () => {
+    it('pause() from end_of_question is a no-op', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+
+      mockCandidateFetch.mockResolvedValueOnce({
+        ended_competencies: 1,
+        total_competencies: 3,
+        next_action: 'pause',
+      })
+      currentMockProvider._emit('state', 'complete')
+      await flushPromises()
+      expect(session.state.value).toBe('end_of_question')
+
+      session.pause()
+      await nextTick()
+
+      expect(session.state.value).toBe('end_of_question')
+    })
+
+    it('resume() from paused can only land on live', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+
+      session.pause()
+      await flushPromises()
+      expect(session.state.value).toBe('paused')
+
+      session.resume()
+      await flushPromises()
+
+      expect(session.state.value).toBe('live')
     })
   })
 
@@ -992,7 +1171,11 @@ describe('useInterviewSession', () => {
     it('removes resize listener on transition to done', async () => {
       const session = await createLiveSession('4', DEFAULT_COMPETENCIES) // last competency
 
-      mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
+      mockCandidateFetch.mockResolvedValueOnce({
+        ended_competencies: 5,
+        total_competencies: 5,
+        next_action: 'done',
+      }) // /end 200 — server says the interview is over
       currentMockProvider._emit('state', 'complete')
       await flushPromises()
 
@@ -1426,11 +1609,18 @@ describe('useInterviewSession', () => {
       expect(session.state.value).toBe('end_of_question')
     })
 
-    it('advances to done on the last competency', async () => {
+    it('advances to done when the server says the interview is over', async () => {
+      // Superseded by D11 twice over: the destination comes from the directive
+      // now, and `skipped` is no longer a reason the client can produce — the
+      // Skip control is gone and only the timer ends a question early.
       const session = await createLiveSession('4', DEFAULT_COMPETENCIES)
-      mockCandidateFetch.mockResolvedValueOnce(undefined)
+      mockCandidateFetch.mockResolvedValueOnce({
+        ended_competencies: 5,
+        total_competencies: 5,
+        next_action: 'done',
+      })
 
-      await session.endQuestion('skipped')
+      await session.endQuestion('timeout')
       await flushPromises()
 
       expect(session.state.value).toBe('done')

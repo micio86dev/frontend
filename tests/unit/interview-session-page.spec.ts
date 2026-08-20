@@ -69,6 +69,8 @@ function makeSession(
     currentCompetencyIndex: ref(0),
     terminalReason: ref(null),
     sessionId: ref<number | null>(42),
+    endedCompetencies: ref<number | null>(null),
+    totalCompetencies: ref<number | null>(null),
     activeProvider: shallowRef<InterviewProvider | null>(provider),
     activeConfig: shallowRef<StartConfig | null>(provider ? CONFIG : null),
     acceptConsent: vi.fn(),
@@ -225,19 +227,9 @@ describe('interview/session.vue — timer expiry and skip', () => {
     expect(session.endQuestion).toHaveBeenCalledWith('timeout')
   })
 
-  it("the skip button dispatches endQuestion('skipped')", async () => {
-    const session = makeSession({ state: 'live' })
-    const wrapper = await mountPage(session)
-
-    const skipButton = wrapper
-      .findAll('button')
-      .find((b) => b.text().includes('interview.live.skip'))
-    expect(skipButton).toBeDefined()
-
-    await skipButton!.trigger('click')
-
-    expect(session.endQuestion).toHaveBeenCalledWith('skipped')
-  })
+  // REMOVED: the Skip control is gone. A candidate must not be able to skip a
+  // competency, so the 5-minute timer is the only client-side early end. Its
+  // replacement is "renders NO skip control".
 
   it('the pause button still routes to session.pause()', async () => {
     const session = makeSession({ state: 'live' })
@@ -327,26 +319,52 @@ describe('interview/session.vue — timer expiry and skip', () => {
     expect(wrapper.findComponent({ name: 'InterviewTimer' }).props('seconds')).toBe(fullLimit)
   })
 
-  it('still renders the standalone paused screen when no provider is mounted', async () => {
-    // Pausing between competencies: the provider has already been unpublished.
+  it('renders NO skip control — a competency must not be skippable', async () => {
+    const session = makeSession({ state: 'live' })
+    const wrapper = await mountPage(session)
+
+    const labels = wrapper.findAll('button').map((b) => b.text())
+    expect(labels.some((l) => l.includes('interview.live.skip'))).toBe(false)
+  })
+
+  it('renders progress from the server counts, never from a local list', async () => {
+    // The page used to hold `const competencies: string[] = []` and compare an
+    // index against its length. The server sends the numbers now.
+    const session = makeSession({ state: 'end_of_question', provider: null })
+    session.endedCompetencies.value = 2
+    session.totalCompetencies.value = 6
+    const wrapper = await mountPage(session)
+
+    expect(wrapper.text()).toContain('2')
+    expect(wrapper.text()).toContain('6')
+  })
+
+  it('the scheduled-pause screen carries no secondary Pause control', async () => {
+    // end_of_question IS the pause screen now. A Pause button on a pause screen
+    // is meaningless, and it was the only trigger for the removed edge.
+    const session = makeSession({ state: 'end_of_question', provider: null })
+    const wrapper = await mountPage(session)
+
+    const labels = wrapper.findAll('button').map((b) => b.text())
+    expect(labels.some((l) => l.includes('interview.live.pause'))).toBe(false)
+    expect(labels.some((l) => l.includes('interview.end_of_question.pause'))).toBe(false)
+  })
+
+  it('renders NO standalone paused screen — paused always implies a mounted avatar', async () => {
+    // `live` is the only entry to `paused` now, so the provider is always still
+    // published and the in-avatar panel is the only reachable resume control.
+    // This assertion is what makes deleting the standalone section safe: without
+    // it, removing dead markup could silently produce a blank screen with no way
+    // back — exactly the dead end v0.6.3 had to repair.
     const session = makeSession({ state: 'paused', provider: null })
     const wrapper = await mountPage(session)
 
-    const resumeButton = wrapper
+    const resume = wrapper
       .findAll('button')
       .find((b) => b.text().includes('interview.paused.resume'))
 
-    expect(resumeButton).toBeDefined()
+    expect(resume).toBeUndefined()
   })
-})
-
-describe('interview/session.vue — error/terminal → configurable error redirect', () => {
-  // useExitRedirect is fully mocked above (vi.mock), so these tests are the
-  // ONLY coverage of the integration point that actually fires the redirect:
-  // the watch handler wiring `session.state` + `errorRedirectUrl` to
-  // `redirectToError()`. useExitRedirect's own internal safety logic
-  // (https-only, well-formed, etc.) is covered separately in
-  // use-exit-redirect.spec.ts.
 
   it('tears down and redirects to the configured error page when state becomes `error`', async () => {
     const redirectToError = vi.fn(() => true)

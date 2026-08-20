@@ -41,7 +41,6 @@
     },
     "live": {
       "timer_label": "Tempo rimanente",
-      "skip": "Salta domanda",
       "pause": "Pausa"
     },
     "end_of_question": {
@@ -92,6 +91,11 @@
         "3": "Puoi mettere in pausa tra una domanda e l’altra, ma non puoi tornare su una risposta già data.",
         "4": "Alla fine non devi fare altro: il risultato viene inviato automaticamente a chi ti ha invitato."
       }
+    },
+    "scheduled_pause": {
+      "title": "Pausa",
+      "body": "Prenditi un momento. Quando sei pronto, riprendi il colloquio.",
+      "resume": "Riprendi il colloquio"
     }
   },
   "analytics_consent": {
