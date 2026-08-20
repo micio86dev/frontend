@@ -39,6 +39,7 @@ import { Window } from 'happy-dom'
 
 const MAIN_CSS_PATH = resolve(__dirname, '../../app/assets/css/main.css')
 const MAIN_CSS_DIR = resolve(__dirname, '../../app/assets/css')
+const SELECT_ITEM_PATH = resolve(__dirname, '../../app/components/ui/select/SelectItem.vue')
 
 /**
  * Tailwind v4 always wraps compiled output in `@layer <names>;` (a bare
@@ -202,6 +203,73 @@ describe('form control tokens match backoffice (D12, DESIGN.md §9/§17)', () =>
 // which would also include unrelated framework defaults), so a diff here means
 // someone touched a brand token, a bridged/omitted key, or a semantic mapping —
 // forcing an explicit, reviewed snapshot update rather than a silent drift.
+/**
+ * Relative luminance / contrast ratio, per the WCAG 2.x formula — a small,
+ * self-contained implementation so the select-highlight contrast requirement
+ * is asserted NUMERICALLY, not eyeballed. `#hex` input only, matching the
+ * theme tokens this file already works with. Mirrors
+ * `backoffice/tests/unit/theme.spec.ts`'s helper of the same name.
+ */
+function relativeLuminance(hex: string): number {
+  const normalized = hex.replace('#', '')
+  const channel = (start: number): number => {
+    const value = Number.parseInt(normalized.slice(start, start + 2), 16) / 255
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  }
+  const [r, g, b] = [channel(0), channel(2), channel(4)]
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+function contrastRatio(hexA: string, hexB: string): number {
+  const lA = relativeLuminance(hexA)
+  const lB = relativeLuminance(hexB)
+  const lighter = Math.max(lA, lB)
+  const darker = Math.min(lA, lB)
+  return (lighter + 0.05) / (darker + 0.05)
+}
+
+// CRITICAL fix (sdd-verify device-check-preview-and-device-selection report,
+// attack surface 6): `SelectItem.vue` shipped `focus:bg-accent-dark
+// focus:text-accent-foreground`. In this app's only theme (no dark-mode
+// toggle) `--accent-foreground` resolves to near-black (`oklch(0.205 0 0)`,
+// #171717), NOT white — DESIGN.md:702,913-917 (§16 rule 10) mandates white
+// text on `--color-accent-dark` for EVERY current and future
+// focus:/hover:/data-highlighted: select-highlight variant. Computed
+// contrast of #171717 on #b8431e is 3.29:1, failing the 4.5:1 AA minimum
+// for normal text. Reka-ui's `SelectItem` (node_modules/reka-ui/src/Select/
+// SelectItem.vue) drives `data-highlighted` from the SAME `isFocused` ref
+// as the native `focus`/`blur` DOM events — there is no separate
+// keyboard-navigation state to also check; `focus:` IS the highlighted
+// state here. Mirrors `backoffice/tests/unit/theme.spec.ts`'s identical
+// guard, which already passes against the correct `focus:text-white`.
+describe('select highlighted-option contrast (frontend, DESIGN.md §16 rule 10)', () => {
+  it('--color-accent-dark resolves to #b8431e', async () => {
+    const compiled = await compileForCandidates(['bg-accent-dark'])
+    expect(computedBackgroundColor(compiled, 'bg-accent-dark')).toBe('#b8431e')
+  })
+
+  it('white on --color-accent-dark measures >= 4.5:1 (numerically, not eyeballed)', () => {
+    expect(contrastRatio('#ffffff', '#b8431e')).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('the near-black --accent-foreground on --color-accent-dark measures BELOW 4.5:1 — the exact regression this requirement rejects', () => {
+    expect(contrastRatio('#171717', '#b8431e')).toBeLessThan(4.5)
+  })
+
+  it("SelectItem's highlighted-state classes pair --color-accent-dark with white text, never --accent-foreground", () => {
+    // Reka-ui's SelectItem requires a live SelectRoot context to mount at all
+    // — the class LIST is static source, not conditionally computed, so
+    // reading it directly is both simpler and avoids building a full Select
+    // tree just to inspect a string. Same technique as backoffice's guard.
+    const source = readFileSync(SELECT_ITEM_PATH, 'utf-8')
+
+    expect(source).toContain('focus:bg-accent-dark')
+    expect(source).toContain('focus:text-white')
+    expect(source).not.toMatch(/focus:bg-accent(?!-dark)\b/)
+    expect(source).not.toContain('focus:text-accent-foreground')
+  })
+})
+
 describe('brand theme token source (regression guard)', () => {
   const css = readFileSync(MAIN_CSS_PATH, 'utf-8')
 

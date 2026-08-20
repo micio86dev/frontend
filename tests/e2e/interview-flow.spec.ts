@@ -415,6 +415,56 @@ test.describe('Interview flow — E2E', () => {
       await checkA11y(page)
     })
 
+    // sdd-verify device-check-preview-and-device-selection CRITICAL finding,
+    // attack surface 6: the scan above only ever runs against the CLOSED
+    // dropdown's default state, so a `:focus`-only color-contrast violation
+    // (SelectItem.vue's highlighted option) was structurally invisible to it —
+    // axe-core evaluates real computed style, but nothing here ever gave an
+    // option actual DOM focus before scanning. This closes that gap generally
+    // (not just for the one class string that regressed): open the picker,
+    // move real keyboard focus onto an option — Reka-ui's SelectItem drives
+    // `data-highlighted` from the SAME native focus/blur event as `:focus`
+    // (verified in node_modules/reka-ui/src/Select/SelectItem.vue), so there
+    // is no separate keyboard-only state to also cover — then scan while the
+    // highlighted option is live in the DOM. Any future focus:/hover:/
+    // data-highlighted: variant that regresses contrast on this or any other
+    // select trips this, not only the one CSS class named in the report.
+    test('device picker highlighted option meets AA contrast when keyboard-focused', async ({
+      page,
+    }) => {
+      await page.goto(EN_INTERVIEW_URL)
+
+      await page.getByRole('button', { name: /accept and continue/i }).click()
+      await expect(page.getByRole('heading', { level: 2, name: /device check/i })).toBeVisible({
+        timeout: 5000,
+      })
+
+      const cameraPicker = page.getByTestId('camera-select-trigger')
+      await cameraPicker.click()
+
+      // Reka-ui auto-focuses the currently-selected item on open; ArrowDown
+      // additionally exercises the roving-focus keyboard path explicitly.
+      const option = page.getByRole('option').first()
+      await expect(option).toBeVisible()
+      await page.keyboard.press('ArrowDown')
+      await expect(option).toBeFocused()
+
+      // Scoped to the open listbox (`[data-slot="select-content"]`), not a
+      // full-page scan. During RED, a full-page scan against this exact
+      // sequence also surfaced a SEPARATE, pre-existing violation unrelated
+      // to this fix: `session.vue`'s outer `<main>` keeps a hardcoded
+      // `aria-label="Privacy Notice and Consent"` on every screen (not just
+      // the consent step), and reka-ui's listbox correctly aria-hides that
+      // `<main>` while open — except the trigger's own ancestor chain stays
+      // inside the hidden subtree, tripping `aria-hidden-focus`. That is a
+      // genuine, independent defect (flagged to the team, not fixed here —
+      // out of scope for this hotfix); scoping to the listbox keeps this
+      // regression test discriminating for the ONE thing it claims to
+      // guard — the highlighted option's contrast — without going RED on
+      // an unrelated finding it did not sign up to cover.
+      await checkA11y(page, '[data-slot="select-content"]')
+    })
+
     test('done screen shows after all competencies completed', async ({ page }) => {
       // Mock /start to return last competency (question_index+1 >= total)
       await page.route('**/api/candidate/interview/start', (route) => {
