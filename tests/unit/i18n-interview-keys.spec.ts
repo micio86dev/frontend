@@ -47,6 +47,12 @@ const REQUIRED_KEYS = [
   'interview.done.body',
   'interview.error.title',
   'interview.error.retry',
+  // participant-error-recovery D8 — must be true whether retry works
+  // (429-exhausted, ClientError->500 leaves the participant untouched) or is
+  // fatal (Upstream->errore): retry-now, and operator-must-reopen if the
+  // problem persists. Enforced structurally below (D-F pattern), not just by
+  // key presence.
+  'interview.error.body',
   'interview.terminal.403.title',
   'interview.terminal.403.body',
   'interview.terminal.absent_phrase.title',
@@ -100,6 +106,30 @@ describe('i18n interview flow keys', () => {
         const data = loadLocale(locale)
         const title = getNestedKey(data, 'interview.terminal.session_expired.title') as string
         expect(title).not.toMatch(linkWordPattern)
+      })
+    }
+  })
+
+  // ---------------------------------------------------------------------------
+  // participant-error-recovery D8: interview.error.body must NOT promise an
+  // UNCONDITIONAL resume. A ClientError/Throttle failure leaves the
+  // participant untouched (retry genuinely works), but an Upstream failure
+  // flips the participant to `errore` — recoverable only by an operator, not
+  // by retrying. Locale-specific because "resume" phrasing differs per
+  // language (unlike D-F's "link", which is the same word in both).
+  // ---------------------------------------------------------------------------
+
+  describe('interview.error.body never promises an unconditional resume (participant-error-recovery D8)', () => {
+    const resumePromisePattern: Record<string, RegExp> = {
+      it: /riprender|dal punto in cui/i,
+      en: /resume|where you left off/i,
+    }
+
+    for (const locale of locales) {
+      it(`${locale}.json — interview.error.body does not promise an unconditional resume`, () => {
+        const data = loadLocale(locale)
+        const body = getNestedKey(data, 'interview.error.body') as string
+        expect(body).not.toMatch(resumePromisePattern[locale])
       })
     }
   })

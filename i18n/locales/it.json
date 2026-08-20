@@ -49,7 +49,7 @@
     "error": {
       "title": "Si è verificato un errore",
       "retry": "Riprova",
-      "body": "Il colloquio non è stato interrotto. Riprova: riprenderai dal punto in cui eri."
+      "body": "Il colloquio è stato interrotto da un problema tecnico. Puoi riprovare ora. Se il problema persiste, sarà necessario che il team di selezione riapra la valutazione."
     },
     "terminal": {
       "403": {

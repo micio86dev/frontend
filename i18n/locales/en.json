@@ -49,7 +49,7 @@
     "error": {
       "title": "An error occurred",
       "retry": "Try Again",
-      "body": "Your interview has not been discarded. Try again and you will resume where you left off."
+      "body": "The interview was interrupted by a technical problem. You can try again now. If the problem persists, your assessment will need to be re-opened by the recruitment team."
     },
     "terminal": {
       "403": {
