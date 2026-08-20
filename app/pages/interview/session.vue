@@ -80,14 +80,12 @@
             @tick="questionRemaining = $event"
             @expired="onTimerExpired"
           />
-          <div class="flex gap-2">
-            <Button variant="outline" size="sm" @click="session.pause()">
-              {{ $t('interview.live.pause') }}
-            </Button>
-            <Button variant="ghost" size="sm" @click="skipQuestion">
-              {{ $t('interview.live.skip') }}
-            </Button>
-          </div>
+          <!-- No Skip control: a competency must not be skippable. The timer is
+               the only client-side early end, so a question cannot hang the
+               session while the candidate cannot opt out of one. -->
+          <Button variant="outline" size="sm" @click="session.pause()">
+            {{ $t('interview.live.pause') }}
+          </Button>
         </div>
 
         <!-- Invisible proctoring overlay -->
@@ -131,35 +129,31 @@
       aria-labelledby="end-of-question-heading"
     >
       <h1 id="end-of-question-heading" class="text-2xl font-semibold text-foreground">
-        {{ $t('interview.end_of_question.title') }}
+        {{ $t('interview.scheduled_pause.title') }}
       </h1>
+      <p class="text-sm text-muted-foreground">{{ $t('interview.scheduled_pause.body') }}</p>
+      <!-- Progress comes from the server (D6/D7). The page used to compare an
+           index against a local array it never filled, which is why every
+           interview believed it was over after one question. -->
       <InterviewProgressBar
-        :current="(session.currentCompetencyIndex.value ?? 0) + 1"
-        :total="competencies.length"
+        :current="session.endedCompetencies.value ?? 0"
+        :total="session.totalCompetencies.value ?? 0"
       />
-      <div class="flex gap-3">
-        <Button @click="onNextCompetency">
-          {{ $t('interview.end_of_question.next') }}
-        </Button>
-        <Button variant="outline" @click="session.pause()">
-          {{ $t('interview.end_of_question.pause') }}
-        </Button>
-      </div>
-    </section>
-
-    <!-- Paused screen -->
-    <section
-      v-else-if="session.state.value === 'paused'"
-      class="flex max-w-lg flex-col gap-6 rounded-xl border border-border bg-card p-8 shadow-md"
-      aria-labelledby="paused-heading"
-    >
-      <h1 id="paused-heading" class="text-2xl font-semibold text-foreground">
-        {{ $t('interview.paused.title') }}
-      </h1>
-      <Button @click="session.resume()">
-        {{ $t('interview.paused.resume') }}
+      <p class="text-sm text-muted-foreground">
+        {{ session.endedCompetencies.value ?? 0 }} / {{ session.totalCompetencies.value ?? 0 }}
+      </p>
+      <!-- One control only. This screen IS the pause, so a secondary Pause
+           button on it would be meaningless. -->
+      <Button @click="onNextCompetency">
+        {{ $t('interview.scheduled_pause.resume') }}
       </Button>
     </section>
+
+    <!-- The standalone `paused` section lived here. It is gone: `live` is the
+         only entry to `paused` now, so `paused` implies `avatarMounted` and the
+         in-avatar panel above is the only reachable one. Leaving this would have
+         left a second, unreachable resume control for a future reader to wire
+         back up. The invariant is pinned by a unit test. -->
 
     <!-- Done screen -->
     <section
@@ -306,12 +300,6 @@ useHead({
 // Config
 // ---------------------------------------------------------------------------
 
-// In production, competency list comes from the C6 bootstrap endpoint.
-// For now, useInterviewSession is initialized with an empty list;
-// the composable handles last-competency detection internally when /start
-// returns question_context.question_index vs total.
-const competencies: string[] = []
-
 // ---------------------------------------------------------------------------
 // Session state machine
 // ---------------------------------------------------------------------------
@@ -326,7 +314,6 @@ const pendingIntegrityEvents = ref<IntegrityEventInternal[]>([])
 let acknowledgeIntegrityEvents: ((acknowledged: IntegrityEventInternal[]) => void) | null = null
 
 const session = useInterviewSession({
-  competencies,
   getPendingIntegrityEvents: () => pendingIntegrityEvents.value,
   onIntegrityEventsFlushed: (flushed) => {
     acknowledgeIntegrityEvents?.(flushed)
@@ -478,10 +465,6 @@ function onProviderError(): void {}
 // local stub with an empty body, so the 5-minute timer and the Skip button did nothing.
 async function onTimerExpired(): Promise<void> {
   await session.endQuestion('timeout')
-}
-
-async function skipQuestion(): Promise<void> {
-  await session.endQuestion('skipped')
 }
 
 // ---------------------------------------------------------------------------
