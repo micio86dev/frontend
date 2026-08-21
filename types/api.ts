@@ -1509,6 +1509,10 @@ export interface components {
             ended_reason: string | null;
             started_at: string | null;
             ended_at: string | null;
+            /**
+             * @description (interview-session-started-at, D3) Accumulated LIVE time, never
+             *     the wall-clock span. The caller MUST eager-load `livePeriods`.
+             */
             duration_seconds: number | null;
             integrity: {
                 score: number;
@@ -1553,7 +1557,7 @@ export interface components {
             ended_reason: string | null;
             started_at: string | null;
             ended_at: string | null;
-            duration_seconds: string | null;
+            duration_seconds: number | null;
             integrity_event_count: string | 0;
         };
         /**
