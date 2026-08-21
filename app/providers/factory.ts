@@ -61,15 +61,26 @@ export function createProvider(name: ProviderName, mock: boolean): InterviewProv
  * at runtime — keeping the production bundle clean. The E2E fixture's
  * MockInterviewProvider class is used when wired through Playwright; this inline
  * mock is used in unit tests where the factory itself is under test.
+ *
+ * `start()`'s `mountEl` param is the REAL <video> element AvatarPlayer mounts
+ * against. It is used ONLY to dispatch a synthetic `loadeddata` so
+ * AvatarPlayer's D6 paint-detection fires deterministically under test — the
+ * mock never attaches a real media stream. `holdPainted()`/`releasePainted()`
+ * defer that dispatch so a test can drive the invisible-competency-handover
+ * bound (10s) and crossfade paths deterministically instead of racing them.
  */
 function createMockProvider(): InterviewProvider & {
   emitEndPhrase: () => void
   emitFinalPhrase: () => void
   emitToolCall: () => void
+  holdPainted: () => void
+  releasePainted: () => void
 } {
   type CB = (payload: unknown) => void
   const listeners = new Map<string, CB[]>()
   let storedCfg: { endPhrase?: string; finalPhrase?: string } | null = null
+  let held = false
+  let pendingMountEl: HTMLElement | null = null
 
   function emit(evt: string, payload: unknown) {
     for (const cb of listeners.get(evt) ?? []) cb(payload)
@@ -79,18 +90,26 @@ function createMockProvider(): InterviewProvider & {
     emit('state', state)
   }
 
+  function dispatchLoadedData() {
+    if (pendingMountEl && typeof pendingMountEl.dispatchEvent === 'function') {
+      pendingMountEl.dispatchEvent(new Event('loadeddata'))
+    }
+  }
+
   return {
     on(evt: string, cb: CB) {
       listeners.set(evt, [...(listeners.get(evt) ?? []), cb])
     },
     async start(
-      _mountEl: HTMLElement,
+      mountEl: HTMLElement,
       cfg: { endPhrase: string; finalPhrase: string; dbSessionId: number }
     ) {
       storedCfg = { endPhrase: cfg.endPhrase, finalPhrase: cfg.finalPhrase }
+      pendingMountEl = mountEl
       emitState('connecting')
       emitState('ready')
       emitState('listening')
+      if (!held) dispatchLoadedData()
       return { providerSessionId: 'mock-session-id' }
     },
     async toggleMic() {},
@@ -114,6 +133,15 @@ function createMockProvider(): InterviewProvider & {
     emitToolCall() {
       emitState('complete')
     },
+    /** Defers the synthetic `loadeddata` this mock would otherwise dispatch from `start()`. */
+    holdPainted() {
+      held = true
+    },
+    /** Releases a held paint and dispatches it immediately, if `start()` already ran. */
+    releasePainted() {
+      held = false
+      dispatchLoadedData()
+    },
   }
 }
 
@@ -128,10 +156,35 @@ function createMockProvider(): InterviewProvider & {
  * on the already-mock-gated path (`NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK === 'true'`,
  * itself never set outside test builds) — no new production code path, no change
  * to any existing mock behavior.
+ *
+ * invisible-competency-handover (F4): during a HeyGen handover TWO mock
+ * instances exist at once (outgoing + incoming). `__mockInterviewProvider`
+ * keeps pointing at the NEWEST one (backward-compatible with every existing
+ * E2E spec that reads it), and `__mockInterviewProviders` is a growing
+ * registry a handover-aware spec can index into (`[0]` = outgoing, `[1]` =
+ * incoming) to drive each session independently.
  */
 function exposeMockProviderForE2E(
-  provider: InterviewProvider & { emitEndPhrase: () => void; emitFinalPhrase: () => void }
+  provider: InterviewProvider & {
+    emitEndPhrase: () => void
+    emitFinalPhrase: () => void
+    holdPainted?: () => void
+  }
 ): void {
   if (typeof window === 'undefined') return
-  ;(window as unknown as Record<string, unknown>).__mockInterviewProvider = provider
+  const win = window as unknown as Record<string, unknown>
+  const registry = (win.__mockInterviewProviders as unknown[] | undefined) ?? []
+  registry.push(provider)
+  win.__mockInterviewProviders = registry
+  win.__mockInterviewProvider = provider
+
+  // invisible-competency-handover (D5 bound test support): a Playwright spec
+  // sets `window.__mockInterviewAutoHoldPaint = true` BEFORE driving the
+  // handover, so the incoming's paint is held from the instant its mock is
+  // CREATED — not from whenever a test's own polling happens to notice the
+  // registry grew, which races `AvatarPlayer.onMounted()` calling `start()`
+  // (and dispatching the synthetic `loadeddata`) on the very same tick.
+  if (win.__mockInterviewAutoHoldPaint === true) {
+    provider.holdPainted?.()
+  }
 }
