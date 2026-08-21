@@ -3,6 +3,50 @@
     class="flex min-h-screen flex-col items-center justify-center bg-background p-4"
     :aria-label="$t('interview.consent.title')"
   >
+    <!--
+      Player mount layer (invisible-competency-handover D3/D5/D6) — ALWAYS
+      rendered whenever `session.players` is non-empty, entirely independent
+      of which "screen" below is currently showing. This is what makes the
+      exactly-once teardown guarantee structural: a `ProviderSession` is
+      rendered by exactly ONE keyed `<AvatarPlayer>` instance for its ENTIRE
+      lifetime, from publication to release, and is NEVER re-parented into a
+      different part of the template — Vue only unmounts (and therefore
+      `stop()`s, AvatarPlayer:onUnmounted) a session when it actually drops
+      out of `session.players`, never as a side effect of an unrelated
+      state-branch switch (e.g. the bound-exceeded fallback below, where the
+      LIVE slot releases but a hidden `incoming` must survive to be promoted
+      once it paints).
+
+      `hasLivePlayer` collapses this to zero visual footprint (`sr-only`)
+      whenever there is no `live`-role player yet — the bound-exceeded
+      fallback's hidden incoming session connects invisibly behind whichever
+      screen (the transition-panel) is showing.
+
+      Rendered from ONE keyed v-for (D6): two separate elements would each
+      unmount independently and `stop()` the session that just won a
+      handover the moment it is promoted.
+    -->
+    <div
+      v-if="session.players.value.length > 0"
+      class="relative mx-auto w-full max-w-3xl overflow-hidden rounded-xl shadow-avatar"
+      :class="hasLivePlayer ? '' : 'sr-only'"
+    >
+      <template v-for="p in session.players.value" :key="p.key">
+        <ClientOnly>
+          <AvatarPlayer
+            :provider="p.provider"
+            :config="p.config"
+            :muted="p.muted"
+            :class="p.role === 'live' ? '' : 'absolute inset-0'"
+            @state="onProviderState"
+            @transcript="onTranscriptFromPlayer(p.role, $event)"
+            @error="onProviderError"
+            @painted="session.notifyPainted(p.key)"
+          />
+        </ClientOnly>
+      </template>
+    </div>
+
     <!-- Consent screen -->
     <section
       v-if="session.state.value === 'idle'"
@@ -86,17 +130,13 @@
       class="flex w-full max-w-3xl flex-col gap-4"
       aria-label="Live interview"
     >
-      <div class="relative w-full rounded-xl overflow-hidden shadow-avatar">
-        <ClientOnly v-if="avatarProvider && avatarConfig">
-          <AvatarPlayer
-            :provider="avatarProvider"
-            :config="avatarConfig"
-            @state="onProviderState"
-            @transcript="onTranscript"
-            @error="onProviderError"
-          />
-        </ClientOnly>
-      </div>
+      <!--
+        The <AvatarPlayer> instance(s) themselves render from the persistent
+        player mount layer above `<main>`'s exclusive chain, not here — see
+        that block's comment (invisible-competency-handover D3/D5/D6). This
+        section owns only the surrounding chrome: timer, caption, pause,
+        proctoring, and the paused panel.
+      -->
 
       <template v-if="session.state.value === 'live'">
         <InterviewCaption :text="currentCaption" />
@@ -109,8 +149,18 @@
           />
           <!-- No Skip control: a competency must not be skippable. The timer is
                the only client-side early end, so a question cannot hang the
-               session while the candidate cannot opt out of one. -->
-          <Button variant="outline" size="sm" @click="session.pause()">
+               session while the candidate cannot opt out of one.
+
+               invisible-competency-handover D2: DISABLED (never hidden) while
+               a HeyGen handover is in flight. Hiding it is itself a visible
+               break; an enabled-but-inert button is the defect the live
+               pause was fixed for. -->
+          <Button
+            variant="outline"
+            size="sm"
+            :disabled="session.handoverInFlight.value"
+            @click="session.pause()"
+          >
             {{ $t('interview.live.pause') }}
           </Button>
         </div>
@@ -291,6 +341,7 @@
  */
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useInterviewSession } from '~/composables/useInterviewSession'
+import type { HandoverRole } from '~/composables/useInterviewSession'
 import { useExitRedirect } from '~/composables/useExitRedirect'
 import { Button } from '~/components/ui/button'
 import { Alert, AlertTitle } from '~/components/ui/alert'
@@ -366,8 +417,11 @@ onMounted(() => {
 watch([() => session.state.value, exitRedirect.exitRedirectUrl], async ([currentState, url]) => {
   if (currentState === 'done' && url) {
     // Flush pending integrity events / stop the provider before navigating
-    // away — precedent: the unsupported-gate resize handler at
-    // useInterviewSession.ts:130-158 (flush-then-stop-then-navigate).
+    // away — precedent: the unsupported-gate resize handler, the
+    // `resizeListener` closure built inside `attachResizeListener()` in
+    // useInterviewSession.ts (flush-then-stop-then-navigate). Referenced
+    // symbolically, not by line number: this diff already pushed one stale
+    // line-number citation out of date once.
     await session.teardown()
     exitRedirect.redirect()
   }
@@ -448,6 +502,15 @@ const avatarConfig = computed(() => session.activeConfig.value)
 const avatarMounted = computed(() => avatarProvider.value !== null && avatarConfig.value !== null)
 
 /**
+ * invisible-competency-handover D6 — whether the player mount layer has a
+ * `live`-role entry right now. While false (only a hidden `incoming`
+ * survives, e.g. the D5 bound-exceeded fallback), the layer collapses to
+ * `sr-only` so it never visually competes with whichever screen (the
+ * transition-panel) is showing underneath it.
+ */
+const hasLivePlayer = computed(() => session.players.value.some((p) => p.role === 'live'))
+
+/**
  * True once at least one competency has ended (D12).
  *
  * Read from the server tally rather than a local flag: `endedCompetencies` is
@@ -489,6 +552,17 @@ function onProviderState(): void {}
 
 function onTranscript(entry: { text: string }): void {
   currentCaption.value = entry.text
+}
+
+/**
+ * invisible-competency-handover D2 — the caption reflects whichever player
+ * is `live`. A hidden `incoming` session (still connecting behind the
+ * scenes, or newly promoted a beat before the page re-renders) has not been
+ * asked a question and must never overwrite the caption the candidate is
+ * currently reading.
+ */
+function onTranscriptFromPlayer(role: HandoverRole, entry: { text: string }): void {
+  if (role === 'live') onTranscript(entry)
 }
 
 // Provider errors are handled by the session machine via provider.on('error')

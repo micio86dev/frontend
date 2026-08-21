@@ -109,10 +109,35 @@ function createMockProvider() {
 
 let currentMockProvider: ReturnType<typeof createMockProvider>
 
-// Wire mockCreateProvider to always return the current mock provider
-// (currentMockProvider is set fresh in beforeEach, but the factory mock
-//  must reference it at call time — so we use a wrapper)
-mockCreateProvider.mockImplementation(() => currentMockProvider)
+/**
+ * F4 fix — the harness prerequisite this whole change is blocked on.
+ *
+ * `mockCreateProvider` used to return the SAME `currentMockProvider` object
+ * for every `createProvider()` call within a test (it was created once, in
+ * beforeEach, before any session code ran). Under a single-session model
+ * that was invisible: `useInterviewSession` only ever called `createProvider()`
+ * once per test. Under the handover, it is called TWICE in the same test (the
+ * outgoing, then the incoming) — and with the old wiring, "outgoing" and
+ * "incoming" were literally `.toBe()` the same object, so no assertion about
+ * event identity (D2) could ever fail for the right reason.
+ *
+ * Every call now mints a FRESH mock instance and appends it to
+ * `mockProviderRegistry`, in creation order — `mockProviderRegistry[0]` is
+ * always the outgoing handle, `[1]` the incoming. `currentMockProvider` keeps
+ * tracking "the most recently created" one, so every EXISTING single-session
+ * test in this file (which only ever calls `createProvider()` once) is
+ * unaffected.
+ */
+let mockProviderRegistry: ReturnType<typeof createMockProvider>[] = []
+
+function registerFreshMockProvider() {
+  const instance = createMockProvider()
+  mockProviderRegistry.push(instance)
+  currentMockProvider = instance
+  return instance
+}
+
+mockCreateProvider.mockImplementation(() => registerFreshMockProvider())
 
 // Mock navigateTo
 const mockNavigateTo = vi.fn()
@@ -129,10 +154,11 @@ function makeStartResponse(
     final_phrase?: string
     competency_code?: string
     provider?: string
+    session_id?: string
   } = {}
 ) {
   return {
-    session_id: '42',
+    session_id: overrides.session_id ?? '42',
     provider: overrides.provider ?? 'heygen',
     provider_token: 'tok-123',
     conversation_url: null,
@@ -176,9 +202,10 @@ beforeEach(() => {
   // each one an off-by-one against its neighbour's fixture.
   mockCandidateFetch.mockReset()
   vi.useFakeTimers()
-  currentMockProvider = createMockProvider()
-  // Re-wire after clearAllMocks (which resets mockImplementation)
-  mockCreateProvider.mockImplementation(() => currentMockProvider)
+  mockProviderRegistry = []
+  // Re-wire after clearAllMocks (which resets mockImplementation) — see the
+  // F4 comment above registerFreshMockProvider().
+  mockCreateProvider.mockImplementation(() => registerFreshMockProvider())
   mockNavigateTo.mockReset()
 
   // Re-stub navigateTo (afterEach calls vi.unstubAllGlobals, so we must re-stub each time)
@@ -242,6 +269,37 @@ async function createLiveSession(
   await nextTick()
 
   return session
+}
+
+/**
+ * Both sessions healthy and live at once — the common overlap window.
+ *
+ * Module-scoped (not local to a single describe block) — several
+ * post-review-restructuring suites (observability, B2, M1) need the same
+ * "two healthy sessions overlapping" fixture the original D2 event-identity
+ * suite established.
+ */
+async function beginHealthyHeyGenOverlap() {
+  const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+  const outgoing = mockProviderRegistry[0]!
+
+  mockCandidateFetch.mockResolvedValueOnce({
+    ended_competencies: 1,
+    total_competencies: 3,
+    next_action: 'continue',
+  })
+  // A DISTINCT session_id from the outgoing's (42) — a test that reused
+  // the same id for both would pass even with the contamination bug,
+  // since "wrong" and "right" would be indistinguishable numbers.
+  mockCandidateFetch.mockResolvedValueOnce(
+    makeStartResponse({ question_index: '1', provider: 'heygen', session_id: '99' })
+  )
+
+  outgoing._emit('state', 'complete')
+  await flushPromises()
+
+  const incoming = mockProviderRegistry[1]!
+  return { session, outgoing, incoming }
 }
 
 // ---------------------------------------------------------------------------
@@ -929,20 +987,37 @@ describe('useInterviewSession', () => {
     // so `0 >= 0` was true and every interview ended after one question. The
     // server now says what happens next and this composable obeys it.
 
-    it('next_action=continue starts the next competency with no screen in between', async () => {
+    it('next_action=continue on HeyGen starts the next competency with NO screen in between (invisible-competency-handover D2)', async () => {
+      // Superseded by invisible-competency-handover: the OLD assertion here
+      // was `state === 'connecting'` — the exact D12 gap this change closes.
+      // Strictly stronger replacement: the machine now stays `live` through
+      // the whole handover (D2) AND a second, DISTINCT provider session was
+      // genuinely requested for the next competency — never absence alone,
+      // which would pass just as happily on a machine that silently dropped
+      // the next competency altogether.
       const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const outgoing = mockProviderRegistry[0]!
 
       mockCandidateFetch.mockResolvedValueOnce({
         ended_competencies: 1,
         total_competencies: 3,
         next_action: 'continue',
       })
-      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ question_index: '1' }))
+      mockCandidateFetch.mockResolvedValueOnce(
+        makeStartResponse({ question_index: '1', provider: 'heygen' })
+      )
 
       currentMockProvider._emit('state', 'complete')
       await flushPromises()
 
-      expect(session.state.value).toBe('connecting')
+      expect(session.state.value).toBe('live')
+      const startCalls = mockCandidateFetch.mock.calls.filter(
+        (c) => c[0] === '/candidate/interview/start'
+      )
+      expect(startCalls.length).toBe(2)
+      expect(mockProviderRegistry.length).toBe(2)
+      const incoming = mockProviderRegistry[1]!
+      expect(incoming).not.toBe(outgoing)
     })
 
     it('next_action=pause shows the scheduled-pause screen and calls no /start', async () => {
@@ -1086,6 +1161,649 @@ describe('useInterviewSession', () => {
       session.resume()
       await flushPromises()
 
+      expect(session.state.value).toBe('live')
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // invisible-competency-handover — D2 event identity (the crux)
+  //
+  // Two `ProviderSession` handles can be live at once during a HeyGen
+  // handover. Today's handlers used to read shared module state, so a
+  // SECOND live session did not merely overlap — it corrupted: an outgoing
+  // `ready` could flip the machine live with no avatar on screen, an
+  // outgoing `transcript` could post against the INCOMING's dbSessionId
+  // (the exact data-loss shape repaired in api v0.26.4), and an outgoing
+  // `error` could kill a healthy incoming session. Every handler below
+  // resolves by IDENTITY instead (`handle === activeSession.value` /
+  // `=== incomingSession.value`).
+  //
+  // Both helpers below depend on the F4 harness fix above: `mockProviderRegistry`
+  // must hold two DISTINCT provider objects (outgoing at [0], incoming at
+  // [1]) for any of this to be meaningful.
+  // ---------------------------------------------------------------------------
+
+  describe('invisible-competency-handover — D2 event identity (the crux)', () => {
+    /** The incoming's own /start never resolves — the 10s bound fires and releases the outgoing. */
+    async function beginStalledHeyGenOverlap() {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const outgoing = mockProviderRegistry[0]!
+
+      mockCandidateFetch.mockResolvedValueOnce({
+        ended_competencies: 1,
+        total_competencies: 3,
+        next_action: 'continue',
+      })
+      mockCandidateFetch.mockImplementationOnce(() => new Promise(() => undefined))
+
+      outgoing._emit('state', 'complete')
+      await flushPromises()
+
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      return { session, outgoing }
+    }
+
+    it('1.1 RED — a stray `ready` from the RELEASED outgoing, after the bound fires, does NOT flip state back to `live`', async () => {
+      const { session, outgoing } = await beginStalledHeyGenOverlap()
+      expect(session.state.value).toBe('connecting')
+
+      // The outgoing's listeners are never unsubscribed — a late/queued SDK
+      // event can still arrive after release. Under shared-state resolution
+      // this flips state to `live` with no avatar actually on screen (F1).
+      outgoing._emit('state', 'ready')
+      await flushPromises()
+
+      expect(session.state.value).toBe('connecting')
+    })
+
+    it("1.2 RED — an outgoing transcript mid-overlap posts against the OUTGOING dbSessionId, never the incoming's", async () => {
+      const { outgoing } = await beginHealthyHeyGenOverlap()
+
+      mockCandidateFetch.mockResolvedValueOnce(undefined) // /utterance 202
+
+      outgoing._emit('transcript', { role: 'avatar', text: 'still finishing up', ts: Date.now() })
+      await flushPromises()
+
+      const utteranceCall = mockCandidateFetch.mock.calls.find(
+        (c) => c[0] === '/candidate/interview/utterance'
+      )
+      expect(utteranceCall).toBeDefined()
+      // 42 is the OUTGOING's dbSessionId — makeStartResponse()'s default session_id.
+      // The incoming's /start in beginHealthyHeyGenOverlap() resolves with a
+      // DIFFERENT session_id from a fresh makeStartResponse() call, so a
+      // contaminated post would read something other than 42.
+      expect((utteranceCall![1] as { body: { session_id: number } }).body.session_id).toBe(42)
+    })
+
+    it('1.3 RED — an outgoing error mid-overlap does NOT kill the healthy incoming session', async () => {
+      const { session, outgoing } = await beginHealthyHeyGenOverlap()
+
+      outgoing._emit('error', { code: 'sdk_error', message: 'connection lost' })
+      await flushPromises()
+
+      // Falls to the SAME fallback the bound timer uses — "what we were
+      // holding open is already gone" — never the terminal `error` screen
+      // while a healthy incoming exists.
+      expect(session.state.value).not.toBe('error')
+      expect(session.state.value).toBe('connecting')
+    })
+
+    it('1.6 — endQuestion() is refused while a handover is in flight (incomingSession !== null)', async () => {
+      const { session } = await beginHealthyHeyGenOverlap()
+      const callsBefore = mockCandidateFetch.mock.calls.length
+
+      await session.endQuestion('timeout')
+
+      expect(mockCandidateFetch.mock.calls.length).toBe(callsBefore)
+      expect(session.state.value).toBe('live')
+    })
+
+    it('1.7 — pause() is refused while a handover is in flight; handoverInFlight is true for the :disabled binding', async () => {
+      const { session } = await beginHealthyHeyGenOverlap()
+
+      expect(session.handoverInFlight.value).toBe(true)
+      session.pause()
+      await nextTick()
+
+      expect(session.state.value).toBe('live') // never entered `paused`
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Four-lens review "also fix" — the `noop` (409) branch's `endHandover()`
+  // was asserted only by the absence of a different symptom, never directly
+  // and never across time. This advances timers and proves the bound does
+  // NOT fire on a healthy live session after the /end race is lost.
+  // ---------------------------------------------------------------------------
+
+  describe('invisible-competency-handover — the noop (409) branch genuinely cancels the bound, across time', () => {
+    it('409 on the handover /end → the bound timer is cancelled; advancing 10s+ does NOT release the outgoing or touch state', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const outgoing = mockProviderRegistry[0]!
+
+      mockCandidateFetch.mockRejectedValueOnce({ status: 409 })
+
+      outgoing._emit('state', 'complete')
+      await flushPromises()
+
+      expect(session.state.value).toBe('live')
+
+      // If the bound were still armed, this is where it would fire.
+      await vi.advanceTimersByTimeAsync(15_000)
+      await flushPromises()
+
+      expect(session.state.value).toBe('live')
+      expect(outgoing._stopMock).not.toHaveBeenCalled()
+      expect(session.activeProvider.value).toBe(outgoing)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Four-lens review "also fix" — none of the five `target === 'incoming'`
+  // failure branches in `startSession()` were exercised. Dropping any ONE
+  // guard turns "next competency failed to connect" into a candidate-facing
+  // terminal screen mid-interview.
+  // ---------------------------------------------------------------------------
+
+  describe('invisible-competency-handover — the five target==="incoming" /start failure branches', () => {
+    async function beginHealthyOverlapPendingIncomingStart() {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const outgoing = mockProviderRegistry[0]!
+      mockCandidateFetch.mockResolvedValueOnce({
+        ended_competencies: 1,
+        total_competencies: 3,
+        next_action: 'continue',
+      })
+      return { session, outgoing }
+    }
+
+    it('malformed /start response for the incoming → abandoned, outgoing stays live, bound still governs (mid-overlap)', async () => {
+      const { session, outgoing } = await beginHealthyOverlapPendingIncomingStart()
+      mockCandidateFetch.mockResolvedValueOnce({ session_id: '99' }) // malformed
+
+      outgoing._emit('state', 'complete')
+      await flushPromises()
+
+      // Mid-overlap: the outgoing is untouched, still governed by the bound.
+      expect(session.state.value).toBe('live')
+      expect(outgoing._stopMock).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(10_000)
+      await flushPromises()
+      // The bound's own release (`releaseOutgoing`) is structural: it clears
+      // the live slot and Vue's own AvatarPlayer unmount is what calls
+      // `stop()` (D3) — this composable-only harness renders no component,
+      // so the STOP guarantee itself is proven at the DOM level instead, by
+      // interview-handover.spec.ts's 2.5. What this level CAN prove is that
+      // the slot itself was actually released.
+      expect(session.state.value).toBe('connecting')
+      expect(session.activeProvider.value).toBeNull()
+    })
+
+    it('401 (CandidateUnauthorizedError) on the incoming /start → terminal with session_expired, both slots cleared', async () => {
+      const { session, outgoing } = await beginHealthyOverlapPendingIncomingStart()
+      mockCandidateFetch.mockRejectedValueOnce(new MockCandidateUnauthorizedError())
+
+      outgoing._emit('state', 'complete')
+      await flushPromises()
+
+      expect(session.state.value).toBe('terminal')
+      expect(session.terminalReason.value).toBe('session_expired')
+      expect(session.activeProvider.value).toBeNull()
+    })
+
+    it('403 on the incoming /start → terminal with reason 403, both slots cleared', async () => {
+      const { session, outgoing } = await beginHealthyOverlapPendingIncomingStart()
+      mockCandidateFetch.mockRejectedValueOnce(makeFetchError(403))
+
+      outgoing._emit('state', 'complete')
+      await flushPromises()
+
+      expect(session.state.value).toBe('terminal')
+      expect(session.terminalReason.value).toBe('403')
+      expect(session.activeProvider.value).toBeNull()
+    })
+
+    it('429 on the incoming /start exhausts all 3 attempts → abandoned, outgoing stays live mid-overlap, bound still governs', async () => {
+      const { session, outgoing } = await beginHealthyOverlapPendingIncomingStart()
+      mockCandidateFetch
+        .mockRejectedValueOnce(makeFetchError(429))
+        .mockRejectedValueOnce(makeFetchError(429))
+        .mockRejectedValueOnce(makeFetchError(429))
+
+      outgoing._emit('state', 'complete')
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(3000)
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(3000)
+      await flushPromises()
+
+      // Still mid-overlap (< 10s bound): the outgoing is untouched.
+      expect(session.state.value).toBe('live')
+      expect(outgoing._stopMock).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(4001) // total > 10s from complete
+      await flushPromises()
+      expect(session.state.value).toBe('connecting')
+    })
+
+    it('502 (generic error) on the incoming /start → abandoned, outgoing stays live mid-overlap, bound still governs', async () => {
+      const { session, outgoing } = await beginHealthyOverlapPendingIncomingStart()
+      mockCandidateFetch.mockRejectedValueOnce(makeFetchError(502))
+
+      outgoing._emit('state', 'complete')
+      await flushPromises()
+
+      expect(session.state.value).toBe('live')
+      expect(outgoing._stopMock).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(10_000)
+      await flushPromises()
+      expect(session.state.value).toBe('connecting')
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Four-lens review "also fix" — observability. Every degrade path is
+  // deliberately non-throwing, so nothing recorded it happening. Assert by
+  // CONTENT (event name + detail), never by incidental call count.
+  // ---------------------------------------------------------------------------
+
+  describe('invisible-competency-handover — observability breadcrumbs on every degrade path', () => {
+    it('logs a structured breadcrumb when the bound fires', async () => {
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const outgoing = mockProviderRegistry[0]!
+      mockCandidateFetch.mockImplementationOnce(() => new Promise(() => undefined))
+
+      outgoing._emit('state', 'complete')
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(10_000)
+      await flushPromises()
+
+      expect(session.state.value).toBe('connecting')
+      expect(infoSpy).toHaveBeenCalledWith(
+        '[handover] outgoing-released',
+        expect.objectContaining({ reason: 'bound' })
+      )
+      infoSpy.mockRestore()
+    })
+
+    it('logs a structured breadcrumb when the incoming is released (error mid-overlap)', async () => {
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
+      const { incoming } = await beginHealthyHeyGenOverlap()
+
+      incoming._emit('error', { code: 'sdk_error', message: 'incoming failed' })
+      await flushPromises()
+
+      expect(infoSpy).toHaveBeenCalledWith('[handover] incoming-released', expect.any(Object))
+      infoSpy.mockRestore()
+    })
+
+    it('logs a structured breadcrumb when the connecting-ceiling gives up', async () => {
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const outgoing = mockProviderRegistry[0]!
+      mockCandidateFetch.mockImplementationOnce(() => new Promise(() => undefined))
+
+      outgoing._emit('state', 'complete')
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(10_000)
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(20_000)
+      await flushPromises()
+
+      expect(session.state.value).toBe('error')
+      expect(infoSpy).toHaveBeenCalledWith(
+        '[handover] connecting-ceiling-exceeded',
+        expect.any(Object)
+      )
+      infoSpy.mockRestore()
+    })
+
+    it('logs a structured breadcrumb when an incoming /start attempt is abandoned', async () => {
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
+      await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const outgoing = mockProviderRegistry[0]!
+      mockCandidateFetch.mockResolvedValueOnce({
+        ended_competencies: 1,
+        total_competencies: 3,
+        next_action: 'continue',
+      })
+      mockCandidateFetch.mockRejectedValueOnce(makeFetchError(502))
+
+      outgoing._emit('state', 'complete')
+      await flushPromises()
+
+      expect(infoSpy).toHaveBeenCalledWith(
+        '[handover] incoming-attempt-abandoned',
+        expect.any(Object)
+      )
+      infoSpy.mockRestore()
+    })
+
+    it('logs a structured breadcrumb when a promote is raced by the outgoing dying mid-crossfade (C1)', async () => {
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const outgoing = mockProviderRegistry[0]!
+      mockCandidateFetch.mockResolvedValueOnce({
+        ended_competencies: 1,
+        total_competencies: 3,
+        next_action: 'continue',
+      })
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: '99' }))
+
+      outgoing._emit('state', 'complete')
+      await flushPromises()
+      session.notifyPainted(99)
+      await nextTick()
+      outgoing._emit('error', { code: 'sdk_error', message: 'connection lost' })
+      await flushPromises()
+
+      expect(infoSpy).toHaveBeenCalledWith(
+        '[handover] promote-raced-outgoing-death',
+        expect.any(Object)
+      )
+      infoSpy.mockRestore()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Four-lens review B2 — endQuestion()/pause() guard the WHOLE handover
+  // window, not just the window after `incomingSession` is populated.
+  //
+  // `beginHandover()` mutes the outgoing and arms the bound BEFORE `/end` is
+  // even dispatched, and `incomingSession` is only populated several round
+  // trips later (after `/end` resolves `continue` AND the incoming `/start`
+  // resolves). The OLD guard (`incomingSession.value !== null`) was open for
+  // that whole window — a per-question timer landing there raced a second
+  // `/end` against a session that was still the rendered live player.
+  // ---------------------------------------------------------------------------
+
+  describe('invisible-competency-handover — B2: guards close the WHOLE handover window', () => {
+    /** Captures the exact window: complete handled, /end dispatched, still pending. */
+    async function beginHandoverWithEndPending() {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const outgoing = mockProviderRegistry[0]!
+      mockCandidateFetch.mockImplementationOnce(() => new Promise(() => undefined))
+
+      outgoing._emit('state', 'complete')
+      // Deliberately NOT awaiting flushPromises(): /end is still in flight,
+      // so under the OLD guard incomingSession.value is still null here.
+
+      return { session, outgoing }
+    }
+
+    it('B2 RED — endQuestion() is refused BEFORE incomingSession exists (bound armed, /end still pending)', async () => {
+      const { session } = await beginHandoverWithEndPending()
+      const callsBefore = mockCandidateFetch.mock.calls.length
+
+      await session.endQuestion('timeout')
+
+      // No SECOND /end call was dispatched against the still-live handle.
+      expect(mockCandidateFetch.mock.calls.length).toBe(callsBefore)
+      expect(session.state.value).toBe('live')
+    })
+
+    it('B2 RED — pause() is refused in the same window; handoverInFlight is already true before incomingSession exists', async () => {
+      const { session } = await beginHandoverWithEndPending()
+
+      expect(session.handoverInFlight.value).toBe(true)
+      session.pause()
+      await nextTick()
+
+      expect(session.state.value).toBe('live') // never entered `paused`
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Four-lens review M1 — confirmDevices()/retry() abandon a leftover bound
+  // timer UNCONDITIONALLY, even in the pre-incomingSession window.
+  // ---------------------------------------------------------------------------
+
+  describe('invisible-competency-handover — M1: confirmDevices()/retry() abandon the bound timer even before incomingSession exists', () => {
+    it('M1 RED — retry() mid-handover (before incomingSession exists) does NOT leave the bound timer armed against the FRESH session it just started', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const outgoing = mockProviderRegistry[0]!
+
+      // /end never resolves — incomingSession never gets populated.
+      mockCandidateFetch.mockImplementationOnce(() => new Promise(() => undefined))
+      outgoing._emit('state', 'complete')
+      await nextTick()
+
+      // The candidate (or an operator flow) retries — a fresh session begins.
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: '77' }))
+      session.retry()
+      await flushPromises()
+
+      const freshProvider = mockProviderRegistry[mockProviderRegistry.length - 1]!
+      freshProvider._emit('state', 'ready')
+      await flushPromises()
+
+      expect(session.state.value).toBe('live')
+      const freshSessionId = session.sessionId.value
+
+      // The stale bound timer — if still armed — fires here.
+      await vi.advanceTimersByTimeAsync(10_000)
+      await flushPromises()
+
+      // The FRESH session must be untouched: still live, same session id.
+      expect(session.state.value).toBe('live')
+      expect(session.sessionId.value).toBe(freshSessionId)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Four-lens review C1 — the outgoing dying INSIDE the crossfade window
+  // (incoming already painted, promoteTimer pending) must finish the
+  // promotion, not strand the already-visible incoming.
+  // ---------------------------------------------------------------------------
+
+  describe('invisible-competency-handover — C1: outgoing dies mid-crossfade → the already-painted incoming is promoted, not stranded', () => {
+    it('C1 RED — outgoing error AFTER the incoming has painted (mid-crossfade) still promotes the incoming to live', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const outgoing = mockProviderRegistry[0]!
+
+      mockCandidateFetch.mockResolvedValueOnce({
+        ended_competencies: 1,
+        total_competencies: 3,
+        next_action: 'continue',
+      })
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: '99' }))
+
+      outgoing._emit('state', 'complete')
+      await flushPromises()
+
+      const incoming = mockProviderRegistry[1]!
+      // The incoming paints — enters the ~200ms crossfade window.
+      session.notifyPainted(99)
+      await nextTick()
+
+      // The outgoing dies INSIDE that window, before the crossfade timer fires.
+      outgoing._emit('error', { code: 'sdk_error', message: 'connection lost' })
+      await flushPromises()
+
+      // Promoted immediately — never fell to the connecting/panel fallback,
+      // never stuck as a hidden `entering` player behind a `hasLivePlayer:
+      // false` collapse.
+      expect(session.state.value).toBe('live')
+      expect(session.sessionId.value).toBe(99)
+      expect(session.activeProvider.value).toBe(incoming)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Four-lens review B3/B4/C3 — the connecting-ceiling bounds the
+  // bound-exceeded `connecting` fallback, which previously had no ceiling
+  // at all.
+  // ---------------------------------------------------------------------------
+
+  describe('invisible-competency-handover — B3/B4/C3: the connecting-ceiling bounds the post-bound wait', () => {
+    it('B3 RED — the incoming reports readiness but never paints: the ceiling gives up and surfaces the retryable error screen, never an infinite wait', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const outgoing = mockProviderRegistry[0]!
+
+      mockCandidateFetch.mockResolvedValueOnce({
+        ended_competencies: 1,
+        total_competencies: 3,
+        next_action: 'continue',
+      })
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: '99' }))
+
+      outgoing._emit('state', 'complete')
+      await flushPromises()
+
+      // The incoming reports 'ready'/'listening' (readiness) but NEVER emits
+      // `painted` — no test-level rVFC/loadeddata simulation here at all,
+      // mirroring a throttled tab or a stalled decoder in production.
+      const incoming = mockProviderRegistry[1]!
+      incoming._emit('state', 'ready')
+      await flushPromises()
+
+      // The 10s bound fires first: outgoing releases, state degrades to connecting.
+      await vi.advanceTimersByTimeAsync(10_000)
+      await flushPromises()
+      expect(session.state.value).toBe('connecting')
+
+      // Today (pre-fix): NOTHING bounds this. The candidate would sit here
+      // forever. Advance well past the connecting-ceiling.
+      await vi.advanceTimersByTimeAsync(20_000)
+      await flushPromises()
+
+      expect(session.state.value).toBe('error')
+      // The stuck incoming was released, not left running invisibly.
+      expect(incoming._stopMock).toHaveBeenCalled()
+    })
+
+    it('B4 RED — the incoming exhausts its /start retries AFTER the bound already fired: the ceiling still recovers the interview, never an unrecoverable dead end', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const outgoing = mockProviderRegistry[0]!
+
+      mockCandidateFetch.mockResolvedValueOnce({
+        ended_competencies: 1,
+        total_competencies: 3,
+        next_action: 'continue',
+      })
+      // The incoming's /start fails all 3 attempts (429 provider_busy).
+      mockCandidateFetch
+        .mockRejectedValueOnce(makeFetchError(429))
+        .mockRejectedValueOnce(makeFetchError(429))
+        .mockRejectedValueOnce(makeFetchError(429))
+
+      outgoing._emit('state', 'complete')
+      await flushPromises()
+
+      // The bound fires BEFORE the incoming's retries exhaust (backoff alone
+      // can eat 6s of the 10s bound on a slow connection).
+      await vi.advanceTimersByTimeAsync(10_000)
+      await flushPromises()
+      expect(session.state.value).toBe('connecting')
+
+      // Let the retries keep exhausting in the background, then the ceiling.
+      await vi.advanceTimersByTimeAsync(20_000)
+      await flushPromises()
+
+      // Recoverable: a retryable error screen, not a permanent dead end with
+      // no session, no timer, and no reachable control.
+      expect(session.state.value).toBe('error')
+    })
+
+    it('the connecting-ceiling does NOT fire when promote() succeeds first — no stray error after a healthy handover', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const outgoing = mockProviderRegistry[0]!
+
+      mockCandidateFetch.mockResolvedValueOnce({
+        ended_competencies: 1,
+        total_competencies: 3,
+        next_action: 'continue',
+      })
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: '99' }))
+
+      outgoing._emit('state', 'complete')
+      await flushPromises()
+
+      // The bound fires, degrading to connecting — the ceiling is now armed.
+      await vi.advanceTimersByTimeAsync(10_000)
+      await flushPromises()
+      expect(session.state.value).toBe('connecting')
+
+      // The incoming FINALLY paints, inside the ceiling window.
+      session.notifyPainted(99)
+      await vi.advanceTimersByTimeAsync(200) // crossfade
+      await flushPromises()
+      expect(session.state.value).toBe('live')
+
+      // Advance well past where the ceiling WOULD have fired — it must not.
+      await vi.advanceTimersByTimeAsync(30_000)
+      await flushPromises()
+
+      expect(session.state.value).toBe('live')
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // invisible-competency-handover — D8/D9: HeyGen-only handover gate
+  // ---------------------------------------------------------------------------
+
+  describe('invisible-competency-handover — D8/D9: HeyGen-only handover gate', () => {
+    it("a Tavus continue keeps today's exact path — full teardown before the next /start, no handover", async () => {
+      const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+      session.acceptConsent()
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ provider: 'tavus' }))
+      session.confirmDevices()
+      await nextTick()
+      currentMockProvider._emit('state', 'ready')
+      await nextTick()
+      expect(session.state.value).toBe('live')
+
+      const outgoing = mockProviderRegistry[0]!
+
+      mockCandidateFetch.mockResolvedValueOnce({
+        ended_competencies: 1,
+        total_competencies: 3,
+        next_action: 'continue',
+      })
+      mockCandidateFetch.mockResolvedValueOnce(
+        makeStartResponse({ question_index: '1', provider: 'tavus' })
+      )
+
+      outgoing._emit('state', 'complete')
+      await flushPromises()
+
+      // Today's non-handover path: the outgoing is stopped BEFORE the next
+      // /start is even requested, and the machine passes back through
+      // `connecting` — exactly as it did before this change.
+      expect(outgoing._stopMock).toHaveBeenCalled()
+      expect(session.state.value).toBe('connecting')
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // invisible-competency-handover — D4: uplink guard ordering (Task 3.2)
+  // ---------------------------------------------------------------------------
+
+  describe('invisible-competency-handover — D4: the outgoing mic is muted BEFORE /end', () => {
+    it('3.2 — setMicMuted(true) is called on the OUTGOING before POST /end is dispatched', async () => {
+      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const outgoing = mockProviderRegistry[0]!
+
+      const callOrder: string[] = []
+      outgoing.setMicMuted.mockImplementation(async () => {
+        callOrder.push('setMicMuted')
+      })
+      mockCandidateFetch.mockImplementationOnce(async () => {
+        callOrder.push('/end')
+        return { ended_competencies: 1, total_competencies: 3, next_action: 'continue' }
+      })
+      // The incoming's own /start — left pending; ordering is decided before it matters.
+      mockCandidateFetch.mockImplementationOnce(() => new Promise(() => undefined))
+
+      outgoing._emit('state', 'complete')
+      await flushPromises()
+
+      expect(outgoing.setMicMuted).toHaveBeenCalledWith(true)
+      expect(callOrder).toEqual(['setMicMuted', '/end'])
       expect(session.state.value).toBe('live')
     })
   })

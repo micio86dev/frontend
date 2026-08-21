@@ -13,20 +13,94 @@
  *   idle → device_check → connecting → live → end_of_question → paused → done | error | terminal
  *
  * Provider ownership: this composable CREATES the provider and wires its events, then
- * publishes it via `activeProvider`/`activeConfig`. `AvatarPlayer` mounts it and calls
- * `provider.start(videoEl, config)` — the provider must be attached to the real <video>
- * element, which does not exist until the page renders the player. Starting the provider
- * here against a detached element left the interviewer's media unattached.
+ * publishes it via `players` (and the `activeProvider`/`activeConfig` aliases).
+ * `AvatarPlayer` mounts each published handle and calls `provider.start(videoEl, config)`
+ * — the provider must be attached to the real <video> element, which does not exist
+ * until the page renders the player. Starting the provider here against a detached
+ * element left the interviewer's media unattached.
  *
  * SSR invariant: NO module-scope browser globals. All window/navigator access is inside
  * functions guarded by import.meta.client or callback context.
  *
  * Design refs: D3, D4, D5 (resize listener ownership), D10 (testing strategy)
+ *
+ * ---------------------------------------------------------------------------
+ * invisible-competency-handover (D1-D9, F1-F4)
+ * ---------------------------------------------------------------------------
+ * On a HeyGen `continue`, the outgoing provider session stays mounted, live and
+ * visible while the incoming session connects behind it, and only crosses over
+ * once the incoming has painted a real frame. Two `ProviderSession` handles can
+ * therefore coexist for a bounded window (`HANDOVER_BOUND_MS`):
+ *
+ *   activeSession   — the handle the candidate is looking at right now.
+ *   incomingSession — mounted, hidden and muted; promoted once it paints.
+ *
+ * D2 is the crux: every provider event handler closes over the HANDLE that
+ * emitted it and resolves by IDENTITY (`handle === activeSession.value` /
+ * `=== incomingSession.value`) instead of reading shared module state. Reading
+ * shared state with two live sessions does not merely overlap — it corrupts:
+ * an outgoing `transcript` would post against the incoming `dbSessionId`, an
+ * outgoing `ready` would flip the machine live prematurely, an outgoing
+ * `error` would kill a healthy incoming session.
+ *
+ * D3: `handle.provider.stop()` is wrapped IDEMPOTENT at creation
+ * (`withIdempotentStop`, below) — the underlying provider is torn down at
+ * MOST once no matter how many call sites reach for it. This is a real
+ * guarantee, not a call-ordering coincidence: `AvatarPlayer:onUnmounted`'s
+ * structural `stop()` (fired when a `ProviderSession` drops out of
+ * `players`) and every pre-existing explicit call site (`endQuestion`,
+ * `teardown`, the resize/unsupported gate, `confirmDevices`'s resume guard)
+ * can all reach for the same handle without coordinating, because the
+ * wrapper — not the caller's discipline — is what makes "exactly once" true.
+ *
+ * ---------------------------------------------------------------------------
+ * Post-review restructuring — the handover lifecycle is now TOTAL
+ * ---------------------------------------------------------------------------
+ * A four-lens review of the first cut found five distinct symptoms that were
+ * really one defect: the handover had FIVE real exit sites (promote, the
+ * bound firing, an incoming error, an incoming `/start` failure, and page
+ * teardown) but only four named functions, and two more call sites
+ * (`teardown()`, `confirmDevices()`) inlined their OWN ad hoc "stop both,
+ * clear both". Two functions now own the WHOLE lifecycle, and every exit —
+ * old and new — is routed through them:
+ *
+ *   `endHandover()`      — the ONLY place `handoverActive`, the bound timer,
+ *                           the crossfade (promote) timer, and the NEW
+ *                           connecting-ceiling timer are ever cleared.
+ *   `clearIncomingProvider()` — the ONLY place the incoming slot is ever
+ *                           stopped and nulled.
+ *
+ * `transitionTo()` itself now calls both, unconditionally, whenever the
+ * machine lands on `done` | `error` | `terminal` — so ANY exit that reaches
+ * one of those states (today's or a future one) tears down an in-flight
+ * handover FOR FREE, without that call site having to remember to. This is
+ * also what closes a bug found WHILE restructuring, not named by the review:
+ * a bound timer armed before a 401/malformed `/start` sent the machine
+ * `terminal` used to keep ticking and could resurrect a terminal session back
+ * to `connecting` ten seconds later.
+ *
+ * `handoverActive` (not `incomingSession.value !== null`) is what
+ * `endQuestion()` and `pause()` guard on — it is set the INSTANT
+ * `beginHandover()` runs, before `/end` and before the incoming even exists,
+ * closing the exact window a per-question timer could previously race.
+ *
+ * A NEW connecting-ceiling timer, armed only when the bound fires
+ * (`releaseOutgoing`), bounds the ONE `connecting` entry point this feature
+ * added that was not already bounded by `startSession()`'s own retry loop —
+ * an incoming that reports readiness but never paints, or one whose retries
+ * are still exhausting after the bound already released the outgoing. It
+ * degrades to the existing retryable `error` screen, never an infinite wait.
+ * `CONNECTING_CEILING_MS` is a NEW number this restructuring introduces — it
+ * is not pinned by the spec the way `HANDOVER_BOUND_MS` is, and needs the
+ * same kind of product sign-off; see the constant's own comment.
+ *
+ * Tavus is unchanged this cut (D9): the handover only ever begins when
+ * `handle.providerName === 'heygen'`.
  */
 
-import { ref, shallowRef, type ShallowRef } from 'vue'
+import { ref, shallowRef, computed, type ComputedRef } from 'vue'
 import { createProvider } from '~/app/providers/factory'
-import type { InterviewProvider, StartConfig } from '~/app/types/interview-provider'
+import type { InterviewProvider, ProviderName, StartConfig } from '~/app/types/interview-provider'
 import type { IntegrityEventInternal } from '~/app/utils/proctor-config'
 import {
   candidateFetch,
@@ -71,6 +145,35 @@ export type TerminalReason = '403' | 'absent_phrase' | 'session_expired' | 'malf
  */
 export type EndQuestionReason = 'timeout'
 
+/**
+ * A live (or connecting) provider session, identified by its DB session id.
+ *
+ * D1: two named slots hold at most one of these each (`activeSession` /
+ * `incomingSession`) — never a queue. `dbSessionId` REPLACES the old
+ * module-level `currentSessionId` as the id every event handler resolves
+ * against (D2).
+ */
+export interface ProviderSession {
+  provider: InterviewProvider
+  config: StartConfig
+  dbSessionId: number
+  /** From the `/start` response. Never surfaced to the UI (D9) — provider-anonymity. */
+  providerName: ProviderName
+}
+
+/** The visual/audio role a mounted provider session currently plays (D6). */
+export type HandoverRole = 'live' | 'incoming' | 'entering'
+
+/** One entry of `players` — everything `session.vue`'s keyed v-for needs. */
+export interface SessionPlayer {
+  key: number
+  provider: InterviewProvider
+  config: StartConfig
+  role: HandoverRole
+  /** Downlink control for AvatarPlayer's `muted` prop (D4). */
+  muted: boolean
+}
+
 export interface UseInterviewSessionOptions {
   /** Pending integrity events for sendBeacon flush on resize. Managed externally by useProctor. */
   getPendingIntegrityEvents?: () => IntegrityEventInternal[]
@@ -96,12 +199,23 @@ export interface UseInterviewSessionReturn {
   totalCompetencies: ReturnType<typeof ref<number | null>>
   /**
    * Provider awaiting mount by AvatarPlayer; null whenever no question is in flight.
-   * shallowRef, not ref: providers hold SDK/WebRTC handles that must never be wrapped
-   * in a reactive proxy.
+   *
+   * D1: read-only COMPUTED alias of `activeSession` — the live slot only. A
+   * hidden `incomingSession` never affects this.
    */
-  activeProvider: ShallowRef<InterviewProvider | null>
+  activeProvider: ComputedRef<InterviewProvider | null>
   /** StartConfig for `activeProvider`; published together with it, never separately. */
-  activeConfig: ShallowRef<StartConfig | null>
+  activeConfig: ComputedRef<StartConfig | null>
+  /**
+   * Every provider session `session.vue` must currently render, keyed by
+   * `dbSessionId` (D6). At most two entries: the live slot and, during a
+   * handover, the incoming slot. Render from ONE keyed list — two separate
+   * elements would unmount and `stop()` the session that just won the
+   * handover.
+   */
+  players: ComputedRef<SessionPlayer[]>
+  /** True while an incoming HeyGen session is connecting behind the live one (D2). */
+  handoverInFlight: ComputedRef<boolean>
   acceptConsent: () => void
   /** @param audioDeviceId Microphone from device check; remembered for later competencies. */
   confirmDevices: (audioDeviceId?: string) => void
@@ -113,6 +227,12 @@ export interface UseInterviewSessionReturn {
 
   endQuestion: (reason: EndQuestionReason) => Promise<void>
   teardown: () => Promise<void>
+  /**
+   * Called by `session.vue` when a `SessionPlayer`'s `<AvatarPlayer>` emits
+   * `painted`. A no-op unless `dbSessionId` matches the CURRENT incoming
+   * handle — the live handle's own paint only drives its own opacity (D6).
+   */
+  notifyPainted: (dbSessionId: number) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -121,6 +241,40 @@ export interface UseInterviewSessionReturn {
 
 const MAX_ATTEMPTS = 3
 const RETRY_DELAY_MS = 3000
+
+/**
+ * D5: the overlap's upper bound, and its release backstop. Armed the instant
+ * the live handle's `complete` is handled (before `POST /end`), cancelled by
+ * `endHandover()` — the single exit both `promote()` and `releaseOutgoing()`
+ * route through. Not configurable: the spec fixes the number.
+ */
+const HANDOVER_BOUND_MS = 10_000
+
+/** DESIGN.md §10 — fade, 200ms, ease-in-out; instant under reduced motion. */
+const CROSSFADE_MS = 200
+
+/**
+ * Bounds how long the candidate can sit in the bound-exceeded `connecting`
+ * fallback before the machine gives up and surfaces the existing retryable
+ * `error` screen (B3/B4/C3 from the four-lens review).
+ *
+ * Armed once, by `releaseOutgoing()`, at the exact moment `HANDOVER_BOUND_MS`
+ * has already fired — it does not extend the overlap, it bounds what was an
+ * UNBOUNDED wait after the overlap already ended. Covers two distinct
+ * failures with one mechanism: an incoming that reports readiness but never
+ * paints (a throttled tab, a stalled decoder — nothing else would ever
+ * resolve this), and an incoming whose own `/start` retries (up to
+ * `MAX_ATTEMPTS` × `RETRY_DELAY_MS` backoff, worst case ~6s, plus network
+ * latency) are still exhausting after the bound already released the
+ * outgoing.
+ *
+ * UNLIKE `HANDOVER_BOUND_MS`, this number is NOT pinned by the spec — it is
+ * introduced by this restructuring to close a genuine "no ceiling at all"
+ * gap. 20s is comfortably above the worst-case retry backoff while still
+ * being a firm, finite bound; it needs the same product sign-off
+ * `HANDOVER_BOUND_MS` already has, not just an engineering judgment call.
+ */
+const CONNECTING_CEILING_MS = 20_000
 
 // ---------------------------------------------------------------------------
 // Provider error normalisation
@@ -187,6 +341,33 @@ function isValidStartResponse(response: unknown): response is {
 }
 
 // ---------------------------------------------------------------------------
+// Idempotent teardown (C2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Wraps `provider.stop()` so the underlying teardown runs AT MOST once, no
+ * matter how many call sites reach for it — mutated in place, same object
+ * identity, so every existing `.toBe()` / registry-index assertion across
+ * the test suite is unaffected.
+ *
+ * This is what makes "exactly once" a real guarantee again (C2 from the
+ * four-lens review) rather than a call-ordering coincidence: `teardown()`,
+ * the resize/unsupported gate, `confirmDevices()`'s resume guard, and
+ * `AvatarPlayer:onUnmounted`'s structural `stop()` (D3) can all call
+ * `handle.provider.stop()` freely — concurrently, redundantly, defensively —
+ * and the real SDK/network teardown still only happens once.
+ */
+function withIdempotentStop(provider: InterviewProvider): InterviewProvider {
+  const originalStop = provider.stop.bind(provider)
+  let stopPromise: Promise<void> | null = null
+  provider.stop = () => {
+    if (!stopPromise) stopPromise = originalStop()
+    return stopPromise
+  }
+  return provider
+}
+
+// ---------------------------------------------------------------------------
 // Composable
 // ---------------------------------------------------------------------------
 
@@ -202,18 +383,73 @@ export function useInterviewSession(
   /** Server-fed progress (D6/D7). Never derived here — deriving it is the defect. */
   const endedCompetencies = ref<number | null>(null)
   const totalCompetencies = ref<number | null>(null)
-  const activeProvider = shallowRef<InterviewProvider | null>(null)
-  const activeConfig = shallowRef<StartConfig | null>(null)
+
+  /** D1: the live slot — what the candidate is looking at right now. */
+  const activeSession = shallowRef<ProviderSession | null>(null)
+  /** D1: mounted, hidden, muted; promoted once it paints. */
+  const incomingSession = shallowRef<ProviderSession | null>(null)
+  /** True once the incoming handle has painted and its fade-in has begun (D6). */
+  const incomingEntering = ref(false)
+  /**
+   * True for the ENTIRE handover window — from the instant `beginHandover()`
+   * runs (before `/end`, before the incoming exists) until `endHandover()`
+   * runs. `incomingSession.value !== null` used to stand in for this and
+   * left a gap: `beginHandover()` mutes the outgoing and arms the bound
+   * BEFORE `/end`, and `incomingSession` is only populated several round
+   * trips later. `endQuestion()` and `pause()` guard on THIS flag now (B2).
+   */
+  const handoverActive = ref(false)
+
+  const activeProvider = computed(() => activeSession.value?.provider ?? null)
+  const activeConfig = computed(() => activeSession.value?.config ?? null)
+  const handoverInFlight = computed(() => handoverActive.value)
+
+  const players = computed<SessionPlayer[]>(() => {
+    const list: SessionPlayer[] = []
+    const live = activeSession.value
+    if (live) {
+      list.push({
+        key: live.dbSessionId,
+        provider: live.provider,
+        config: live.config,
+        role: 'live',
+        muted: false,
+      })
+    }
+    const incoming = incomingSession.value
+    if (incoming) {
+      list.push({
+        key: incoming.dbSessionId,
+        provider: incoming.provider,
+        config: incoming.config,
+        role: incomingEntering.value ? 'entering' : 'incoming',
+        muted: !incomingEntering.value,
+      })
+    }
+    return list
+  })
 
   // ---- Internal refs -------------------------------------------------------
-  let provider: InterviewProvider | null = null
-  let currentSessionId: number | null = null
   let isResuming = false
   let resizeListener: (() => void) | null = null
   /** Microphone chosen at device check; reused for every subsequent competency. */
   let confirmedAudioDeviceId: string | undefined
+  let handoverBoundTimer: ReturnType<typeof setTimeout> | null = null
+  let promoteTimer: ReturnType<typeof setTimeout> | null = null
+  let connectingCeilingTimer: ReturnType<typeof setTimeout> | null = null
 
   // ---- Helpers -------------------------------------------------------------
+
+  /**
+   * Observability (four-lens review "also fix"): every handover degrade path
+   * is deliberately non-throwing, so nothing recorded them happening — a full
+   * day was lost this week diagnosing a defect that left no trace. A
+   * structured, greppable breadcrumb on each one is cheap and non-fatal by
+   * construction (console calls do not throw).
+   */
+  function logHandoverEvent(event: string, detail?: Record<string, unknown>) {
+    console.info(`[handover] ${event}`, detail ?? {})
+  }
 
   function isMock(): boolean {
     const config = useRuntimeConfig()
@@ -252,11 +488,26 @@ export function useInterviewSession(
     if (next === 'done' || next === 'terminal') {
       useCandidateSession().clear()
     }
+
+    // Post-review restructuring: ANY transition to done/error/terminal tears
+    // down an in-flight handover UNCONDITIONALLY — the single place this is
+    // guaranteed, not a discipline every exit path has to remember. Found
+    // while restructuring (not one of the review's five named findings): a
+    // bound timer armed before a 401/malformed `/start` sent the machine
+    // `terminal` used to keep ticking and could fire ten seconds later,
+    // resurrecting a terminal session back to `connecting`. `connecting`
+    // itself is deliberately EXCLUDED — the bound-exceeded fallback (D5)
+    // transitions here on purpose while leaving a hidden incoming alive to
+    // be promoted once it paints.
+    if (next === 'done' || next === 'error' || next === 'terminal') {
+      endHandover()
+      clearIncomingProvider()
+    }
   }
 
+  /** D1: clears the LIVE slot only — a hidden incoming is untouched by this. */
   function clearActiveProvider() {
-    activeProvider.value = null
-    activeConfig.value = null
+    activeSession.value = null
   }
 
   function removeResizeListener() {
@@ -285,16 +536,21 @@ export function useInterviewSession(
         const pending = options.getPendingIntegrityEvents?.() ?? []
         if (pending.length > 0) {
           const payload = {
-            session_id: currentSessionId,
+            session_id: activeSession.value?.dbSessionId ?? null,
             events: pending.map((e) => ({ kind: e.type, ts: e.ts, payload: e.meta ?? null })),
           }
           flushIntegrityKeepalive(payload)
           options.onIntegrityEventsFlushed?.(pending)
         }
 
-        // Stop provider before navigating (suppress errors — non-fatal during teardown)
-        if (provider) {
-          provider.stop().catch(() => {})
+        // Stop provider before navigating (suppress errors — non-fatal during teardown).
+        // Pre-existing, unrelated to the handover machinery — kept explicit and
+        // immediate since the page is navigating away right now.
+        if (activeSession.value) {
+          activeSession.value.provider.stop().catch(() => {})
+        }
+        if (incomingSession.value) {
+          incomingSession.value.provider.stop().catch(() => {})
         }
 
         removeResizeListener()
@@ -305,13 +561,12 @@ export function useInterviewSession(
     window.addEventListener('resize', resizeListener)
   }
 
-  async function sendUtterance(text: string, speaker: 'candidate' | 'avatar') {
-    if (!currentSessionId) return
+  async function sendUtterance(dbSessionId: number, text: string, speaker: 'candidate' | 'avatar') {
     try {
       await candidateFetch('/candidate/interview/utterance', {
         method: 'POST',
         body: {
-          session_id: currentSessionId,
+          session_id: dbSessionId,
           speaker,
           text,
           ts: new Date().toISOString(),
@@ -337,10 +592,9 @@ export function useInterviewSession(
   }
 
   async function callEnd(
+    dbSessionId: number,
     endedReason: 'completed' | EndQuestionReason
   ): Promise<EndDirective | null> {
-    if (!currentSessionId) return null
-
     try {
       const response = await candidateFetch<{
         ended_competencies?: number
@@ -349,7 +603,7 @@ export function useInterviewSession(
       }>('/candidate/interview/end', {
         method: 'POST',
         body: {
-          session_id: currentSessionId,
+          session_id: dbSessionId,
           ended_reason: endedReason,
         },
       })
@@ -396,61 +650,321 @@ export function useInterviewSession(
     }
   }
 
-  function wireProviderEvents() {
-    if (!provider) return
+  // ---- Handover machinery (D2, D3, D5, D6) ---------------------------------
 
-    provider.on('state', (payload) => {
+  function clearHandoverBoundTimer() {
+    if (handoverBoundTimer) {
+      clearTimeout(handoverBoundTimer)
+      handoverBoundTimer = null
+    }
+  }
+
+  function clearPromoteTimer() {
+    if (promoteTimer) {
+      clearTimeout(promoteTimer)
+      promoteTimer = null
+    }
+  }
+
+  function clearConnectingCeilingTimer() {
+    if (connectingCeilingTimer) {
+      clearTimeout(connectingCeilingTimer)
+      connectingCeilingTimer = null
+    }
+  }
+
+  /**
+   * THE single place the handover lifecycle ends — every timer it owns
+   * (bound, crossfade/promote, connecting-ceiling) is cancelled here and
+   * ONLY here, and `handoverActive` drops here and only here. Routed through
+   * by every exit: `promote()`, `releaseOutgoing()`, `releaseIncoming()`,
+   * `confirmDevices()`'s defensive cleanup, and — unconditionally — by
+   * `transitionTo()` itself on `done`/`error`/`terminal`.
+   */
+  function endHandover() {
+    clearHandoverBoundTimer()
+    clearPromoteTimer()
+    clearConnectingCeilingTimer()
+    handoverActive.value = false
+  }
+
+  /** D5: armed the instant the live handle's `complete` is handled, before `/end`. */
+  function armHandoverBound() {
+    clearHandoverBoundTimer()
+    handoverBoundTimer = setTimeout(() => {
+      handoverBoundTimer = null
+      releaseOutgoing('bound')
+    }, HANDOVER_BOUND_MS)
+  }
+
+  /**
+   * B3/B4/C3: armed only when the bound fires (`releaseOutgoing`) — bounds
+   * what would otherwise be an UNBOUNDED wait in the degraded `connecting`
+   * fallback, where `InterviewTimer` is not mounted and nothing else ever
+   * gives up. See `CONNECTING_CEILING_MS`'s own comment for the two failure
+   * modes this closes and why one mechanism covers both.
+   */
+  function armConnectingCeiling() {
+    clearConnectingCeilingTimer()
+    connectingCeilingTimer = setTimeout(() => {
+      connectingCeilingTimer = null
+      giveUpOnHandover()
+    }, CONNECTING_CEILING_MS)
+  }
+
+  /**
+   * The connecting-ceiling fired: whatever was going to rescue this handover
+   * (a late paint, a retry finally succeeding) has not, within a generous,
+   * finite bound. `transitionTo('error')` — not a bespoke dead-end — because
+   * it already routes through the SAME unconditional cleanup every other
+   * done/error/terminal transition does (see `transitionTo()`), so the
+   * incoming (if one still exists) is stopped and cleared right there. The
+   * candidate lands on the existing, retryable error screen instead of being
+   * stranded on the transition panel forever.
+   */
+  function giveUpOnHandover() {
+    logHandoverEvent('connecting-ceiling-exceeded')
+    transitionTo('error')
+  }
+
+  function beginHandover(handle: ProviderSession) {
+    handoverActive.value = true
+    // Uplink guard (D4) — before /end, so the outgoing never speaks again once
+    // the candidate is being handed over.
+    handle.provider.setMicMuted(true).catch(() => {})
+    armHandoverBound()
+  }
+
+  /**
+   * D3: releases the LIVE slot only. Structural teardown — no explicit
+   * `stop()` call here; Vue unmounts the outgoing's `AvatarPlayer` once it
+   * drops out of `players`, and its existing `onUnmounted` calls `stop()`.
+   *
+   * Used by: the bound timer firing, and an outgoing that dies mid-overlap
+   * (falls to the exact same fallback — "what we were holding open is
+   * already gone").
+   */
+  function releaseOutgoing(reason: 'bound' | 'dead') {
+    logHandoverEvent('outgoing-released', { reason })
+    endHandover()
+    activeSession.value = null
+    transitionTo('connecting')
+    // incomingSession is left exactly as-is — still hidden and muted, and is
+    // promoted whenever it eventually paints (D5) — bounded now by the
+    // connecting-ceiling armed below (B3/B4/C3).
+    armConnectingCeiling()
+  }
+
+  /**
+   * THE single place the incoming slot is ever stopped and cleared —
+   * idempotent-safe by construction (`withIdempotentStop`), so calling this
+   * on an already-empty slot, or racing `AvatarPlayer`'s own structural
+   * `stop()`, is always safe. Used by `releaseIncoming()`, `confirmDevices()`,
+   * and unconditionally by `transitionTo()` on done/error/terminal.
+   */
+  function clearIncomingProvider() {
+    if (incomingSession.value) {
+      incomingSession.value.provider.stop().catch(() => {})
+    }
+    incomingSession.value = null
+    incomingEntering.value = false
+  }
+
+  /**
+   * D2/D3: an incoming provider ERROR EVENT (as opposed to a failed `/start`
+   * call, see `abandonIncomingAttempt`) ends the WHOLE handover — both slots
+   * clear, timer cancelled — and falls through to today's error/terminal
+   * handling. A failed next competency is a real error.
+   */
+  function releaseIncoming() {
+    logHandoverEvent('incoming-released')
+    endHandover()
+    clearIncomingProvider()
+  }
+
+  /**
+   * The incoming's OWN `/start` HTTP call failed before any provider session
+   * existed. Abandon just this attempt — the bound timer (or, if it has
+   * already fired, the connecting-ceiling armed by `releaseOutgoing`) is left
+   * running exactly as armed, so the handover still resolves on schedule via
+   * the existing fallback rather than an ad hoc branch here.
+   */
+  function abandonIncomingAttempt() {
+    logHandoverEvent('incoming-attempt-abandoned')
+    incomingSession.value = null
+    incomingEntering.value = false
+  }
+
+  function crossfadeDelayMs(): number {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return CROSSFADE_MS
+    }
+    try {
+      return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : CROSSFADE_MS
+    } catch {
+      return CROSSFADE_MS
+    }
+  }
+
+  /**
+   * D6: promotion is two steps so the fade happens while both are still
+   * mounted. Called `crossfadeDelayMs()` after `notifyPainted()` marks the
+   * incoming as `entering`. The outgoing's key drops out of `players` here —
+   * Vue unmounts it and its `onUnmounted` calls `stop()` (D3), exactly once.
+   */
+  function promote() {
+    const incoming = incomingSession.value
+    if (!incoming) return
+
+    endHandover()
+    incomingSession.value = null
+    incomingEntering.value = false
+    // B1: the incoming's microphone was muted at creation (AvatarPlayer,
+    // right after its own provider.start() resolved) and stays muted for the
+    // WHOLE overlap — unmuted here, exactly once, only now that it is
+    // actually about to become the session the candidate is speaking to.
+    // Mirrors the outgoing's own mute/unmute symmetry (`beginHandover`
+    // mutes it going out; this unmutes the incoming coming in). Deliberately
+    // NOT tied to the `entering` role's reactive `muted` prop (which only
+    // ever governs the VIDEO element) — unmuting the mic at `entering`
+    // instead of here would reopen a smaller-scoped version of B1 for the
+    // ~200ms crossfade window, with two unmuted mics again.
+    incoming.provider.setMicMuted(false).catch(() => {})
+    activeSession.value = incoming
+    sessionId.value = incoming.dbSessionId
+    // The machine stays `live` for the whole handover (D2); this also covers
+    // a LATE promotion reached from the bound-exceeded `connecting` fallback.
+    transitionTo('live')
+  }
+
+  /**
+   * D6: called by `session.vue` when a `SessionPlayer`'s `<AvatarPlayer>`
+   * emits `painted`. A no-op unless `dbSessionId` matches the CURRENT
+   * incoming handle — the live handle's own paint only drives its own
+   * opacity, never the handover (F3: `ready` is not a frame; painted is).
+   */
+  function notifyPainted(dbSessionId: number) {
+    const incoming = incomingSession.value
+    if (!incoming || incoming.dbSessionId !== dbSessionId) return
+    if (incomingEntering.value) return // idempotent — a defensive re-fire is a no-op
+
+    incomingEntering.value = true
+    endHandover() // cancels the bound timer — the incoming is no longer at risk
+    const delay = crossfadeDelayMs()
+    promoteTimer = setTimeout(() => {
+      promoteTimer = null
+      promote()
+    }, delay)
+  }
+
+  function wireProviderEvents(handle: ProviderSession) {
+    handle.provider.on('state', (payload) => {
       const providerState = payload as string
+      const isLive = handle === activeSession.value
 
       if (providerState === 'ready' || providerState === 'listening') {
-        if (state.value === 'connecting') {
+        // D2/F3: the swap trigger is a painted FRAME, never `ready` — HeyGen
+        // emits `ready` unconditionally, so gating the handover on it would
+        // fade to a black rectangle. `ready`/`listening` only ever drives the
+        // ORIGINAL connecting→live transition (first connect / Tavus /
+        // post-bound reconnect) and ONLY for the live handle — an incoming
+        // handle's (or a stale, already-released handle's) `ready` is inert.
+        if (isLive && state.value === 'connecting') {
           transitionTo('live')
           attachResizeListener()
         }
       }
 
-      if (providerState === 'complete') {
-        handleProviderComplete()
+      if (providerState === 'complete' && isLive) {
+        handleProviderComplete(handle)
       }
+      // An incoming handle's own `complete` is ignored (D2) — it has not
+      // been asked a question at handover time; the guard makes it inert.
     })
 
-    provider.on('transcript', (payload) => {
+    handle.provider.on('transcript', (payload) => {
       const entry = payload as { role: 'user' | 'avatar'; text: string; ts: number }
       const speaker = entry.role === 'user' ? 'candidate' : 'avatar'
-      sendUtterance(entry.text, speaker).catch(() => {})
+      // D2: resolved by the EMITTING handle's own dbSessionId — never shared
+      // module state. This is the permanent fix for the api v0.26.4-shaped
+      // defect: an outgoing's tail transcript can never land on the
+      // incoming's row, because it never reads the incoming's id at all.
+      sendUtterance(handle.dbSessionId, entry.text, speaker).catch(() => {})
     })
 
-    provider.on('error', (payload) => {
+    handle.provider.on('error', (payload) => {
       const code = providerErrorCode(payload)
+      const isLive = handle === activeSession.value
+      const isIncoming = handle === incomingSession.value
 
-      // `absent_phrase` is a DOMAIN verdict: the avatar never spoke the configured
-      // end/final phrase, so the interview's validity is in question. It is terminal
-      // and NOT retryable. Every other provider failure (WebRTC drop, SDK error,
-      // provider timeout) is an infrastructure failure — it gets the retryable error
-      // screen. Reporting those as `absent_phrase` told candidates they had failed a
-      // presence check when the connection had simply died.
+      if (isIncoming) {
+        // C2: capture the OUTGOING handle BEFORE transitioning — `transitionTo`
+        // itself now nulls `activeSession` for done/error/terminal, so reading
+        // `activeSession.value` AFTER it ran (the previous `stopActiveSession()`
+        // idiom) was already null there: a defensive call that could never
+        // actually fire. `.stop()` is idempotent-safe (`withIdempotentStop`),
+        // so this is genuinely redundant-but-real defense in depth against
+        // `AvatarPlayer:onUnmounted`'s own structural stop, not dead code.
+        const outgoing = activeSession.value
+        // D2/D3: an incoming error releases the outgoing too and falls
+        // through to today's error/terminal handling — a failed next
+        // competency is a real error, not a silent fallback.
+        releaseIncoming()
+        if (code === 'absent_phrase') {
+          terminalReason.value = 'absent_phrase'
+          transitionTo('terminal')
+        } else {
+          transitionTo('error')
+        }
+        outgoing?.provider.stop().catch(() => {})
+        return
+      }
+
+      if (!isLive) return // a stale handle, already released — ignore
+
       if (code === 'absent_phrase') {
+        if (incomingSession.value) releaseIncoming()
         terminalReason.value = 'absent_phrase'
         transitionTo('terminal')
-        stopProvider()
+        handle.provider.stop().catch(() => {})
+        return
+      }
+
+      if (incomingSession.value) {
+        if (incomingEntering.value) {
+          // C1: the outgoing died INSIDE the ~200ms crossfade window — the
+          // incoming has already painted, its video is already unmuted and
+          // fading in, and it has already won the handover in every
+          // observable way but state. Falling to `releaseOutgoing('dead')`
+          // would cancel `promoteTimer` (via `endHandover()`) with nothing to
+          // re-arm it — `notifyPainted()`'s own idempotency guard makes a
+          // repeat paint a no-op — stranding an already-visible, already-
+          // audible incoming behind the transition panel (`hasLivePlayer`
+          // goes false the instant `activeSession` is nulled). Finish the
+          // promotion immediately instead of discarding it.
+          logHandoverEvent('promote-raced-outgoing-death')
+          promote()
+          return
+        }
+        // The outgoing died while its replacement was still connecting,
+        // before any frame existed to show — "what we were holding open is
+        // already gone." Falls to the exact same fallback the bound timer
+        // uses.
+        releaseOutgoing('dead')
         return
       }
 
       if (state.value === 'live' || state.value === 'connecting') {
         transitionTo('error')
-        stopProvider()
+        handle.provider.stop().catch(() => {})
       }
     })
   }
 
-  function stopProvider() {
-    if (provider) {
-      provider.stop().catch(() => {})
-    }
-  }
-
   /**
-   * Act on the server's directive (D11).
+   * Act on the server's directive (D11) for the `endQuestion()` (timeout)
+   * path only. UNCHANGED by this slice — a timed-out question never begins
+   * a handover.
    *
    * The client no longer decides whether the interview continues. It used to
    * compare `question_index + 1` against a competency list the page never
@@ -480,15 +994,71 @@ export function useInterviewSession(
     transitionTo(directive === 'done' ? 'done' : 'end_of_question')
   }
 
-  function handleProviderComplete() {
+  /**
+   * D2/D8/D9: the directive handler for the `complete`-driven HeyGen handover
+   * path. A parallel track to `advanceAfterQuestion` (kept unchanged above
+   * for `endQuestion()`), so neither caller's existing behaviour regresses.
+   */
+  function handleHandoverDirective(directive: EndDirective | null, handle: ProviderSession) {
+    if (state.value === 'terminal') return
+
+    if (directive === 'noop') {
+      // Lost the /end race — undo the handover prep: nothing is actually
+      // advancing, so the mic mute and the bound timer must not stick.
+      endHandover()
+      handle.provider.setMicMuted(false).catch(() => {})
+      return
+    }
+
+    if (directive === 'continue') {
+      startNextSession()
+      return
+    }
+
+    // pause/done/unrecognised: no next competency. Abandon the handover prep
+    // — transitionTo() below unmounts this handle's player anyway.
+    endHandover()
+    handle.provider.setMicMuted(false).catch(() => {})
+    transitionTo(directive === 'done' ? 'done' : 'end_of_question')
+  }
+
+  function handleProviderComplete(handle: ProviderSession) {
+    const isHeyGen = handle.providerName === 'heygen'
+
+    if (isHeyGen) {
+      beginHandover(handle)
+    }
+
     // Avatar signalled completion → call /end with 'completed'
-    callEnd('completed')
-      .then(advanceAfterQuestion)
+    callEnd(handle.dbSessionId, 'completed')
+      .then((directive) => {
+        if (isHeyGen && handle === activeSession.value) {
+          handleHandoverDirective(directive, handle)
+          return
+        }
+        advanceAfterQuestion(directive)
+      })
       .catch(() => {})
   }
 
-  async function startSession(attemptNumber = 0) {
-    transitionTo('connecting')
+  /**
+   * D8: extracted tail of `confirmDevices()` — the isResuming guard plus
+   * `startSession(0)`, WITHOUT the pre-emptive teardown. This is what the
+   * HeyGen `continue` handover calls: the outgoing must stay live while the
+   * incoming session is requested.
+   */
+  function startNextSession() {
+    if (isResuming) return
+    isResuming = true
+    startSession(0, 'incoming')
+  }
+
+  async function startSession(attemptNumber = 0, target: 'active' | 'incoming' = 'active') {
+    if (target === 'active') {
+      transitionTo('connecting')
+    }
+    // target === 'incoming': state stays `live` throughout (D2) — it never
+    // enters `connecting` for the happy handover path.
 
     try {
       const response = await candidateFetch<{
@@ -508,6 +1078,10 @@ export function useInterviewSession(
 
       if (!isValidStartResponse(response)) {
         isResuming = false
+        if (target === 'incoming') {
+          abandonIncomingAttempt()
+          return
+        }
         terminalReason.value = 'malformed_response'
         transitionTo('terminal')
         return
@@ -515,8 +1089,8 @@ export function useInterviewSession(
 
       // D4: end_phrase and final_phrase come from NESTED question_context — NOT top-level
       const { end_phrase, final_phrase } = response.question_context
-      currentSessionId = Number(response.session_id)
-      sessionId.value = currentSessionId
+      const dbSessionId = Number(response.session_id)
+      const providerName = response.provider as ProviderName
       // `question_index` is deliberately NOT stored: it was only ever read to
       // derive last-competency detection, which the server owns now. It also
       // carries a pre-existing off-by-one (-1 on the first competency of every
@@ -524,16 +1098,8 @@ export function useInterviewSession(
       // one), so keeping it around invites someone to compute progress from it.
       // `competency_ordinal` is the field to trust.
 
-      // Create provider
-      provider = createProvider(response.provider as 'heygen' | 'tavus', isMock())
-
-      // Wire BEFORE publishing: AvatarPlayer mounts and starts the provider as soon as
-      // activeProvider/activeConfig are set, and the very first event it can emit
-      // (absent_phrase) must already have a listener.
-      wireProviderEvents()
-
       const startConfig: StartConfig = {
-        dbSessionId: currentSessionId,
+        dbSessionId,
         sessionToken: response.provider_token ?? undefined,
         conversationUrl: response.conversation_url ?? undefined,
         endPhrase: end_phrase,
@@ -544,10 +1110,27 @@ export function useInterviewSession(
         ...(confirmedAudioDeviceId ? { audioDeviceId: confirmedAudioDeviceId } : {}),
       }
 
-      // Publish for AvatarPlayer. provider.start() is deliberately NOT called here:
-      // it must receive the real <video> element the player owns.
-      activeConfig.value = startConfig
-      activeProvider.value = provider
+      const handle: ProviderSession = {
+        // C2: idempotent-wrapped at creation — the ONE place every
+        // `ProviderSession` handle's `stop()` becomes safe to call more than
+        // once, from any of the call sites that legitimately reach for it.
+        provider: withIdempotentStop(createProvider(providerName, isMock())),
+        config: startConfig,
+        dbSessionId,
+        providerName,
+      }
+
+      // Wire BEFORE publishing: AvatarPlayer mounts and starts the provider as soon as
+      // the handle is published, and the very first event it can emit
+      // (absent_phrase) must already have a listener.
+      wireProviderEvents(handle)
+
+      if (target === 'incoming') {
+        incomingSession.value = handle
+      } else {
+        sessionId.value = dbSessionId
+        activeSession.value = handle
+      }
     } catch (err) {
       isResuming = false
 
@@ -559,6 +1142,7 @@ export function useInterviewSession(
       // "any other error → retryable" branch below — retrying forever
       // against a session that can never re-authenticate itself.
       if (err instanceof CandidateUnauthorizedError) {
+        if (target === 'incoming') abandonIncomingAttempt()
         terminalReason.value = 'session_expired'
         transitionTo('terminal')
         return
@@ -568,6 +1152,7 @@ export function useInterviewSession(
         (err as Record<string, unknown>)?.status ?? (err as Record<string, unknown>)?.statusCode
 
       if (status === 403) {
+        if (target === 'incoming') abandonIncomingAttempt()
         terminalReason.value = '403'
         transitionTo('terminal')
         return
@@ -578,17 +1163,29 @@ export function useInterviewSession(
         const nextAttempt = attemptNumber + 1
         if (nextAttempt < MAX_ATTEMPTS) {
           await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
-          await startSession(nextAttempt)
+          await startSession(nextAttempt, target)
         } else {
-          // Exhausted all attempts → retryable error
+          // Exhausted all attempts.
           retryAttemptCount.value = 0
-          transitionTo('error')
+          if (target === 'incoming') {
+            // Abandon this attempt; the bound timer's existing fallback
+            // handles releasing the outgoing on schedule.
+            abandonIncomingAttempt()
+          } else {
+            transitionTo('error')
+          }
         }
         return
       }
 
-      // 502 or any other error → retryable error
-      transitionTo('error')
+      // 502 or any other error → retryable, for the active target. For the
+      // incoming target, abandon this attempt and let the bound timer's
+      // existing fallback release the outgoing on schedule.
+      if (target === 'incoming') {
+        abandonIncomingAttempt()
+      } else {
+        transitionTo('error')
+      }
     } finally {
       isResuming = false
     }
@@ -607,6 +1204,10 @@ export function useInterviewSession(
    * rather than required, because this function is also the entry point for
    * nextCompetency() and retry(), which have no device check to read it from —
    * dropping it there would silently switch microphones mid-interview.
+   *
+   * D8: this is the FULL-teardown path — first connect, retry(), Tavus
+   * continue, and the SA-04 resume. The HeyGen handover's continue path calls
+   * `startNextSession()` instead, which skips the teardown below entirely.
    */
   function confirmDevices(audioDeviceId?: string) {
     if (isResuming) return
@@ -614,14 +1215,28 @@ export function useInterviewSession(
 
     if (audioDeviceId !== undefined) confirmedAudioDeviceId = audioDeviceId
 
-    // If there's an existing provider, stop it (resume-on-remount guard)
-    if (provider) {
-      provider.stop().catch(() => {})
-      provider = null
+    // M1: a fresh confirmDevices() call always starts over, so any leftover
+    // in-flight handover is abandoned rather than left to leak — UNCONDITIONALLY.
+    // The bound timer is armed by `beginHandover()` BEFORE `incomingSession`
+    // is ever populated (the multi-round-trip /end + /start window), so the
+    // old `if (incomingSession.value)` guard missed exactly that window: a
+    // `retry()` (which calls this) landing there left the bound timer ticking
+    // against a session this call is about to replace, and it would later
+    // fire and null out the FRESH `activeSession` `confirmDevices()` just
+    // built. `endHandover()` + `clearIncomingProvider()` are always
+    // idempotent-safe — calling them with no handover in flight is a no-op.
+    endHandover()
+    clearIncomingProvider()
+
+    // If there's an existing provider, stop it (resume-on-remount guard).
+    // Pre-existing, explicit and immediate — unrelated to the handover's
+    // structural-release rule.
+    if (activeSession.value) {
+      activeSession.value.provider.stop().catch(() => {})
     }
     clearActiveProvider()
 
-    startSession(0)
+    startSession(0, 'active')
   }
 
   /**
@@ -644,6 +1259,15 @@ export function useInterviewSession(
    * control because it IS the scheduled-pause screen — a Pause button on a pause
    * screen is meaningless.
    *
+   * D2/B2: also refused for the WHOLE handover window (`handoverActive`, not
+   * `incomingSession !== null` — the latter left a gap between
+   * `beginHandover()` arming the bound and `incomingSession` actually being
+   * populated several round trips later, during which this guard used to be
+   * open) — `handoverInFlight` (aliased to `handoverActive`) drives
+   * `:disabled` on the Pause control instead of hiding it. Hiding it is
+   * itself a visible break; an enabled-but-inert button is the defect the
+   * live pause was fixed for.
+   *
    * INVARIANT: assigns `state.value` DIRECTLY and must never be routed through
    * `transitionTo()`, which calls `clearActiveProvider()` for the terminal
    * states. `paused` is deliberately absent from that list; routing it there as
@@ -652,9 +1276,10 @@ export function useInterviewSession(
    */
   function pause() {
     if (state.value !== 'live') return
+    if (handoverActive.value) return
 
     state.value = 'paused'
-    provider?.setMicMuted(true).catch(() => {})
+    activeSession.value?.provider.setMicMuted(true).catch(() => {})
   }
 
   /**
@@ -667,7 +1292,7 @@ export function useInterviewSession(
     if (state.value !== 'paused') return
 
     state.value = 'live'
-    provider?.setMicMuted(false).catch(() => {})
+    activeSession.value?.provider.setMicMuted(false).catch(() => {})
   }
 
   function retry() {
@@ -688,21 +1313,49 @@ export function useInterviewSession(
    *
    * Unlike the `completed` path (the avatar signalled its own completion), the
    * provider is cut off mid-turn here, so it is stopped explicitly.
+   *
+   * D2/B2 (Task 1.6): additionally refused for the WHOLE handover window
+   * (`handoverActive`, armed by `beginHandover()` before `/end` — NOT
+   * `incomingSession.value !== null`, which left the window between
+   * `beginHandover()` and the incoming actually being populated open: a
+   * per-question timer firing there raced a second `POST /end` against a
+   * `handle` that was still the rendered live player, tearing it down while
+   * the state machine still believed it was `live`). A timer expiry landing
+   * anywhere in the handover must not `POST /end` a session that is already
+   * ended (or about to be superseded).
    */
   async function endQuestion(reason: EndQuestionReason): Promise<void> {
     if (state.value !== 'live') return
+    if (handoverActive.value) return
 
-    const directive = await callEnd(reason)
-    stopProvider()
+    const handle = activeSession.value
+    if (!handle) return
+
+    const directive = await callEnd(handle.dbSessionId, reason)
+    handle.provider.stop().catch(() => {})
     advanceAfterQuestion(directive)
   }
 
   async function teardown() {
     removeResizeListener()
-    clearActiveProvider()
-    if (provider) {
-      await provider.stop().catch(() => {})
-      provider = null
+    endHandover()
+    const live = activeSession.value
+    const incoming = incomingSession.value
+    activeSession.value = null
+    incomingSession.value = null
+    incomingEntering.value = false
+    // C2: awaited and explicit — the page is navigating away RIGHT NOW and
+    // must not proceed until the provider is actually torn down, so this
+    // cannot rely solely on Vue's own (asynchronous, next-tick) unmount of
+    // the AvatarPlayer instances these refs just dropped. Both `stop()`
+    // calls are idempotent-safe (`withIdempotentStop`) against that
+    // structural unmount firing on the same handle around the same time —
+    // the underlying SDK/network teardown still runs at most once each.
+    if (live) {
+      await live.provider.stop().catch(() => {})
+    }
+    if (incoming) {
+      await incoming.provider.stop().catch(() => {})
     }
   }
 
@@ -716,6 +1369,8 @@ export function useInterviewSession(
     totalCompetencies,
     activeProvider,
     activeConfig,
+    players,
+    handoverInFlight,
     acceptConsent,
     confirmDevices,
     pause,
@@ -724,5 +1379,6 @@ export function useInterviewSession(
     nextCompetency,
     endQuestion,
     teardown,
+    notifyPainted,
   }
 }

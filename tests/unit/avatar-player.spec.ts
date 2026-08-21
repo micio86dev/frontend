@@ -9,6 +9,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { InterviewProvider, StartConfig } from '~/app/types/interview-provider'
 
 const CONFIG: StartConfig = {
@@ -24,6 +26,10 @@ function makeProvider(): InterviewProvider {
     start: vi.fn(async () => ({})),
     stop: vi.fn(async () => undefined),
     toggleMic: vi.fn(async () => undefined),
+    // B1 (four-lens review): AvatarPlayer now seeds this session's mic
+    // uplink right after start() resolves. Every fixture in this suite
+    // therefore needs a real setMicMuted() to mount without throwing.
+    setMicMuted: vi.fn(async () => undefined),
   }
 }
 
@@ -58,10 +64,14 @@ describe('AvatarPlayer.client.vue', () => {
   })
 
   it("declares no micMuted prop — the candidate mic is not this component's concern", async () => {
+    // `muted` (invisible-competency-handover D4) IS a legitimate declared
+    // prop now — it governs the HANDOVER role's downlink, never the
+    // candidate's own microphone. `micMuted` specifically stays absent.
     const { default: AvatarPlayer } = await import('~/app/components/AvatarPlayer.client.vue')
     const declaredProps = (AvatarPlayer as unknown as { props?: Record<string, unknown> }).props
 
-    expect(Object.keys(declaredProps ?? {})).toEqual(['provider', 'config'])
+    expect(Object.keys(declaredProps ?? {})).toEqual(['provider', 'config', 'muted'])
+    expect(Object.keys(declaredProps ?? {})).not.toContain('micMuted')
   })
 
   it('starts the provider against the <video> element, not a detached node', async () => {
@@ -85,5 +95,203 @@ describe('AvatarPlayer.client.vue', () => {
     await nextTick()
 
     expect(provider.stop).toHaveBeenCalled()
+  })
+
+  // ---------------------------------------------------------------------------
+  // invisible-competency-handover D4 — the `muted` prop, applied IMPERATIVELY.
+  //
+  // Governs the HANDOVER role's downlink (outgoing vs a hidden incoming
+  // warming up behind it) — never the candidate's own microphone, which
+  // stays the `micMuted`-prohibition test above.
+  // ---------------------------------------------------------------------------
+
+  describe('muted prop (D4) — handover downlink, applied imperatively', () => {
+    it('3.1 — mounts with videoEl.muted === true when muted is passed', async () => {
+      const wrapper = await mountPlayer(makeProvider(), { muted: true })
+      const video = wrapper.find('video').element as HTMLVideoElement
+
+      expect(video.muted).toBe(true)
+    })
+
+    it('defaults muted to false when the prop is omitted', async () => {
+      const wrapper = await mountPlayer(makeProvider())
+      const video = wrapper.find('video').element as HTMLVideoElement
+
+      expect(video.muted).toBe(false)
+    })
+
+    it('3.3 — reacts to muted flipping false after mount, unmuting the already-playing element', async () => {
+      // Unmuting an ALREADY-MOUNTED, already-playing element is exactly why
+      // D4 requires the imperative DOM-property form: a template `:muted`
+      // binding only ever affects the ATTRIBUTE, consulted once at parse
+      // time — it would silently fail to unmute a video already playing.
+      const wrapper = await mountPlayer(makeProvider(), { muted: true })
+      const video = wrapper.find('video').element as HTMLVideoElement
+      expect(video.muted).toBe(true)
+
+      await wrapper.setProps({ muted: false })
+
+      expect(video.muted).toBe(false)
+    })
+
+    it('writes the muted DOM PROPERTY imperatively, not via a template attribute binding', async () => {
+      // The template carries NO `:muted` binding at all (grep-checkable) — the
+      // pre-existing "renders UNMUTED" test above already pins the `muted:
+      // false` (default) case to `attributes('muted')` being absent; this
+      // pins that the PROPERTY (not just the initial attribute) is what
+      // actually silences/unsilences playback.
+      const wrapper = await mountPlayer(makeProvider(), { muted: true })
+      const video = wrapper.find('video').element as HTMLVideoElement
+
+      expect(video.muted).toBe(true)
+
+      const source = readFileSync(
+        join(process.cwd(), 'app', 'components', 'AvatarPlayer.client.vue'),
+        'utf8'
+      )
+      const templateOnly = source.slice(0, source.indexOf('</template>'))
+      expect(templateOnly).not.toMatch(/:muted="/)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // invisible-competency-handover D6/F3 — `painted`, not the provider's `ready`.
+  // ---------------------------------------------------------------------------
+
+  describe('painted emit (D6) — a real frame, never the provider ready state', () => {
+    it('3.6 — emits painted exactly once when the <video> fires loadeddata', async () => {
+      const wrapper = await mountPlayer(makeProvider())
+      const video = wrapper.find('video').element as HTMLVideoElement
+
+      video.dispatchEvent(new Event('loadeddata'))
+      video.dispatchEvent(new Event('loadeddata')) // a late, second event must not double-emit
+      await nextTick()
+
+      expect(wrapper.emitted('painted')).toHaveLength(1)
+    })
+
+    it('emits painted on `playing` too, whichever fires first', async () => {
+      const wrapper = await mountPlayer(makeProvider())
+      const video = wrapper.find('video').element as HTMLVideoElement
+
+      video.dispatchEvent(new Event('playing'))
+      await nextTick()
+
+      expect(wrapper.emitted('painted')).toHaveLength(1)
+    })
+
+    it("B1 — seeds the session's OWN mic uplink from `muted` once, right after start() resolves", async () => {
+      // Four-lens review B1: `beginHandover()` only ever muted the OUTGOING;
+      // nothing muted the INCOMING's uplink, so for the whole overlap TWO
+      // conversational sessions listened to the candidate. `setMicMuted()` is
+      // a guaranteed no-op before the underlying session exists (heygen.ts:
+      // `this.session?.voiceChat` is undefined until start() resolves), so
+      // this is the earliest point at which muting an incoming session is
+      // even possible.
+      const provider = makeProvider()
+      await mountPlayer(provider, { muted: true })
+      await nextTick()
+
+      expect(provider.setMicMuted).toHaveBeenCalledWith(true)
+    })
+
+    it('B1 — calls setMicMuted AFTER start(), never before (no window with a live, unmuted mic)', async () => {
+      const provider = makeProvider()
+      const callOrder: string[] = []
+      provider.start = vi.fn(async () => {
+        callOrder.push('start')
+        return {}
+      })
+      provider.setMicMuted = vi.fn(async (muted: boolean) => {
+        callOrder.push(`setMicMuted:${muted}`)
+      })
+
+      await mountPlayer(provider, { muted: true })
+      await nextTick()
+
+      expect(callOrder).toEqual(['start', 'setMicMuted:true'])
+    })
+
+    it('B1 — a `live`-role mount (muted=false) also seeds setMicMuted(false) — harmless, idempotent on the provider side', async () => {
+      const provider = makeProvider()
+      await mountPlayer(provider) // muted defaults to false
+      await nextTick()
+
+      expect(provider.setMicMuted).toHaveBeenCalledWith(false)
+    })
+
+    it("B1 — does NOT re-call setMicMuted when `muted` flips later — unmuting the incoming mic is promote()'s job, not this prop reacting", async () => {
+      const provider = makeProvider()
+      const wrapper = await mountPlayer(provider, { muted: true })
+      await nextTick()
+      expect(provider.setMicMuted).toHaveBeenCalledTimes(1)
+
+      await wrapper.setProps({ muted: false }) // e.g. the D6 `entering` role
+      await nextTick()
+
+      expect(provider.setMicMuted).toHaveBeenCalledTimes(1)
+    })
+
+    it('requestVideoFrameCallback — the PRIMARY paint detector — fires `painted` on its own, with no DOM event needed', async () => {
+      // jsdom has no requestVideoFrameCallback, and the E2E mock only ever
+      // dispatches `loadeddata` — so in production, where rVFC exists on
+      // Chromium/Safari 15.4+, this branch had NEVER been exercised by any
+      // test. Stub it on the prototype BEFORE mounting so
+      // wirePaintedDetection() picks it up during onMounted, then restore it
+      // unconditionally afterward so this stub cannot leak into later tests.
+      type RvfcVideo = HTMLVideoElement & {
+        requestVideoFrameCallback?: (cb: () => void) => void
+      }
+      const rvfcCallback: { fn: (() => void) | null } = { fn: null }
+      const proto = window.HTMLVideoElement.prototype as RvfcVideo
+      const original = proto.requestVideoFrameCallback
+      proto.requestVideoFrameCallback = function (this: HTMLVideoElement, cb: () => void) {
+        rvfcCallback.fn = cb
+      }
+
+      try {
+        const provider = makeProvider()
+        const wrapper = await mountPlayer(provider)
+        await nextTick()
+
+        expect(rvfcCallback.fn).toBeTypeOf('function')
+        expect(wrapper.emitted('painted')).toBeUndefined() // armed, not yet fired
+
+        rvfcCallback.fn!() // the browser presents a frame
+        await nextTick()
+
+        expect(wrapper.emitted('painted')).toHaveLength(1)
+        expect((wrapper.element as HTMLElement).className).toContain('opacity-100')
+
+        // Never fires twice even if a late `loadeddata` ALSO arrives.
+        wrapper.find('video').element.dispatchEvent(new Event('loadeddata'))
+        await nextTick()
+        expect(wrapper.emitted('painted')).toHaveLength(1)
+      } finally {
+        proto.requestVideoFrameCallback = original
+      }
+    })
+
+    it("3.5/F3 — the provider's own 'ready' state does NOT drive the opacity gate; only painted does", async () => {
+      const provider = makeProvider()
+      const wrapper = await mountPlayer(provider)
+
+      const stateHandler = (provider.on as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c) => c[0] === 'state'
+      )?.[1] as ((payload: unknown) => void) | undefined
+
+      // heygen.ts:315 emits 'ready' unconditionally — no frame implied.
+      stateHandler?.('ready')
+      await nextTick()
+
+      expect((wrapper.element as HTMLElement).className).toContain('opacity-0')
+      expect(wrapper.emitted('painted')).toBeUndefined()
+
+      wrapper.find('video').element.dispatchEvent(new Event('loadeddata'))
+      await nextTick()
+
+      expect((wrapper.element as HTMLElement).className).toContain('opacity-100')
+      expect(wrapper.emitted('painted')).toHaveLength(1)
+    })
   })
 })
