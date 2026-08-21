@@ -589,6 +589,242 @@ test.describe('Interview flow — E2E', () => {
     })
   })
 
+  // ---------------------------------------------------------------------------
+  // invisible-competency-handover — HeyGen continue keeps an avatar visibly
+  // mounted, continuously, from the first competency to the last (D2, D6).
+  //
+  // The mock provider's own `start()` dispatches a synthetic `loadeddata` on
+  // its mount element (`factory.ts`), which is what drives AvatarPlayer's D6
+  // paint-detection deterministically under test — no real WebRTC stream is
+  // ever attached.
+  // ---------------------------------------------------------------------------
+
+  test.describe('invisible-competency-handover — no visible gap between HeyGen competencies', () => {
+    test.beforeEach(async ({ page }) => {
+      await mockInterviewRoutes(page)
+      await injectDeviceMocks(page)
+    })
+
+    async function driveToLive(
+      page: Parameters<typeof test>[0] extends { page: infer P } ? P : never
+    ) {
+      await page.goto(EN_INTERVIEW_URL)
+      await page.getByRole('button', { name: /accept and continue/i }).click()
+      await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+        timeout: 8000,
+      })
+      await page.getByRole('button', { name: /continue to interview/i }).click()
+      await page.waitForFunction(
+        () => Boolean((window as never as Record<string, unknown>).__mockInterviewProvider),
+        null,
+        { timeout: 15000 }
+      )
+    }
+
+    /**
+     * Installs an in-page requestAnimationFrame sampler: per frame, records
+     * whether an avatar <video> exists with a computed-opacity > 0 ancestor
+     * (AvatarPlayer's own root div carries the `opacity-0/100` D6 gate —
+     * directly, or via the page's `absolute inset-0` fallthrough class on
+     * the SAME element). Never trusts absence alone (a dead page would also
+     * report zero gap frames) — every caller MUST additionally assert a
+     * positive, live-only signal (the Pause control) after driving the
+     * handover.
+     */
+    async function installGapSampler(
+      page: Parameters<typeof test>[0] extends { page: infer P } ? P : never
+    ) {
+      await page.evaluate(() => {
+        const w = window as unknown as {
+          __gapSampler?: { samples: boolean[]; gapFrames: number; running: boolean }
+        }
+        w.__gapSampler = { samples: [], gapFrames: 0, running: true }
+        function tick() {
+          if (!w.__gapSampler!.running) return
+          const videos = Array.from(document.querySelectorAll('video'))
+          const visible = videos.some((v) => {
+            const wrapper = v.parentElement
+            if (!wrapper) return false
+            return Number.parseFloat(getComputedStyle(wrapper).opacity) > 0
+          })
+          w.__gapSampler!.samples.push(visible)
+          if (!visible) w.__gapSampler!.gapFrames++
+          requestAnimationFrame(tick)
+        }
+        requestAnimationFrame(tick)
+      })
+    }
+
+    async function stopGapSampler(
+      page: Parameters<typeof test>[0] extends { page: infer P } ? P : never
+    ): Promise<{ samples: boolean[]; gapFrames: number }> {
+      return page.evaluate(() => {
+        const w = window as unknown as {
+          __gapSampler: { samples: boolean[]; gapFrames: number; running: boolean }
+        }
+        w.__gapSampler.running = false
+        return { samples: w.__gapSampler.samples, gapFrames: w.__gapSampler.gapFrames }
+      })
+    }
+
+    test('D6 — zero gap frames across a HeyGen continue handover, and Pause is visible again afterward', async ({
+      page,
+    }) => {
+      await driveToLive(page)
+      await installGapSampler(page)
+
+      // The next competency's /start (LIFO — registered after mockInterviewRoutes'
+      // handler, so it wins for every request from here on).
+      await page.route('**/api/candidate/interview/start', (route) =>
+        route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ...MOCK_START_RESPONSE,
+            session_id: 2,
+            question_context: { ...MOCK_START_RESPONSE.question_context, competency_code: 'COL' },
+          }),
+        })
+      )
+      await page.route('**/api/candidate/interview/end', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(endDirective(1, 3, 'continue')),
+        })
+      )
+
+      await page.evaluate(() => {
+        const p = (window as never as Record<string, { emitEndPhrase: () => void }>)
+          .__mockInterviewProvider
+        p.emitEndPhrase()
+      })
+
+      // The crossfade is 200ms (DESIGN.md §10); give the whole handover
+      // margin to complete.
+      await page.waitForTimeout(1000)
+
+      const result = await stopGapSampler(page)
+
+      expect(result.samples.length).toBeGreaterThan(30)
+      expect(result.gapFrames).toBe(0)
+
+      // Positive signal, never absence alone (per interview-flow.spec.ts's
+      // own precedent above): the live-only Pause control is visible again,
+      // proving a NEW competency actually started — not merely that nothing
+      // broke.
+      await expect(page.getByRole('button', { name: /^pause$/i })).toBeVisible()
+    })
+
+    test('D5 — a stalled incoming falls back to the transition panel at the bound, never an error screen', async ({
+      page,
+    }) => {
+      await driveToLive(page)
+
+      await page.route('**/api/candidate/interview/start', (route) =>
+        route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ...MOCK_START_RESPONSE,
+            session_id: 2,
+            question_context: { ...MOCK_START_RESPONSE.question_context, competency_code: 'COL' },
+          }),
+        })
+      )
+      await page.route('**/api/candidate/interview/end', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(endDirective(1, 3, 'continue')),
+        })
+      )
+
+      // Holds the incoming's paint from the INSTANT its mock is created
+      // (factory.ts) — deterministic, no race against AvatarPlayer's own
+      // onMounted() calling start() (which is what a poll-after-the-fact
+      // would race and could lose).
+      await page.evaluate(() => {
+        ;(window as unknown as Record<string, unknown>).__mockInterviewAutoHoldPaint = true
+      })
+
+      await page.evaluate(() => {
+        const p = (window as never as Record<string, { emitEndPhrase: () => void }>)
+          .__mockInterviewProvider
+        p.emitEndPhrase()
+      })
+
+      // 10s bound (HANDOVER_BOUND_MS) — the panel appears, never an error.
+      await expect(page.getByTestId('transition-panel')).toBeVisible({ timeout: 12000 })
+      await expect(page.getByTestId('error-screen')).toHaveCount(0)
+    })
+
+    // WebKit-only (D4): unmuting a PLAYING element without a fresh user
+    // gesture is a WebKit-specific autoplay risk. Only a real WebKit run can
+    // prove the promoted avatar is actually audible — Chromium's autoplay
+    // policy is looser and would pass even on a regression.
+    test('D4 WebKit — after promotion, the visible avatar is unmuted AND playing', async ({
+      page,
+      browserName,
+    }) => {
+      test.skip(browserName !== 'webkit', 'WebKit-specific autoplay/unmute risk (D4)')
+
+      await driveToLive(page)
+      await installGapSampler(page) // also proves no gap on THIS engine specifically
+
+      await page.route('**/api/candidate/interview/start', (route) =>
+        route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ...MOCK_START_RESPONSE,
+            session_id: 2,
+            question_context: { ...MOCK_START_RESPONSE.question_context, competency_code: 'COL' },
+          }),
+        })
+      )
+      await page.route('**/api/candidate/interview/end', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(endDirective(1, 3, 'continue')),
+        })
+      )
+
+      await page.evaluate(() => {
+        const p = (window as never as Record<string, { emitEndPhrase: () => void }>)
+          .__mockInterviewProvider
+        p.emitEndPhrase()
+      })
+
+      await page.waitForTimeout(1000)
+
+      const result = await stopGapSampler(page)
+      expect(result.samples.length).toBeGreaterThan(30)
+      expect(result.gapFrames).toBe(0)
+
+      await expect(page.getByRole('button', { name: /^pause$/i })).toBeVisible()
+
+      // The promoted (formerly incoming, now visible) <video> must not be
+      // silently stuck muted by WebKit's autoplay gate.
+      //
+      // `paused` is DELIBERATELY not asserted here: the mock provider never
+      // attaches a real media stream (`srcObject` is never set — only a
+      // synthetic `loadeddata` is dispatched, per factory.ts), so the
+      // element has nothing to actually play regardless of correctness —
+      // asserting `paused === false` under this fixture would fail
+      // unconditionally, proving nothing. Real playback on real WebKit
+      // hardware is task 7.2's named MANUAL check, not automatable under a
+      // mocked getUserMedia/media stream.
+      const videoState = await page.evaluate(() => {
+        const video = document.querySelector('video') as HTMLVideoElement | null
+        return video ? { muted: video.muted } : null
+      })
+      expect(videoState).not.toBeNull()
+      expect(videoState?.muted).toBe(false)
+    })
+  })
+
   test.describe('Error paths', () => {
     // Helper: navigate to EN interview URL, accept consent, wait for DeviceCheck
     // to be fully rendered, then click "Continue to Interview".

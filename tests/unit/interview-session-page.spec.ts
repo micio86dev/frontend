@@ -18,9 +18,13 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { ref, shallowRef, nextTick, defineComponent, h } from 'vue'
+import { ref, shallowRef, computed, nextTick, defineComponent, h } from 'vue'
 import type { InterviewProvider, StartConfig } from '~/app/types/interview-provider'
-import type { SessionState } from '~/app/composables/useInterviewSession'
+import type {
+  SessionState,
+  SessionPlayer,
+  ProviderSession,
+} from '~/app/composables/useInterviewSession'
 
 // ---------------------------------------------------------------------------
 // Hoisted composable mocks
@@ -59,10 +63,58 @@ const CONFIG: StartConfig = {
   finalPhrase: 'Grazie per il tuo tempo.',
 }
 
+/**
+ * invisible-competency-handover (Task 4.3) — `makeSession()` gains
+ * `players`/`incomingSession` so every page test routes through the same
+ * fixture shape the real composable exposes.
+ *
+ * `players` is a COMPUTED mirroring the real composable's own derivation
+ * (D1/D6): live from `activeProvider`/`activeConfig`, plus an optional
+ * hidden `incoming` entry. This is deliberate — every EXISTING test in this
+ * file that mutates `activeProvider.value`/`activeConfig.value` directly
+ * (to simulate "no provider yet") keeps working unmodified, because
+ * `players` reactively reflects those same refs rather than needing its own
+ * parallel updates.
+ */
 function makeSession(
-  overrides: { state?: SessionState; provider?: InterviewProvider | null } = {}
+  overrides: {
+    state?: SessionState
+    provider?: InterviewProvider | null
+    incoming?: { dbSessionId: number; provider: InterviewProvider; config: StartConfig } | null
+  } = {}
 ) {
   const provider = overrides.provider === undefined ? makeProvider() : overrides.provider
+  const activeProvider = shallowRef<InterviewProvider | null>(provider)
+  const activeConfig = shallowRef<StartConfig | null>(provider ? CONFIG : null)
+  const incomingSession = shallowRef<ProviderSession | null>(
+    overrides.incoming
+      ? ({ ...overrides.incoming, providerName: 'heygen' } as ProviderSession)
+      : null
+  )
+
+  const players = computed<SessionPlayer[]>(() => {
+    const list: SessionPlayer[] = []
+    if (activeProvider.value && activeConfig.value) {
+      list.push({
+        key: activeConfig.value.dbSessionId,
+        provider: activeProvider.value,
+        config: activeConfig.value,
+        role: 'live',
+        muted: false,
+      })
+    }
+    if (incomingSession.value) {
+      list.push({
+        key: incomingSession.value.dbSessionId,
+        provider: incomingSession.value.provider,
+        config: incomingSession.value.config,
+        role: 'incoming',
+        muted: true,
+      })
+    }
+    return list
+  })
+
   return {
     state: ref<SessionState>(overrides.state ?? 'live'),
     retryAttemptCount: ref(0),
@@ -71,8 +123,11 @@ function makeSession(
     sessionId: ref<number | null>(42),
     endedCompetencies: ref<number | null>(null),
     totalCompetencies: ref<number | null>(null),
-    activeProvider: shallowRef<InterviewProvider | null>(provider),
-    activeConfig: shallowRef<StartConfig | null>(provider ? CONFIG : null),
+    activeProvider,
+    activeConfig,
+    players,
+    incomingSession,
+    handoverInFlight: computed(() => incomingSession.value !== null),
     acceptConsent: vi.fn(),
     confirmDevices: vi.fn(),
     pause: vi.fn(),
@@ -81,6 +136,7 @@ function makeSession(
     nextCompetency: vi.fn(),
     endQuestion: vi.fn(async () => undefined),
     teardown: vi.fn(async () => undefined),
+    notifyPainted: vi.fn(),
   }
 }
 
@@ -88,8 +144,14 @@ function makeSession(
 // browser-only children whose real implementations need WebRTC / MediaPipe.
 const AvatarPlayerStub = defineComponent({
   name: 'AvatarPlayer',
-  props: { provider: { type: Object, required: true }, config: { type: Object, required: true } },
-  setup: () => () => h('div', { 'data-testid': 'avatar-player' }),
+  props: {
+    provider: { type: Object, required: true },
+    config: { type: Object, required: true },
+    muted: { type: Boolean, default: false },
+  },
+  emits: ['painted', 'state', 'transcript', 'error'],
+  setup: (props) => () =>
+    h('div', { 'data-testid': 'avatar-player', 'data-muted': String(props.muted) }),
 })
 
 const InterviewTimerStub = defineComponent({
@@ -244,6 +306,37 @@ describe('interview/session.vue — timer expiry and skip', () => {
     expect(session.pause).toHaveBeenCalled()
   })
 
+  // invisible-competency-handover D2 (Task 3.9 / 1.7) — DISABLED, never
+  // hidden, while a handover is in flight. Hiding it is itself a visible
+  // break; an enabled-but-inert button is the defect the live pause was
+  // fixed for.
+  it('disables (never hides) the Pause control while a HeyGen handover is in flight', async () => {
+    const incomingProvider = makeProvider()
+    const session = makeSession({
+      state: 'live',
+      incoming: { dbSessionId: 99, provider: incomingProvider, config: CONFIG },
+    })
+    const wrapper = await mountPage(session)
+
+    const pauseButton = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('interview.live.pause'))
+
+    expect(pauseButton).toBeDefined()
+    expect(pauseButton!.attributes('disabled')).toBeDefined()
+  })
+
+  it('the Pause control is enabled again once no handover is in flight', async () => {
+    const session = makeSession({ state: 'live' })
+    const wrapper = await mountPage(session)
+
+    const pauseButton = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('interview.live.pause'))
+
+    expect(pauseButton!.attributes('disabled')).toBeUndefined()
+  })
+
   // Pausing a LIVE question keeps the provider session up (tearing it down would
   // restart the question from its opening line), so `avatarMounted` stays true —
   // and the standalone `paused` section is ordered AFTER the avatar section in the
@@ -327,7 +420,57 @@ describe('interview/session.vue — timer expiry and skip', () => {
   // follows a device check the candidate just interacted with, which is a
   // different expectation entirely.
 
-  it('shows the transition panel between competencies, not a bare skeleton', async () => {
+  // ---------------------------------------------------------------------------
+  // invisible-competency-handover (D6/D7) — strictly stronger replacement.
+  //
+  // The OLD assertion here ("connecting + no provider ⇒ panel") was correct
+  // for EVERY continue on `main`, because every continue used to tear the
+  // provider down first. It is no longer correct for a HeyGen continue,
+  // which now keeps the outgoing mounted and never reaches `connecting` at
+  // all (D2). Deleting it outright would silently drop coverage of the
+  // panel's role; the replacement below is a strictly stronger PAIR —
+  // absence under the new healthy-handover condition, AND presence on both
+  // of its two remaining real triggers (the D5 bound-exceeded fallback and
+  // an unaffected Tavus continue) — never absence alone.
+  // ---------------------------------------------------------------------------
+
+  it('is ABSENT while a HeyGen handover is healthy — the outgoing stays live, a hidden incoming connects behind it', async () => {
+    const incomingProvider = makeProvider()
+    const session = makeSession({
+      state: 'live',
+      incoming: { dbSessionId: 99, provider: incomingProvider, config: CONFIG },
+    })
+    const wrapper = await mountPage(session)
+
+    session.endedCompetencies.value = 1
+    session.totalCompetencies.value = 3
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="transition-panel"]').exists()).toBe(false)
+    // Positive signal (never absence alone): BOTH sessions are genuinely
+    // mounted at once, as distinct AvatarPlayer instances (D6).
+    expect(wrapper.findAllComponents(AvatarPlayerStub)).toHaveLength(2)
+  })
+
+  it('is PRESENT on the D5 bound-exceeded fallback — no live player, only a hidden incoming survives', async () => {
+    const incomingProvider = makeProvider()
+    const session = makeSession({
+      state: 'connecting',
+      provider: null,
+      incoming: { dbSessionId: 99, provider: incomingProvider, config: CONFIG },
+    })
+    session.endedCompetencies.value = 1
+    session.totalCompetencies.value = 3
+    const wrapper = await mountPage(session)
+
+    expect(wrapper.find('[data-testid="transition-panel"]').exists()).toBe(true)
+    // Positive signal: the hidden incoming is STILL mounted underneath the
+    // panel — D5's "stays in its slot, promoted when it eventually paints" —
+    // never torn down just because the panel became visible.
+    expect(wrapper.findAllComponents(AvatarPlayerStub)).toHaveLength(1)
+  })
+
+  it('is PRESENT on a Tavus continue — unaffected by this change, not a bare skeleton', async () => {
     const session = makeSession({ state: 'live' })
     const wrapper = await mountPage(session)
 
