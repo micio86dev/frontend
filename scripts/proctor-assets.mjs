@@ -11,7 +11,7 @@
  * setting up a new dev environment or updating the MediaPipe version.
  */
 
-import { copyFile, mkdir } from 'node:fs/promises'
+import { copyFile, mkdir, readdir } from 'node:fs/promises'
 import { existsSync, createWriteStream } from 'node:fs'
 import { pipeline } from 'node:stream/promises'
 import { get } from 'node:https'
@@ -29,11 +29,25 @@ const FACE_LANDMARKER_URL =
   'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task'
 const FACE_LANDMARKER_DEST = join(PROCTOR_DEST, 'face_landmarker.task')
 
-const WASM_FILES = [
-  'vision_wasm_internal.wasm',
-  'vision_wasm_module_internal.wasm',
-  'vision_wasm_nosimd_internal.wasm',
-]
+/**
+ * Every file MediaPipe's FilesetResolver may load, discovered from the package
+ * rather than listed by hand.
+ *
+ * The hardcoded list named only the three `.wasm` binaries and omitted their
+ * `.js` glue loaders, which is what the runtime actually requests first. In
+ * production `/proctor/wasm/vision_wasm_internal.js` 404'd, the SPA fallback
+ * answered with JSON, the browser refused to execute it, and face detection was
+ * dead for every interview — silently, because useProctor degrades on failure by
+ * design.
+ *
+ * Reading the directory means a future MediaPipe release that adds or renames a
+ * file cannot leave a gap here. A curated list is a second place to remember.
+ */
+async function wasmFilesToCopy() {
+  const entries = await readdir(WASM_SRC)
+
+  return entries.filter((f) => f.endsWith('.wasm') || f.endsWith('.js'))
+}
 
 async function download(url, dest) {
   return new Promise((resolve, reject) => {
@@ -54,7 +68,7 @@ async function main() {
 
   // Copy WASM runtime files
   console.log('Copying MediaPipe WASM runtime files...')
-  for (const file of WASM_FILES) {
+  for (const file of await wasmFilesToCopy()) {
     const src = join(WASM_SRC, file)
     const dest = join(WASM_DEST, file)
     if (!existsSync(src)) {
