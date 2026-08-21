@@ -1396,6 +1396,22 @@ export interface components {
                 completed_at: string | null;
                 session_count: number;
             };
+            progress: {
+                done: number;
+                total: number;
+            };
+            elapsed: {
+                seconds: number | null;
+                sessions_counted: number;
+                sessions_total: number;
+            };
+            cost: {
+                amount: number | null;
+                currency: string;
+                is_estimate: boolean;
+                sessions_estimated: number;
+                sessions_total: number;
+            };
             files: {
                 transcript: {
                     type: string;
@@ -1420,6 +1436,7 @@ export interface components {
             /** @enum {string} */
             status: "in_attesa" | "in_corso" | "in_valutazione" | "completato" | "errore";
             project_id: number;
+            project_name: string | null;
             started_at: string | null;
             completed_at: string | null;
             created_at: string | null;
