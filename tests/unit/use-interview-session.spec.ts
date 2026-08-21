@@ -279,6 +279,65 @@ async function createLiveSession(
  * "two healthy sessions overlapping" fixture the original D2 event-identity
  * suite established.
  */
+describe('boundary-window utterance loss', () => {
+  it('the avatar closing line is persisted BEFORE /end is called', async () => {
+    // The closing sentence is the phrase that MARKS the boundary, and it was
+    // the one most likely to be lost: `transcript` fired sendUtterance() as
+    // fire-and-forget, `complete` fired callEnd() immediately after, the
+    // server flipped the row out of `in_corso`, and the still-in-flight POST
+    // came back 409 — which the client swallows without even a warning.
+    //
+    // Asserted as an ORDERING, not as "the call happened": a test that only
+    // checked /utterance was called would pass against the losing code, since
+    // it IS called — it just loses the race.
+    const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+    const provider = mockProviderRegistry[0]!
+
+    let releaseUtterance!: () => void
+    const utteranceInFlight = new Promise<void>((resolve) => {
+      releaseUtterance = () => resolve()
+    })
+    mockCandidateFetch.mockImplementation((url: string) => {
+      if (url === '/candidate/interview/utterance') return utteranceInFlight
+      if (url === '/candidate/interview/end') {
+        return Promise.resolve({
+          ended_competencies: 1,
+          total_competencies: 3,
+          next_action: 'done',
+        })
+      }
+      return Promise.resolve(undefined)
+    })
+
+    provider._emit('transcript', {
+      role: 'avatar',
+      text: 'Passiamo alla prossima domanda.',
+      ts: Date.now(),
+    })
+    provider._emit('state', 'complete')
+    await flushPromises()
+
+    const endCalled = () =>
+      mockCandidateFetch.mock.calls.some((c: unknown[]) => c[0] === '/candidate/interview/end')
+
+    expect(
+      mockCandidateFetch.mock.calls.some(
+        (c: unknown[]) => c[0] === '/candidate/interview/utterance'
+      )
+    ).toBe(true)
+    expect(endCalled()).toBe(false)
+
+    releaseUtterance()
+    // Twice: the drain adds an await hop between the utterance settling and
+    // callEnd resuming, so one flush lands in the middle of it.
+    await flushPromises()
+    await flushPromises()
+
+    expect(endCalled()).toBe(true)
+    expect(session).toBeDefined()
+  })
+})
+
 async function beginHealthyHeyGenOverlap() {
   const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
   const outgoing = mockProviderRegistry[0]!
