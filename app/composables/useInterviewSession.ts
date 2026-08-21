@@ -248,6 +248,8 @@ const RETRY_DELAY_MS = 3000
  * `endHandover()` — the single exit both `promote()` and `releaseOutgoing()`
  * route through. Not configurable: the spec fixes the number.
  */
+const UTTERANCE_DRAIN_CEILING_MS = 3_000
+
 const HANDOVER_BOUND_MS = 10_000
 
 /** DESIGN.md §10 — fade, 200ms, ease-in-out; instant under reduced motion. */
@@ -561,6 +563,44 @@ export function useInterviewSession(
     window.addEventListener('resize', resizeListener)
   }
 
+  /**
+   * Utterance POSTs still awaiting a response.
+   *
+   * `/utterance` inserts only `WHERE status = 'in_corso'` and answers 409
+   * otherwise — deliberately, to close a TOCTOU window. The cost was that an
+   * utterance whose POST was still in flight when `/end` flipped the row came
+   * back 409 and was dropped on the floor, and the client swallowed it without
+   * so much as a warning. The phrase most exposed was the avatar's closing
+   * sentence: it is what TRIGGERS the end, so its POST and its own `/end`
+   * always raced.
+   */
+  const inFlightUtterances = new Set<Promise<void>>()
+
+  /**
+   * Wait for the utterance tail, bounded.
+   *
+   * Bounded because a hung POST must not hold an interview open indefinitely —
+   * losing one line is bad, stranding the candidate is worse. The ceiling is
+   * generous relative to a normal round trip, so reaching it means something is
+   * wrong rather than merely slow, and it says so.
+   */
+  async function drainUtterances(): Promise<void> {
+    if (inFlightUtterances.size === 0) return
+    const pending = Array.from(inFlightUtterances)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const ceiling = new Promise<'timeout'>((resolve) => {
+      timer = setTimeout(() => resolve('timeout'), UTTERANCE_DRAIN_CEILING_MS)
+    })
+    const outcome = await Promise.race([
+      Promise.allSettled(pending).then(() => 'drained' as const),
+      ceiling,
+    ])
+    if (timer) clearTimeout(timer)
+    if (outcome === 'timeout') {
+      console.warn('[useInterviewSession] utterance drain hit its ceiling; ending anyway')
+    }
+  }
+
   async function sendUtterance(dbSessionId: number, text: string, speaker: 'candidate' | 'avatar') {
     try {
       await candidateFetch('/candidate/interview/utterance', {
@@ -595,6 +635,11 @@ export function useInterviewSession(
     dbSessionId: number,
     endedReason: 'completed' | EndQuestionReason
   ): Promise<EndDirective | null> {
+    // Inside callEnd, not at its call sites. Both callers would have to
+    // remember, and the one most likely to be added next is a new exit path
+    // written under time pressure. A choke point cannot be forgotten.
+    await drainUtterances()
+
     try {
       const response = await candidateFetch<{
         ended_competencies?: number
@@ -889,7 +934,11 @@ export function useInterviewSession(
       // module state. This is the permanent fix for the api v0.26.4-shaped
       // defect: an outgoing's tail transcript can never land on the
       // incoming's row, because it never reads the incoming's id at all.
-      sendUtterance(handle.dbSessionId, entry.text, speaker).catch(() => {})
+      // Tracked, not merely fired: `callEnd()` drains this set before it runs,
+      // so the tail cannot be 409-dropped by its own /end.
+      const inFlight = sendUtterance(handle.dbSessionId, entry.text, speaker).catch(() => {})
+      inFlightUtterances.add(inFlight)
+      void inFlight.finally(() => inFlightUtterances.delete(inFlight))
     })
 
     handle.provider.on('error', (payload) => {
