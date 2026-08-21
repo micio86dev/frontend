@@ -120,6 +120,17 @@ export class HeyGenProvider implements InterviewProvider {
    * in the candidate's ear before the question tears down.
    */
   private pendingComplete = false
+  /**
+   * Set the moment WE ask the session to stop.
+   *
+   * A disconnect arriving after that is expected teardown, not a failure. In
+   * production the sequence was: the timer ended the question, /end returned
+   * 200, we called stop(), and HeyGen's own MAX_DURATION_REACHED landed a beat
+   * later with a server-initiated reason — which surfaced to the candidate as
+   * "an error occurred" at the end of a question they had answered fully, while
+   * the flow had in fact already moved on correctly.
+   */
+  private stopping = false
 
   /**
    * Injectable SDK loader for testability.
@@ -192,6 +203,7 @@ export class HeyGenProvider implements InterviewProvider {
 
     this.phrases = { endPhrase: cfg.endPhrase, finalPhrase: cfg.finalPhrase }
     this.avatarSpeaking = false
+    this.stopping = false
     this.pendingComplete = false
     this.emitState('connecting')
 
@@ -228,11 +240,17 @@ export class HeyGenProvider implements InterviewProvider {
       session.on(SDK_EVENT.disconnected, (reason: never) => {
         this.session = null
         this.avatarSpeaking = false
-        if (String(reason) === CLIENT_INITIATED) {
+
+        // Either WE asked for this, or the reason says the client did. Both are
+        // ordinary teardown. Only an unexpected drop — one that arrives while we
+        // still believe the session is live — is worth showing a candidate.
+        if (this.stopping || String(reason) === CLIENT_INITIATED) {
           this.emitState('stopped')
-        } else {
-          this.emit('error', { code: 'disconnected', message: 'provider_disconnected' })
+
+          return
         }
+
+        this.emit('error', { code: 'disconnected', message: 'provider_disconnected' })
       })
 
       // ── Turn-taking and barge-in ────────────────────────────────────────────
@@ -328,6 +346,10 @@ export class HeyGenProvider implements InterviewProvider {
   }
 
   async stop(): Promise<void> {
+    // Set BEFORE awaiting: the disconnect can land while stop() is still in
+    // flight, and that one is the most expected of all.
+    this.stopping = true
+
     if (this.session) {
       try {
         await this.session.stop()
