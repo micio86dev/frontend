@@ -263,6 +263,24 @@ describe('HeyGenProvider', () => {
     expect(err.code).toBe('disconnected')
   })
 
+  it('a disconnect AFTER we asked to stop is not an error', async () => {
+    // Real production sequence: the timer ends the question, /end returns 200,
+    // we call stop() — and HeyGen's own MAX_DURATION_REACHED lands a moment
+    // later with a server-initiated reason. The question was already over and
+    // the flow had already advanced, but the late disconnect surfaced as
+    // "an error occurred" on top of it, at the end of a question the candidate
+    // had answered completely.
+    const { provider } = makeProvider()
+    await provider.start(makeMountEl(), { dbSessionId: 1, ...PHRASES })
+
+    await provider.stop()
+    emittedErrors.length = 0
+
+    mockSession._emit('session.disconnected', 'SERVER_INITIATED')
+
+    expect(emittedErrors).toHaveLength(0)
+  })
+
   it('emits stopped — not error — when the disconnect was client-initiated', async () => {
     const { provider } = makeProvider()
     await provider.start(makeMountEl(), { dbSessionId: 1, ...PHRASES })
