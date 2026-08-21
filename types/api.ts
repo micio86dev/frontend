@@ -687,8 +687,9 @@ export interface paths {
         };
         /**
          * GET /api/participants/{id}/transcript
-         * @description Transcript scope (D2) — requires lifecycle >= in_valutazione; a
-         *     pre-threshold status raises LifecycleNotReadyException -> 409 (D4).
+         * @description Transcript scope (D2) — requires lifecycle >= in_corso, OR errore
+         *     (operator-participant-visibility D1); a pre-threshold status (in_attesa)
+         *     raises LifecycleNotReadyException -> 409 (D4).
          */
         get: operations["participant.transcript"];
         put?: never;
@@ -1395,6 +1396,22 @@ export interface components {
                 completed_at: string | null;
                 session_count: number;
             };
+            progress: {
+                done: number;
+                total: number;
+            };
+            elapsed: {
+                seconds: number | null;
+                sessions_counted: number;
+                sessions_total: number;
+            };
+            cost: {
+                amount: number | null;
+                currency: string;
+                is_estimate: boolean;
+                sessions_estimated: number;
+                sessions_total: number;
+            };
             files: {
                 transcript: {
                     type: string;
@@ -1419,6 +1436,7 @@ export interface components {
             /** @enum {string} */
             status: "in_attesa" | "in_corso" | "in_valutazione" | "completato" | "errore";
             project_id: number;
+            project_name: string | null;
             started_at: string | null;
             completed_at: string | null;
             created_at: string | null;
@@ -1481,14 +1499,14 @@ export interface components {
         };
         /** SessionReviewResource */
         SessionReviewResource: {
-            id: string;
-            participant_id: string;
+            id: number;
+            participant_id: number;
             competency_code: string;
-            question_index: string;
+            question_index: number;
             provider: string;
-            provider_session_ref: string;
+            provider_session_ref: string | null;
             status: string;
-            ended_reason: string;
+            ended_reason: string | null;
             started_at: string | null;
             ended_at: string | null;
             duration_seconds: number | null;
@@ -1527,12 +1545,12 @@ export interface components {
         };
         /** SessionSummaryResource */
         SessionSummaryResource: {
-            id: string;
+            id: number;
             competency_code: string;
-            question_index: string;
+            question_index: number;
             provider: string;
             status: string;
-            ended_reason: string;
+            ended_reason: string | null;
             started_at: string | null;
             ended_at: string | null;
             duration_seconds: string | null;
@@ -1609,7 +1627,17 @@ export interface components {
         };
         /** TranscriptResource */
         TranscriptResource: {
-            sessions: string;
+            is_partial: boolean;
+            sessions: {
+                session_id: number;
+                competency_code: string;
+                question_index: number;
+                utterances: {
+                    speaker: string;
+                    text: string;
+                    ts: string | null;
+                }[];
+            }[];
         };
         /**
          * UpdateOrganizationRequest
@@ -2068,7 +2096,7 @@ export interface operations {
                              * @description user-profile-self-service: previously the column and
                              *     $fillable entry existed but /auth/me never returned it.
                              */
-                            locale: string;
+                            locale: string | null;
                             /**
                              * @description user-avatar-image (design D4): the SAME signer ProfileResource
                              *     uses — /auth/me is the shell-identity contract useCurrentUser
@@ -2317,11 +2345,11 @@ export interface operations {
                         exported_at: string;
                         templates: {
                             name: string;
-                            description: string;
+                            description: string | null;
                             provider: string;
-                            config: string;
+                            config: unknown[];
                             /** @description Persona is optional: a template may be pure provider config. */
-                            persona: string | null;
+                            persona: unknown[] | null;
                         }[];
                     };
                 };
