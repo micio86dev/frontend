@@ -223,6 +223,28 @@ describe('HeyGenProvider', () => {
     expect(mockSession.interrupt).not.toHaveBeenCalled()
   })
 
+  it('logs a [heygen] breadcrumb on barge-in carrying whether the avatar was speaking', async () => {
+    // The diagnostic that makes a candidate-reported "the avatar cuts itself
+    // off mid-sentence" investigable at all: a false barge-in (the mic picking
+    // up the avatar's own speech off the speakers) is indistinguishable from a
+    // real one in the SDK's own events, so the console trail has to carry the
+    // context — `avatarSpeaking: true` followed by `interrupted` and then an
+    // empty `user_transcription`.
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    try {
+      const { provider } = makeProvider()
+      await provider.start(makeMountEl(), { dbSessionId: 1, ...PHRASES })
+
+      mockSession._emit('avatar.speak_started', undefined)
+      mockSession._emit('user.speak_started', undefined)
+
+      expect(info).toHaveBeenCalledWith('[heygen] user_speak_started', { avatarSpeaking: true })
+      expect(info).toHaveBeenCalledWith('[heygen] interrupted', {})
+    } finally {
+      info.mockRestore()
+    }
+  })
+
   it('emits state speaking on "avatar.speak_started"', async () => {
     const { provider } = makeProvider()
     await provider.start(makeMountEl(), { dbSessionId: 1, ...PHRASES })

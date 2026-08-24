@@ -173,6 +173,17 @@ export class HeyGenProvider implements InterviewProvider {
     }
   }
 
+  /**
+   * Diagnostic breadcrumb for turn-taking (barge-in) and transcript events —
+   * mirrors the `[handover]` console.info pattern in useInterviewSession.ts,
+   * added for the same reason: a candidate-reported "the avatar cuts itself
+   * off mid-sentence" defect left no trace to diagnose from. `console.info`
+   * never throws, so this is always safe to call.
+   */
+  private logEvent(event: string, detail?: Record<string, unknown>): void {
+    console.info(`[heygen] ${event}`, detail ?? {})
+  }
+
   on(evt: ProviderEvent, cb: EventCallback): void {
     const existing = this.listeners.get(evt) ?? []
     this.listeners.set(evt, [...existing, cb])
@@ -258,22 +269,31 @@ export class HeyGenProvider implements InterviewProvider {
       // person would stop when interrupted. Server-side VAD also handles this in
       // CONVERSATIONAL mode, so a throwing interrupt() is not fatal.
       session.on(SDK_EVENT.userSpeakStarted, () => {
+        // A false trigger here (mic picking up the avatar's own speech off
+        // speakers, no headphones) reads identically to a real barge-in —
+        // `avatarSpeaking: true` plus an `interrupted` log with no
+        // corresponding `user.transcription` text a moment later is the
+        // signature to look for when the avatar cuts itself off mid-sentence.
+        this.logEvent('user_speak_started', { avatarSpeaking: this.avatarSpeaking })
         this.emitState('listening')
         if (!this.avatarSpeaking) return
         this.avatarSpeaking = false
         try {
           session.interrupt()
+          this.logEvent('interrupted')
         } catch {
           /* server VAD covers barge-in in CONVERSATIONAL mode */
         }
       })
 
       session.on(SDK_EVENT.avatarSpeakStarted, () => {
+        this.logEvent('avatar_speak_started')
         this.avatarSpeaking = true
         this.emitState('speaking')
       })
 
       session.on(SDK_EVENT.avatarSpeakEnded, () => {
+        this.logEvent('avatar_speak_ended', { pendingComplete: this.pendingComplete })
         this.avatarSpeaking = false
         this.emitState('ready')
         // The closing phrase has now been spoken in full → the question is done.
@@ -288,6 +308,7 @@ export class HeyGenProvider implements InterviewProvider {
       // duplicate partials.
       session.on(SDK_EVENT.avatarTranscription, (data: never) => {
         const text = String((data as { text?: unknown })?.text ?? '')
+        this.logEvent('avatar_transcription', { text })
 
         this.emit('transcript', { role: 'avatar', text, ts: Date.now() } satisfies TranscriptEntry)
 
@@ -301,6 +322,10 @@ export class HeyGenProvider implements InterviewProvider {
 
       session.on(SDK_EVENT.userTranscription, (data: never) => {
         const text = String((data as { text?: unknown })?.text ?? '')
+        // An empty/very short text right after a `user_speak_started` log with
+        // `avatarSpeaking: true` is the strongest signal of a false barge-in
+        // (noise/echo, not real speech) rather than a genuine interruption.
+        this.logEvent('user_transcription', { text })
 
         this.emit('transcript', { role: 'user', text, ts: Date.now() } satisfies TranscriptEntry)
       })
