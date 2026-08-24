@@ -38,8 +38,9 @@ codebase, not because it is good practice in the abstract.
 
 ## BARS rendering — domain correctness
 
-- **Indicator scores are the discrete set `{1, 3, 5}`.** A chip rendering `2` or `4` is a bug,
-  not a styling choice.
+- **Indicator scores are one integer from `{1, 2, 3, 4, 5}` ∪ `{-1}`.** `4`/`2` are
+  residual levels distinct from the three authored anchors. An out-of-domain value MUST
+  render as a loud `invalid` chip, never laundered into `unassessable`.
 - **`-1` (and the API's `null` mapping of it) means UNASSESSABLE.** Render a neutral `–` with
   an accessible label — never the number, never on the error/warning/success scale.
 - **Unassessable indicators are excluded from the competency mean**; an all-unassessable
