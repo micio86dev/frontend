@@ -1,7 +1,7 @@
 <template>
   <div
-    class="relative flex items-center justify-center overflow-hidden rounded-lg bg-avatar-bg transition-opacity duration-200 ease-in-out motion-reduce:transition-none"
-    :class="isReady ? 'opacity-100' : 'opacity-0'"
+    class="flex items-center justify-center overflow-hidden rounded-lg bg-avatar-bg transition-opacity duration-200 ease-in-out motion-reduce:transition-none"
+    :class="[isReady ? 'opacity-100' : 'opacity-0', overlay ? 'absolute inset-0' : 'relative']"
     style="aspect-ratio: 16/9"
     aria-live="off"
   >
@@ -66,6 +66,15 @@
  * Props:
  *   provider   — the InterviewProvider instance (published by useInterviewSession)
  *   config     — StartConfig to pass to provider.start()
+ *   overlay    — true for a non-`live` handover role (D6). Decided HERE, not by a
+ *                `class` fallthrough from session.vue: this component's root already
+ *                carries `relative`/`absolute` as part of its own class list, and a
+ *                parent-injected `absolute inset-0` string-concatenated onto that is a
+ *                same-property utility collision whose winner depends on Tailwind's
+ *                generated CSS order, not on DOM class order — during a handover this
+ *                silently left the incoming player in normal flow, clipped by the
+ *                wrapper's `overflow-hidden`. A single internal ternary makes the two
+ *                classes mutually exclusive by construction.
  *   muted      — handover-role downlink control (invisible-competency-handover
  *                D4). Defaults to false. NEVER bind this to the candidate's own
  *                microphone state — see the template comment above the <video>.
@@ -111,9 +120,10 @@ const props = withDefaults(
   defineProps<{
     provider: InterviewProvider
     config: StartConfig
+    overlay?: boolean
     muted?: boolean
   }>(),
-  { muted: false }
+  { overlay: false, muted: false }
 )
 
 const emit = defineEmits<{

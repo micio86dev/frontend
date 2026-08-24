@@ -1,6 +1,6 @@
 <template>
   <p
-    class="min-h-[1.5rem] text-center text-sm text-muted-foreground transition-opacity"
+    class="mt-4 min-h-[1.75rem] text-center text-base font-medium text-foreground transition-opacity"
     :class="text ? 'opacity-100' : 'opacity-0'"
     aria-live="polite"
     aria-atomic="true"

@@ -37,7 +37,7 @@
             :provider="p.provider"
             :config="p.config"
             :muted="p.muted"
-            :class="p.role === 'live' ? '' : 'absolute inset-0'"
+            :overlay="p.role !== 'live'"
             @state="onProviderState"
             @transcript="onTranscriptFromPlayer(p.role, $event)"
             @error="onProviderError"

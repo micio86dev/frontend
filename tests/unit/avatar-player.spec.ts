@@ -64,13 +64,14 @@ describe('AvatarPlayer.client.vue', () => {
   })
 
   it("declares no micMuted prop — the candidate mic is not this component's concern", async () => {
-    // `muted` (invisible-competency-handover D4) IS a legitimate declared
-    // prop now — it governs the HANDOVER role's downlink, never the
-    // candidate's own microphone. `micMuted` specifically stays absent.
+    // `muted` (invisible-competency-handover D4) and `overlay` (D6 position
+    // fix below) ARE legitimate declared props now — `micMuted` specifically
+    // stays absent: the candidate's own microphone is never this
+    // component's concern.
     const { default: AvatarPlayer } = await import('~/app/components/AvatarPlayer.client.vue')
     const declaredProps = (AvatarPlayer as unknown as { props?: Record<string, unknown> }).props
 
-    expect(Object.keys(declaredProps ?? {})).toEqual(['provider', 'config', 'muted'])
+    expect(Object.keys(declaredProps ?? {})).toEqual(['provider', 'config', 'overlay', 'muted'])
     expect(Object.keys(declaredProps ?? {})).not.toContain('micMuted')
   })
 
@@ -292,6 +293,50 @@ describe('AvatarPlayer.client.vue', () => {
 
       expect((wrapper.element as HTMLElement).className).toContain('opacity-100')
       expect(wrapper.emitted('painted')).toHaveLength(1)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // `overlay` prop — position class, decided INSIDE this component.
+  //
+  // Regression coverage for a handover visual glitch: the incoming player's
+  // positioning used to be forced from session.vue via a
+  // `class="absolute inset-0"` fallthrough, string-concatenated onto this
+  // component's own root `relative` class. Both `absolute` and `relative`
+  // ended up on the same element, and which one actually applied depended on
+  // Tailwind's generated CSS order, not on DOM class order — during a
+  // handover this could leave the incoming player in normal document flow,
+  // clipped by the parent's `overflow-hidden` instead of overlaying
+  // invisibly on top of the live one. `overlay` makes the two classes
+  // mutually exclusive by construction: no parent-injected class to collide
+  // with.
+  // ---------------------------------------------------------------------------
+
+  describe('overlay prop (D6 fix) — position class owned internally, never via a class fallthrough', () => {
+    it('is in normal flow (relative, never absolute) when overlay is false — the live slot', async () => {
+      const wrapper = await mountPlayer(makeProvider(), { overlay: false })
+      const root = wrapper.element as HTMLElement
+
+      expect(root.classList.contains('relative')).toBe(true)
+      expect(root.classList.contains('absolute')).toBe(false)
+      expect(root.classList.contains('inset-0')).toBe(false)
+    })
+
+    it('is absolutely positioned (never relative) when overlay is true — a handover incoming/entering slot', async () => {
+      const wrapper = await mountPlayer(makeProvider(), { overlay: true })
+      const root = wrapper.element as HTMLElement
+
+      expect(root.classList.contains('absolute')).toBe(true)
+      expect(root.classList.contains('inset-0')).toBe(true)
+      expect(root.classList.contains('relative')).toBe(false)
+    })
+
+    it('defaults overlay to false when the prop is omitted', async () => {
+      const wrapper = await mountPlayer(makeProvider())
+      const root = wrapper.element as HTMLElement
+
+      expect(root.classList.contains('relative')).toBe(true)
+      expect(root.classList.contains('absolute')).toBe(false)
     })
   })
 })

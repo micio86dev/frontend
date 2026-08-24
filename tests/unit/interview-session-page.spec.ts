@@ -148,10 +148,15 @@ const AvatarPlayerStub = defineComponent({
     provider: { type: Object, required: true },
     config: { type: Object, required: true },
     muted: { type: Boolean, default: false },
+    overlay: { type: Boolean, default: false },
   },
   emits: ['painted', 'state', 'transcript', 'error'],
   setup: (props) => () =>
-    h('div', { 'data-testid': 'avatar-player', 'data-muted': String(props.muted) }),
+    h('div', {
+      'data-testid': 'avatar-player',
+      'data-muted': String(props.muted),
+      'data-overlay': String(props.overlay),
+    }),
 })
 
 const InterviewTimerStub = defineComponent({
@@ -449,7 +454,15 @@ describe('interview/session.vue — timer expiry and skip', () => {
     expect(wrapper.find('[data-testid="transition-panel"]').exists()).toBe(false)
     // Positive signal (never absence alone): BOTH sessions are genuinely
     // mounted at once, as distinct AvatarPlayer instances (D6).
-    expect(wrapper.findAllComponents(AvatarPlayerStub)).toHaveLength(2)
+    const players = wrapper.findAllComponents(AvatarPlayerStub)
+    expect(players).toHaveLength(2)
+    // Regression: `overlay` is the ONLY thing that decides absolute-vs-normal-flow
+    // positioning now (AvatarPlayer owns the ternary internally). Wiring this from
+    // `p.role` incorrectly — or dropping it back to a `class="absolute inset-0"`
+    // fallthrough that collides with the component's own `relative` — leaves the
+    // incoming player in normal flow, clipped by the wrapper's `overflow-hidden`.
+    expect(players[0]?.props('overlay')).toBe(false) // live
+    expect(players[1]?.props('overlay')).toBe(true) // incoming
   })
 
   it('is PRESENT on the D5 bound-exceeded fallback — no live player, only a hidden incoming survives', async () => {
