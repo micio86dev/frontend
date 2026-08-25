@@ -1,3 +1,11 @@
-public/proctor/*.tflite filter=lfs diff=lfs merge=lfs -text
-public/proctor/wasm/*.wasm filter=lfs diff=lfs merge=lfs -text
-public/proctor/*.task filter=lfs diff=lfs merge=lfs -text
+# Proctoring binaries are BUILD ARTIFACTS, provisioned by `bun run proctor:assets`
+# and ignored by git (see .gitignore). They used to be tracked here under Git LFS.
+#
+# That was removed on 2026-08-25: Railway's Docker build does `COPY . .` from a
+# checkout that never hydrates LFS, so production served the raw pointer TEXT in
+# place of every .wasm and .task. Face detection was dead for every interview and
+# nothing said so. Restoring LFS tracking here would restore that failure mode.
+#
+# The WASM runtime now comes from node_modules (lockfile-pinned, so the binaries
+# cannot disagree with the MediaPipe package the code imports) and the models are
+# downloaded from pinned, checksummed URLs.

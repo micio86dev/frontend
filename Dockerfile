@@ -41,6 +41,22 @@ ENV SENTRY_AUTH_TOKEN=${SENTRY_AUTH_TOKEN}
 ENV SENTRY_ORG=${SENTRY_ORG}
 ENV SENTRY_PROJECT=${SENTRY_PROJECT}
 
+# Provision and VERIFY the MediaPipe proctoring binaries before the build.
+#
+# They are build artifacts, not source: no longer tracked by git and no longer
+# by Git LFS. `COPY . .` above brings in a checkout that never hydrates LFS, so
+# for weeks this image shipped the raw LFS POINTER TEXT in place of every .wasm
+# and .task. The browser received `version https://git-lfs.github.com/...` where
+# a WebAssembly module belonged, face detection was dead for every interview,
+# and nothing said so — useProctor degrades silently by design, and the build
+# never looked.
+#
+# The script fails the build when any asset is not a verified binary. That is
+# the point of running it here rather than trusting the checkout: silent
+# degradation at RUNTIME is correct (a candidate must not lose an interview over
+# it), silent degradation at BUILD time is how it stays broken for weeks.
+RUN bun run proctor:assets
+
 # Build the Nuxt SSR app (Nitro preset: node-server)
 RUN bun run build
 
