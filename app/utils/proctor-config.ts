@@ -92,6 +92,17 @@ export const INTEGRITY_KINDS = Object.freeze([
   'clipboard_paste',
   'second_voice',
   'phone_detected',
+  // A DEAD OBSERVER, not a candidate behaviour (proctoring-honest-coverage AD-1).
+  //
+  // Reported when a detection layer fails to initialise, so the server can tell
+  // "measured, nothing found" from "not measured at all". Without it a session
+  // in which the detectors never loaded is indistinguishable from an
+  // irreproachable candidate, and the review surface says "Rischio basso" about
+  // observations nobody made.
+  //
+  // It carries no weight in the risk score: it is a statement about us, and
+  // scoring it would penalise a person for a failure of ours.
+  'proctor_unavailable',
 ] as const)
 
 /** The union type of all valid integrity event kinds */

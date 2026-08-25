@@ -11,16 +11,22 @@
 import { describe, it, expect } from 'vitest'
 
 // ---------------------------------------------------------------------------
-// 4.1a — The 13 canonical integrity kinds
+// 4.1a — The 14 canonical integrity kinds
+//
+// 13 candidate behaviours, plus `proctor_unavailable` which reports a DEAD
+// OBSERVER. The count is pinned so a kind cannot be added without a reader
+// being asked why — the api validates kinds ALL-OR-NOTHING, so a name the
+// server does not know 422s the entire batch and the client silently loses
+// every event it ever recorded.
 // ---------------------------------------------------------------------------
 
 describe('INTEGRITY_KINDS', () => {
-  it('exports exactly 13 canonical integrity kind names', async () => {
+  it('exports exactly 14 canonical integrity kind names', async () => {
     const { INTEGRITY_KINDS } = await import('~/app/utils/proctor-config')
-    expect(INTEGRITY_KINDS).toHaveLength(13)
+    expect(INTEGRITY_KINDS).toHaveLength(14)
   })
 
-  it('contains all 13 required kind names', async () => {
+  it('contains all 14 required kind names', async () => {
     const { INTEGRITY_KINDS } = await import('~/app/utils/proctor-config')
     const expected = [
       'tab_hidden',
@@ -36,6 +42,7 @@ describe('INTEGRITY_KINDS', () => {
       'clipboard_paste',
       'second_voice',
       'phone_detected',
+      'proctor_unavailable',
     ] as const
     for (const kind of expected) {
       expect(INTEGRITY_KINDS).toContain(kind)
