@@ -416,6 +416,10 @@ export function useProctor(options: UseProctorOptions = {}): UseProctorReturn {
           return landmarker
         } catch (err) {
           console.warn('[useProctor] face detection unavailable:', err)
+          // Tell the SERVER, not just the console. A console warning nobody
+          // reads is what let this stay dead for weeks while every session
+          // reported "Rischio basso" about a candidate nobody watched.
+          push('proctor_unavailable', { layer: 'face', reason: String(err) })
           landmarkerPromise = null
           return null
         }
@@ -440,6 +444,7 @@ export function useProctor(options: UseProctorOptions = {}): UseProctorReturn {
           return objectDetector
         } catch (err) {
           console.warn('[useProctor] phone detection unavailable:', err)
+          push('proctor_unavailable', { layer: 'phone', reason: String(err) })
           objectDetectorPromise = null
           return null
         }

@@ -29,3 +29,9 @@ playwright-report/
 
 # Coverage
 coverage/
+
+# MediaPipe proctoring binaries — build artifacts, not source.
+# Provisioned and verified by `bun run proctor:assets` (see .gitattributes).
+public/proctor/wasm/
+public/proctor/*.task
+public/proctor/*.tflite

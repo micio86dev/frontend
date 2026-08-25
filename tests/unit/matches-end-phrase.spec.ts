@@ -161,12 +161,14 @@ describe('matchesEndPhrase', () => {
 })
 
 describe('proctor-config constants', () => {
-  it('exports INTEGRITY_KINDS frozen array with 13 kinds', () => {
-    expect(INTEGRITY_KINDS).toHaveLength(13)
+  it('exports INTEGRITY_KINDS frozen array with 14 kinds', () => {
+    expect(INTEGRITY_KINDS).toHaveLength(14)
     expect(Object.isFrozen(INTEGRITY_KINDS)).toBe(true)
     expect(INTEGRITY_KINDS).toContain('tab_hidden')
     expect(INTEGRITY_KINDS).toContain('face_absent')
     expect(INTEGRITY_KINDS).toContain('phone_detected')
+    // The 14th: a dead observer, not a candidate behaviour.
+    expect(INTEGRITY_KINDS).toContain('proctor_unavailable')
   })
 
   it('exports FLUSH_INTERVAL_MS as 10000', () => {

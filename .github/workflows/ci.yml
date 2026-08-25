@@ -37,6 +37,18 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # The MediaPipe proctoring binaries are build artifacts, not source: they
+      # are gitignored, so the checkout does not contain them. This step both
+      # provisions them and VERIFIES them, and fails the job when any asset is
+      # not a real binary.
+      #
+      # It must run before vitest: `tests/unit/proctor-assets.spec.ts` asserts
+      # what the bytes ARE, not that a path resolves. Those content assertions
+      # are the ones that would have caught the 2026-08-25 production defect,
+      # where every existence check passed against a Git LFS pointer.
+      - name: Provision and verify proctoring assets
+        run: bun run proctor:assets
+
       # NON-BLOCKING, deliberately, dated, and NOT silenced.
       #
       # Every advisory here is a TRANSITIVE build-toolchain dependency with no
