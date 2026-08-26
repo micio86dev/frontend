@@ -613,6 +613,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/llm-credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["llmCredential.index"];
+        put?: never;
+        post: operations["llmCredential.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/llm-credentials/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["llmCredential.show"];
+        put?: never;
+        post?: never;
+        delete: operations["llmCredential.destroy"];
+        options?: never;
+        head?: never;
+        patch: operations["llmCredential.update"];
+        trace?: never;
+    };
+    "/llm-models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/llm-models */
+        get: operations["llmModel.index"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organization": {
         parameters: {
             query?: never;
@@ -1298,6 +1347,10 @@ export interface components {
             is_active: boolean;
             created_at: string | null;
             updated_at: string | null;
+            llm_model_id: number | null;
+            llm_credential_id: number | null;
+            llm_sync_status: string | null;
+            llm_synced_at: string | null;
         };
         /** BarsIndicatorResource */
         BarsIndicatorResource: {
@@ -1361,6 +1414,39 @@ export interface components {
             is_locked: boolean;
             created_at: string | null;
             updated_at: string | null;
+        };
+        /** LlmCredentialResource */
+        LlmCredentialResource: {
+            id: number;
+            name: string;
+            vendor: string;
+            key_last_four: string;
+            validated_at: string | null;
+            validation_error: string | null;
+            created_at: string;
+        };
+        /** LlmModelResource */
+        LlmModelResource: {
+            id: number;
+            key: string;
+            vendor: string;
+            display_name: string;
+            capability: string;
+            mode: string;
+            is_available: boolean;
+            sort_order: number;
+            rate_card_source_url: string | null;
+            rate_card_verified_at: string | null;
+            text_input_usd_per_million: string | null;
+            text_output_usd_per_million: string | null;
+            text_input_usd_per_million_high: string | null;
+            text_output_usd_per_million_high: string | null;
+            context_tier_threshold_tokens: number | null;
+            audio_input_usd_per_million: string | null;
+            audio_output_usd_per_million: string | null;
+            audio_input_usd_per_minute: string | null;
+            audio_output_usd_per_minute: string | null;
+            audio_tokens_per_second: number | null;
         };
         /** OrganizationResource */
         OrganizationResource: {
@@ -1516,8 +1602,10 @@ export interface components {
             duration_seconds: number | null;
             integrity: {
                 score: number;
-                /** @enum {string} */
-                band: "medium" | "low" | "high";
+                /** @enum {string|null} */
+                band: "low" | "medium" | "high" | null;
+                coverage_complete: boolean;
+                unavailable_layers: unknown[];
                 counts: string;
                 total: number;
                 tab_hidden_sec: number;
@@ -2208,6 +2296,13 @@ export interface operations {
                     /** @enum {string} */
                     provider: "";
                     config: string[];
+                    /**
+                     * @description Both-or-neither is enforced by the DB CHECK (I1) and by
+                     *     AvatarTemplate::booted()'s I2/I3/I4 guards — never re-checked
+                     *     here (pluggable-conversation-llm PR P3a, design D4).
+                     */
+                    llm_model_id?: number | null;
+                    llm_credential_id?: number | null;
                 };
             };
         };
@@ -2309,6 +2404,15 @@ export interface operations {
                     name?: string;
                     description?: string | null;
                     config?: string[];
+                    /**
+                     * @description Both-or-neither is enforced by the DB CHECK (I1) and by
+                     *     AvatarTemplate::booted()'s I2/I3/I4 guards — never re-checked
+                     *     here (pluggable-conversation-llm PR P3a, design D4). Both null
+                     *     clears the binding (see "Unbinding a template clears only
+                     *      that template's binding").
+                     */
+                    llm_model_id?: number | null;
+                    llm_credential_id?: number | null;
                 };
             };
         };
@@ -2354,6 +2458,15 @@ export interface operations {
                             config: unknown[];
                             /** @description Persona is optional: a template may be pure provider config. */
                             persona: unknown[] | null;
+                            /**
+                             * @description The binding travels by NAME, never by id or key material
+                             *     (design D13) — an id is meaningless in another org, and a
+                             *     fingerprint is key-derived material with no import use.
+                             */
+                            llm: {
+                                model_key: string;
+                                credential_name: string;
+                            } | null;
                         }[];
                     };
                 };
@@ -2805,6 +2918,184 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    "llmCredential.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `LlmCredentialResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["LlmCredentialResource"][];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "llmCredential.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    /** @enum {string} */
+                    vendor: "google";
+                    api_key: string;
+                };
+            };
+        };
+        responses: {
+            /** @description `LlmCredentialResource` */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["LlmCredentialResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "llmCredential.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `LlmCredentialResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["LlmCredentialResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "llmCredential.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        error: "credential_in_use";
+                        /** @constant */
+                        message: "Unbind every template using this credential before deleting it.";
+                        templates: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    "llmCredential.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    name?: string;
+                    api_key?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description `LlmCredentialResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["LlmCredentialResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "llmModel.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `LlmModelResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["LlmModelResource"][];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
         };
     };
     "organization.show": {
