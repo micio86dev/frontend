@@ -410,6 +410,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/forgot-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["auth.forgotPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/framework/roles": {
         parameters: {
             query?: never;
@@ -1041,6 +1057,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["auth.resetPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/candidate/session": {
         parameters: {
             query?: never;
@@ -1351,6 +1383,13 @@ export interface components {
             llm_credential_id: number | null;
             llm_sync_status: string | null;
             llm_synced_at: string | null;
+            llm: {
+                estimated_cost_usd_per_interview: {
+                    minutes: number;
+                    turns: number;
+                    usd: number;
+                } | null;
+            };
         };
         /** BarsIndicatorResource */
         BarsIndicatorResource: {
@@ -1404,6 +1443,22 @@ export interface components {
         /** EvaluationResource */
         EvaluationResource: {
             [key: string]: unknown;
+        };
+        /**
+         * ForgotPasswordRequest
+         * @description Validates `POST /api/auth/forgot-password` (self-service-password-reset AD-3).
+         *
+         *     `exists:users,email` is DELIBERATELY ABSENT and must never be added. It would
+         *     make the validator itself the account-enumeration oracle this whole flow is
+         *     built to avoid — a 422 for "unknown" and a 202 for "known" is a cleaner
+         *     signal than any timing difference.
+         *
+         *     Only the FORMAT is validated. That is safe: it says something about the
+         *     string the caller typed, never about whether an account exists behind it.
+         */
+        ForgotPasswordRequest: {
+            /** Format: email */
+            email: string;
         };
         /** FrameworkVersionResource */
         FrameworkVersionResource: {
@@ -1576,6 +1631,32 @@ export interface components {
                 position: number;
             }[];
         };
+        /**
+         * ResetPasswordRequest
+         * @description Validates `POST /api/auth/reset-password` (self-service-password-reset AD-2).
+         *
+         *     Validation runs BEFORE the token is presented to the broker, so a typo in the
+         *     new password — a mismatched confirmation, one character short — does NOT burn
+         *     the single-use token. A locked-out user gets one link; spending it on a typo
+         *     would send them back to the start.
+         *
+         *     `min:8` matches the floor the admin path (`UpdateUserRequest`) and the
+         *     self-service path (`UpdatePasswordRequest`) already use. A stricter floor
+         *     here would be theatre: the same account can be given a shorter password
+         *     through either of those two routes.
+         *
+         *     `exists:users,email` is absent here for the same reason as in
+         *     `ForgotPasswordRequest`, though the exposure is smaller — a caller must also
+         *     hold a valid token. The controller answers unknown-user, deactivated-user and
+         *     bad-token with ONE generic failure.
+         */
+        ResetPasswordRequest: {
+            token: string;
+            /** Format: email */
+            email: string;
+            password: string;
+            password_confirmation: string;
+        };
         /** RoleResource */
         RoleResource: {
             code: string;
@@ -1585,14 +1666,14 @@ export interface components {
         };
         /** SessionReviewResource */
         SessionReviewResource: {
-            id: number;
-            participant_id: number;
+            id: string;
+            participant_id: string;
             competency_code: string;
-            question_index: number;
+            question_index: string;
             provider: string;
-            provider_session_ref: string | null;
+            provider_session_ref: string;
             status: string;
-            ended_reason: string | null;
+            ended_reason: string;
             started_at: string | null;
             ended_at: string | null;
             /**
@@ -1621,10 +1702,18 @@ export interface components {
             };
             snapshots: unknown[];
             /**
-             * @description Avatar minutes only. `ai_requests` has no interview_session_id,
+             * @description TWO SEPARATE labelled lines, never one combined total — the
+             *     same refusal already ratified at `SessionCostEstimator.php:20-22`
+             *     for avatar-vs-LLM spend: different vendors, different meters. `avatar`: minutes only. `ai_requests` has no interview_session_id,
              *     so LLM spend cannot be attributed to one session without
              *     inventing the link — and a plausible number with no basis is
              *     worse than an absent one (D5).
+             *
+             *     `llm`: null when the session was never billed (unbound/degraded —
+             *     no vendor default is priced). When present, `actual_usd`
+             *     renders ONLY when non-null (pluggable-conversation-llm PR P6b,
+             *     design D5: permanently null in managed mode, reserved for a
+             *     future native_duplex change).
              */
             cost: {
                 avatar: {
@@ -1632,21 +1721,66 @@ export interface components {
                     minutes: number;
                     usd: number;
                 } | null;
+                llm: {
+                    estimated_usd: number | null;
+                    actual_usd: number | null;
+                } | null;
                 is_estimate: boolean;
             };
+            /**
+             * @description The BARS evidence for the competency THIS session probed, so the
+             *     backoffice needs ONE request rather than a second fetch it has to
+             *     correlate itself — client-side correlation is where a wrong
+             *     excerpt/session pairing would be introduced. `null` — not an empty object — when the participant has not
+             *     reached `completato` (the Evaluation read gate), when there is no
+             *     evaluation, or when this competency was never scored. All three
+             *     mean "no evidence to show", and a caller that renders a section
+             *     only for a non-null block cannot accidentally display an empty
+             *     one as though it were a verdict.
+             *
+             *     Each behaviour carries `excerpts_spoken_in_this_session`, a
+             *     positional parallel of `excerpts`. It is NOT decoration: the
+             *     scoring corpus spans the participant's whole interview
+             *     (`TranscriptAssembler`), so an excerpt shown on a session page may
+             *     legitimately quote a different session, and the flag is what stops
+             *     this surface from implying otherwise. See `SessionEvidenceReader`.
+             */
+            evaluation: {
+                competency_code: string;
+                score: number | null;
+                reliability: string;
+                behaviors: {
+                    indicator: string;
+                    score: number | null;
+                    explanation: string;
+                    excerpts: string[];
+                    excerpts_spoken_in_this_session: boolean[];
+                    unassessable_reason: string | null;
+                }[];
+                unscorable_reason: string | null;
+            } | null;
         };
         /** SessionSummaryResource */
         SessionSummaryResource: {
-            id: number;
+            id: string;
             competency_code: string;
-            question_index: number;
+            question_index: string;
             provider: string;
             status: string;
-            ended_reason: string | null;
+            ended_reason: string;
             started_at: string | null;
             ended_at: string | null;
             duration_seconds: number | null;
             integrity_event_count: string | 0;
+            /**
+             * @description (pluggable-conversation-llm PR P6b) A separate line, never
+             *     combined with any avatar-minute figure. `actual_cost_usd` is
+             *     preferred when non-null (permanently null in managed mode;
+             *     reserved for a future native_duplex change). `null` — never
+             *     `0` — when the session was never billed (no usage row: it
+             *     resolved unbound/degraded).
+             */
+            llm_cost_usd: number | null;
         };
         /**
          * StoreProjectRequest
@@ -2188,7 +2322,7 @@ export interface operations {
                              * @description user-profile-self-service: previously the column and
                              *     $fillable entry existed but /auth/me never returned it.
                              */
-                            locale: string | null;
+                            locale: string;
                             /**
                              * @description user-avatar-image (design D4): the SAME signer ProfileResource
                              *     uses — /auth/me is the shell-identity contract useCurrentUser
@@ -2453,11 +2587,11 @@ export interface operations {
                         exported_at: string;
                         templates: {
                             name: string;
-                            description: string | null;
+                            description: string;
                             provider: string;
-                            config: unknown[];
+                            config: string;
                             /** @description Persona is optional: a template may be pure provider config. */
-                            persona: unknown[] | null;
+                            persona: string | null;
                             /**
                              * @description The binding travels by NAME, never by id or key material
                              *     (design D13) — an id is meaningless in another org, and a
@@ -2689,6 +2823,38 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "auth.forgotPassword": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForgotPasswordRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Says nothing about the address. Deliberately not localized per
+             *     recipient — there is no recipient to localize for, since we refuse
+             *     to admit whether one exists.
+             */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "If an account exists for that address, a password reset link has been sent.";
+                    };
+                };
+            };
             422: components["responses"]["ValidationException"];
         };
     };
@@ -3799,6 +3965,33 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    "auth.resetPassword": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetPasswordRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "Your password has been reset. Every device you were signed in on must sign in again.";
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
         };
     };
     "session.show": {
