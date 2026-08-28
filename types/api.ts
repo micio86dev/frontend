@@ -1666,14 +1666,14 @@ export interface components {
         };
         /** SessionReviewResource */
         SessionReviewResource: {
-            id: string;
-            participant_id: string;
+            id: number;
+            participant_id: number;
             competency_code: string;
-            question_index: string;
+            question_index: number;
             provider: string;
-            provider_session_ref: string;
+            provider_session_ref: string | null;
             status: string;
-            ended_reason: string;
+            ended_reason: string | null;
             started_at: string | null;
             ended_at: string | null;
             /**
@@ -1762,12 +1762,12 @@ export interface components {
         };
         /** SessionSummaryResource */
         SessionSummaryResource: {
-            id: string;
+            id: number;
             competency_code: string;
-            question_index: string;
+            question_index: number;
             provider: string;
             status: string;
-            ended_reason: string;
+            ended_reason: string | null;
             started_at: string | null;
             ended_at: string | null;
             duration_seconds: number | null;
@@ -2322,7 +2322,7 @@ export interface operations {
                              * @description user-profile-self-service: previously the column and
                              *     $fillable entry existed but /auth/me never returned it.
                              */
-                            locale: string;
+                            locale: string | null;
                             /**
                              * @description user-avatar-image (design D4): the SAME signer ProfileResource
                              *     uses — /auth/me is the shell-identity contract useCurrentUser
@@ -2587,11 +2587,11 @@ export interface operations {
                         exported_at: string;
                         templates: {
                             name: string;
-                            description: string;
+                            description: string | null;
                             provider: string;
-                            config: string;
+                            config: unknown[];
                             /** @description Persona is optional: a template may be pure provider config. */
-                            persona: string | null;
+                            persona: unknown[] | null;
                             /**
                              * @description The binding travels by NAME, never by id or key material
                              *     (design D13) — an id is meaningless in another org, and a
