@@ -1611,6 +1611,7 @@ export interface components {
             pause_every_n_competencies: number | null;
             nudge_min_chars: number | null;
             exit_redirect_url: string | null;
+            avatar_template_id: number | null;
             webhook_url: string | null;
             webhook_events: string[];
             has_webhook_secret: boolean;
@@ -1814,6 +1815,15 @@ export interface components {
             error_redirect_url?: string | null;
             /** Format: uri */
             webhook_url?: string | null;
+            /**
+             * @description Which avatar template this project runs on. Nullable: absent
+             *     means "use the organization's active template", the behaviour
+             *     every project had before this field existed. Org-scoped `Rule::exists`, exactly like `framework_version_id`
+             *     above — a foreign template must be refused HERE, not merely
+             *     ignored by `ActiveTemplateResolver` later. Ignoring it would
+             *     still leave a cross-tenant id persisted in our row.
+             */
+            avatar_template_id?: number | null;
             webhook_secret?: string | null;
             /**
              * @description Closed event-type set (C10 D10) — not env-overridable, so Rule::in reads
