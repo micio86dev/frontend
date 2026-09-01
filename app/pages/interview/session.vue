@@ -158,7 +158,7 @@
           <Button
             variant="outline"
             size="sm"
-            :disabled="session.handoverInFlight.value"
+            :loading="session.handoverInFlight.value"
             @click="session.pause()"
           >
             {{ $t('interview.live.pause') }}

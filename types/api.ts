@@ -170,9 +170,17 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Return the authenticated user, their organization, and their roles
+         * Return the authenticated user, their organization, their roles, and
+         *     what they may do
          * @description GET /api/auth/me
          *     Protected: auth:api
+         *
+         *     The `abilities` shape is spelled out for Scramble. Inferred, it comes
+         *     out as a bare `string` — `app(UserAbilities::class)->for()` is a
+         *     container call it cannot follow — and a wrong type in the spec is worse
+         *     than no type: both Nuxt apps generate their client from this file, so a
+         *     `string` there makes every `abilities.users.viewAny` read a compile
+         *     error in the two repositories that consume it.
          */
         get: operations["auth.me"];
         put?: never;
@@ -226,6 +234,45 @@ export interface paths {
          *     behaviour this whole change exists to replace.
          */
         post: operations["avatarTemplate.activate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/avatar-templates/{id}/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Take a template out of service without deleting it
+         * @description Only `activate` existed, so the only ways to stop offering a template
+         *     were to activate a different one — which needs a different one to exist —
+         *     or to delete it, which is destructive and is now refused outright while
+         *     any project pins it.
+         *
+         *     What deactivation MEANS changed with the mandatory pin, and for the
+         *     better. `is_active` used to be the organization-wide fallback, so
+         *     switching it off silently changed which template every unpinned project
+         *     ran on. Every project now names its own, so `is_active` is only "the one
+         *          offered as the default for new projects" — turning it off is reversible
+         *     bookkeeping, not a live reconfiguration.
+         *
+         *     NO config revalidation, unlike `activate()`. That check exists to catch a
+         *     stale config before a candidate meets it; withdrawing a template can only
+         *     reduce exposure, and refusing to withdraw an ALREADY-invalid one would
+         *     trap an operator with exactly the template they most want to retire.
+         *
+         *     Idempotent: deactivating an inactive template is a no-op, so a double
+         *     click or two operators acting at once never produce a failure for a state
+         *     that is already correct.
+         */
+        post: operations["avatarTemplate.deactivate"];
         delete?: never;
         options?: never;
         head?: never;
@@ -699,6 +746,28 @@ export interface paths {
          *     silently dropped rather than validated-then-rejected (D2).
          */
         patch: operations["organization.update"];
+        trace?: never;
+    };
+    "/organization/logo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["organizationLogo.store"];
+        /**
+         * Remove the logo, returning the organization to the product's own mark
+         * @description Absent is a supported state, not a broken one — DESIGN.md's Quint logo is
+         *     what renders when none is configured — so this is a legitimate action
+         *     rather than an undo.
+         */
+        delete: operations["organizationLogo.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/participants": {
@@ -1357,6 +1426,10 @@ export interface components {
             started_at: string | null;
             completed_at: string | null;
             created_at: string | null;
+            branding: {
+                primary_color: string | null;
+                logo_url: string | null;
+            };
             project: {
                 id: number;
                 role_code: string | null;
@@ -1411,6 +1484,14 @@ export interface components {
         };
         /** DashboardActivityResource */
         DashboardActivityResource: {
+            /**
+             * @description The row's own id, so the feed can LINK to the candidate instead
+             *     of naming them. `candidate_ref` below is the calling system's
+             *     opaque identifier and addresses nothing in this product — a feed
+             *     that says who just moved and gives no way to go and look is a
+             *     page you read and then leave to use the search box.
+             */
+            id: number;
             candidate_ref: string;
             display_name: string;
             status: string;
@@ -1508,6 +1589,8 @@ export interface components {
             id: number;
             name: string;
             slug: string;
+            primary_color: string | null;
+            logo_url: string | null;
             default_webhook_url: string | null;
             default_webhook_events: string[] | null;
             has_default_webhook_secret: boolean;
@@ -1631,6 +1714,10 @@ export interface components {
                 type: string;
                 position: number;
             }[];
+            can: {
+                update: boolean;
+                delete: boolean;
+            };
         };
         /**
          * ResetPasswordRequest
@@ -1822,8 +1909,15 @@ export interface components {
              *     above — a foreign template must be refused HERE, not merely
              *     ignored by `ActiveTemplateResolver` later. Ignoring it would
              *     still leave a cross-tenant id persisted in our row.
+             *     REQUIRED. It shipped nullable with the organization's active
+             *     template as a fallback, and the fallback is exactly what let the
+             *     configuration choose silently instead of the project — the defect
+             *     the column was added to fix. An organization that owns no
+             *     template therefore cannot create a project until it has one:
+             *     deliberate, and surfaced as a validation error on this field
+             *     rather than as an interview that runs on something nobody chose.
              */
-            avatar_template_id?: number | null;
+            avatar_template_id: number;
             webhook_secret?: string | null;
             /**
              * @description Closed event-type set (C10 D10) — not env-overridable, so Rule::in reads
@@ -1895,6 +1989,30 @@ export interface components {
              *     config-driven Rule::in (never a hardcoded list, never env-overridable).
              */
             default_webhook_events?: ("progress" | "evaluation")[] | null;
+            /**
+             * @description The primary colour is CSS, and is validated as CSS rather than as
+             *     a string that happens to look like one. It is interpolated into a custom property in both Nuxt apps, so a
+             *     value that is not a colour becomes a stylesheet that silently
+             *     does not apply, and one carrying `;` or `}` appends rules of its
+             *     own to every page an operator's candidates load.
+             *
+             *     `\z`, NOT `$`, and that difference is the whole security of this
+             *     rule. In PCRE `$` also matches immediately BEFORE a final
+             *     newline, so `/^#[0-9a-f]{6}$/` accepts `"#123456\n"` — and the
+             *     newline is exactly what lets a payload open a second declaration
+             *     once it is interpolated into a stylesheet. `\z` matches only at
+             *     the true end of the subject. Caught by the injection test, which
+             *     failed against the `$` version of this rule.
+             *
+             *     Three-digit shorthand is deliberately refused so the apps never
+             *     have to expand it — one canonical form, and an operator pasting
+             *     `#abc` is told so rather than getting a colour that quietly
+             *     differs from the one they copied.
+             *
+             *     `nullable` is the route back to the product palette; without it,
+             *     choosing a colour would be a one-way door.
+             */
+            primary_color?: string | null;
         };
         /**
          * UpdatePasswordRequest
@@ -2328,24 +2446,40 @@ export interface operations {
                             id: number;
                             name: string;
                             email: string;
-                            /**
-                             * @description user-profile-self-service: previously the column and
-                             *     $fillable entry existed but /auth/me never returned it.
-                             */
-                            locale: string | null;
-                            /**
-                             * @description user-avatar-image (design D4): the SAME signer ProfileResource
-                             *     uses — /auth/me is the shell-identity contract useCurrentUser
-                             *     caches once per page load, so this is the second (and only
-                             *     other) caller of ProfilePhotoUrlSigner.
-                             */
-                            photo_url: string;
+                            locale: string;
+                            photo_url: string | null;
                         };
                         organization: {
                             id: number;
                             name: string;
                         } | null;
-                        roles: unknown[];
+                        roles: string[];
+                        abilities: {
+                            organization: {
+                                view: boolean;
+                                update: boolean;
+                            };
+                            apiClients: {
+                                viewAny: boolean;
+                                create: boolean;
+                            };
+                            users: {
+                                viewAny: boolean;
+                                create: boolean;
+                            };
+                            llmCredentials: {
+                                viewAny: boolean;
+                                create: boolean;
+                            };
+                            avatarTemplates: {
+                                viewAny: boolean;
+                                create: boolean;
+                            };
+                            projects: {
+                                viewAny: boolean;
+                                create: boolean;
+                            };
+                        };
                     };
                 };
             };
@@ -2376,6 +2510,32 @@ export interface operations {
         };
     };
     "avatarTemplate.activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `AvatarTemplateResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AvatarTemplateResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "avatarTemplate.deactivate": {
         parameters: {
             query?: never;
             header?: never;
@@ -2525,9 +2685,15 @@ export interface operations {
                 content: {
                     "application/json": {
                         /** @constant */
+                        error: "template_in_use";
+                        /** @constant */
+                        message: "template_in_use";
+                        project_count: number;
+                    } | {
+                        /** @constant */
                         error: "template_active";
                         /** @constant */
-                        message: "Activate another template before deleting this one.";
+                        message: "template_active";
                     };
                 };
             };
@@ -3327,6 +3493,67 @@ export interface operations {
             422: components["responses"]["ValidationException"];
         };
     };
+    "organizationLogo.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description Shape only. `mimes` checks the CLAIM — a browser sends whatever
+                     *     MIME type it likes — so it is a cheap first filter, never the
+                     *     decision. Step 2 is the decision.
+                     */
+                    logo: string;
+                };
+            };
+        };
+        responses: {
+            /** @description `OrganizationResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "organizationLogo.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `OrganizationResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
     "participant.index": {
         parameters: {
             query?: never;
@@ -3990,6 +4217,14 @@ export interface operations {
             };
         };
         responses: {
+            /**
+             * @description A CODE, not a sentence. A response body is machine-facing (CLAUDE.md:
+             *     machine-readable values "are NOT user-facing and are returned
+             *      literally in every locale"), and only the UI knows the reader's
+             *     locale. The English prose that used to be here was rendered verbatim
+             *     by the backoffice, so an Italian operator on an Italian page read
+             *     English.
+             */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3997,7 +4232,7 @@ export interface operations {
                 content: {
                     "application/json": {
                         /** @constant */
-                        message: "Your password has been reset. Every device you were signed in on must sign in again.";
+                        message: "password_reset";
                     };
                 };
             };
