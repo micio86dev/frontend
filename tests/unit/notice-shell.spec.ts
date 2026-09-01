@@ -7,8 +7,8 @@
  * component, so a refactor that drops `role="main"` or breaks the
  * aria-labelledby -> <h1> link silently breaks four pages at once.
  */
-import { describe, it, expect } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { describe, it, expect, beforeEach } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
 import NoticeShell from '../../app/components/molecules/NoticeShell.vue'
 
 const tMock = (key: string) => key
@@ -85,5 +85,42 @@ describe('NoticeShell', () => {
       // The icon is decorative: its meaning is already carried by the heading.
       expect(node.element.closest('[aria-hidden="true"]')).not.toBeNull()
     }
+  })
+})
+
+describe("NoticeShell — the organization's mark, or ours, but never nothing", () => {
+  beforeEach(async () => {
+    const { useCandidateBranding } = await import('../../app/composables/useCandidateBranding')
+    useCandidateBranding().reset()
+  })
+
+  it('falls back to the BEAI wordmark when no logo is configured', async () => {
+    // These four routes are the only BEAI surface most candidates ever see. A
+    // blank brand band reads as a broken deployment at the exact moment the
+    // person is deciding whether to trust the service — so "no logo
+    // configured" must never mean "no logo at all" (CLAUDE.md ruling 9).
+    const wrapper = mountShell()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="notice-shell-logo"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('BEAI')
+  })
+
+  it('renders the organization logo INSTEAD of the wordmark once one exists', async () => {
+    const { useCandidateBranding } = await import('../../app/composables/useCandidateBranding')
+    useCandidateBranding().prime({ primary_color: null, logo_url: 'https://cdn.test/acme.png' })
+
+    const wrapper = mountShell()
+    await flushPromises()
+
+    const logo = wrapper.get('[data-testid="notice-shell-logo"]')
+
+    expect(logo.attributes('src')).toBe('https://cdn.test/acme.png')
+    // Decoration beside the tagline that follows: announcing an
+    // organization's name to a candidate who already knows whose assessment
+    // they are taking adds noise, not meaning.
+    expect(logo.attributes('alt')).toBe('')
+    expect(logo.attributes('aria-hidden')).toBe('true')
+    expect(wrapper.text()).not.toContain('BEAI')
   })
 })

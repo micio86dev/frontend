@@ -23,6 +23,7 @@
 
 import { ref } from 'vue'
 import { candidateFetch, CandidateUnauthorizedError } from '~/app/utils/candidate-api'
+import { useCandidateBranding } from '~/app/composables/useCandidateBranding'
 import { useCandidateSession } from '~/app/composables/useCandidateSession'
 
 export type SessionFetchFailure = 'unauthenticated' | 'unavailable'
@@ -73,11 +74,18 @@ export function useExitRedirect(): UseExitRedirectReturn {
           exit_redirect_url: string | null
           error_redirect_url?: string | null
         } | null
+        branding?: { primary_color: string | null; logo_url: string | null }
       }>('/candidate/session', { method: 'GET' })
 
       sessionFetchFailed.value = null
       exitRedirectUrl.value = response.project?.exit_redirect_url ?? null
       errorRedirectUrl.value = response.project?.error_redirect_url ?? null
+
+      // The same response carries the organization's logo and colour, so the
+      // branding store is handed them here rather than fetching the identical
+      // endpoint a second time. Applying it is `useCandidateBranding`'s job —
+      // this composable does not write to the stylesheet.
+      useCandidateBranding().prime(response.branding)
     } catch (err) {
       // The failure degrades to the inline screens — fetchSession() never
       // throws — but the consequence is named, not hidden behind "non-fatal":

@@ -194,7 +194,17 @@ async function mountPage(session: ReturnType<typeof makeSession>) {
   mockUseInterviewSession.mockReturnValue(session)
   const { default: Page } = await import('~/app/pages/interview/session.vue')
   const wrapper = mount(Page, { global: globalConfig() })
-  await nextTick()
+  // `flushPromises`, not a single `nextTick`. This file already documents (at
+  // its declaration below) that one tick is not enough to observe an async
+  // watcher body; mount is the same shape — the page has async work on mount,
+  // and whether one tick happened to be enough depended on how the microtask
+  // queue fell. It usually was, which is the worst version of that: the
+  // AvatarPlayer assertion failed roughly one run in four, always alone,
+  // always passing on a re-run.
+  //
+  // Declared below and used here on purpose — function declarations hoist, and
+  // moving it up would separate it from the comment that explains it.
+  await flushPromises()
   return wrapper
 }
 

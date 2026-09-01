@@ -73,6 +73,9 @@
   --color-error-light: #fee2e2;
   --color-info: #3b82f6;
   --color-info-light: #dbeafe;
+  /* Kept identical to the backoffice per DESIGN.md §17. `--color-info` on
+     `--color-info-light` measures 3.01:1 and FAILS AA; this measures 7.15:1. */
+  --color-info-dark: #1e40af;
 
   --color-recording: #dc2626;
   --color-avatar-bg: #0f172a;

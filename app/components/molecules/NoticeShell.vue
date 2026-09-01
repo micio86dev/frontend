@@ -24,7 +24,27 @@
         class="pointer-events-none absolute -right-28 -bottom-32 size-96 rounded-full bg-accent/25 blur-3xl"
       />
 
-      <p class="relative text-2xl leading-none font-semibold tracking-[0.3em]">BEAI</p>
+      <!--
+        The organization's mark when it has one, ours when it does not. Never
+        NOTHING: an organization that configured no logo still gets a branded
+        page, because these four routes are the only BEAI surface most
+        candidates ever see and a blank band reads as a broken deployment at
+        the exact moment the person is deciding whether to trust the service
+        (CLAUDE.md ruling 9).
+
+        `alt=""` and `aria-hidden`: the logo is decoration beside the tagline
+        that follows, and announcing an organization's name to a candidate who
+        already knows whose assessment they are taking adds noise, not meaning.
+      -->
+      <img
+        v-if="logoUrl"
+        :src="logoUrl"
+        alt=""
+        aria-hidden="true"
+        data-testid="notice-shell-logo"
+        class="relative max-h-12 w-auto max-w-[12rem] object-contain object-left"
+      />
+      <p v-else class="relative text-2xl leading-none font-semibold tracking-[0.3em]">BEAI</p>
       <!-- A hairline, not a gap: it ties the two lines into one lockup and
            gives the eye a reason to travel from the mark to the sentence. -->
       <span aria-hidden="true" class="relative h-px w-12 bg-primary-foreground/40" />
@@ -94,6 +114,21 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted } from 'vue'
+import { useCandidateBranding } from '~/app/composables/useCandidateBranding'
+
+/**
+ * These four routes are reached in states where nothing else has fetched the
+ * session — `terminal` in particular is rendered by a guard before any page
+ * bootstraps — so the shell asks for branding itself. `ensureLoaded` is a
+ * no-op once primed, so the common path (a page that already fetched the
+ * session) costs no extra request.
+ */
+const { logoUrl, ensureLoaded } = useCandidateBranding()
+
+onMounted(() => {
+  void ensureLoaded()
+})
 /**
  * Shared shell for the four standalone, non-interview routes: the root landing,
  * the unsupported-device gate, and the interview done / error screens.
