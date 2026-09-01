@@ -407,8 +407,8 @@
         "/auth/me": {
             "get": {
                 "operationId": "auth.me",
-                "description": "GET /api/auth/me\nProtected: auth:api",
-                "summary": "Return the authenticated user, their organization, and their roles",
+                "description": "GET /api/auth/me\nProtected: auth:api\n\nThe `abilities` shape is spelled out for Scramble. Inferred, it comes\nout as a bare `string` \u2014 `app(UserAbilities::class)->for()` is a\ncontainer call it cannot follow \u2014 and a wrong type in the spec is worse\nthan no type: both Nuxt apps generate their client from this file, so a\n`string` there makes every `abilities.users.viewAny` read a compile\nerror in the two repositories that consume it.",
+                "summary": "Return the authenticated user, their organization, their roles, and\nwhat they may do",
                 "tags": [
                     "Auth"
                 ],
@@ -433,15 +433,13 @@
                                                     "type": "string"
                                                 },
                                                 "locale": {
+                                                    "type": "string"
+                                                },
+                                                "photo_url": {
                                                     "type": [
                                                         "string",
                                                         "null"
-                                                    ],
-                                                    "description": "user-profile-self-service: previously the column and\n$fillable entry existed but /auth/me never returned it."
-                                                },
-                                                "photo_url": {
-                                                    "type": "string",
-                                                    "description": "user-avatar-image (design D4): the SAME signer ProfileResource\nuses \u2014 /auth/me is the shell-identity contract useCurrentUser\ncaches once per page load, so this is the second (and only\nother) caller of ProfilePhotoUrlSigner."
+                                                    ]
                                                 }
                                             },
                                             "required": [
@@ -472,13 +470,119 @@
                                         },
                                         "roles": {
                                             "type": "array",
-                                            "items": {}
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "abilities": {
+                                            "type": "object",
+                                            "properties": {
+                                                "organization": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "view": {
+                                                            "type": "boolean"
+                                                        },
+                                                        "update": {
+                                                            "type": "boolean"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "view",
+                                                        "update"
+                                                    ]
+                                                },
+                                                "apiClients": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "viewAny": {
+                                                            "type": "boolean"
+                                                        },
+                                                        "create": {
+                                                            "type": "boolean"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "viewAny",
+                                                        "create"
+                                                    ]
+                                                },
+                                                "users": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "viewAny": {
+                                                            "type": "boolean"
+                                                        },
+                                                        "create": {
+                                                            "type": "boolean"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "viewAny",
+                                                        "create"
+                                                    ]
+                                                },
+                                                "llmCredentials": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "viewAny": {
+                                                            "type": "boolean"
+                                                        },
+                                                        "create": {
+                                                            "type": "boolean"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "viewAny",
+                                                        "create"
+                                                    ]
+                                                },
+                                                "avatarTemplates": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "viewAny": {
+                                                            "type": "boolean"
+                                                        },
+                                                        "create": {
+                                                            "type": "boolean"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "viewAny",
+                                                        "create"
+                                                    ]
+                                                },
+                                                "projects": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "viewAny": {
+                                                            "type": "boolean"
+                                                        },
+                                                        "create": {
+                                                            "type": "boolean"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "viewAny",
+                                                        "create"
+                                                    ]
+                                                }
+                                            },
+                                            "required": [
+                                                "organization",
+                                                "apiClients",
+                                                "users",
+                                                "llmCredentials",
+                                                "avatarTemplates",
+                                                "projects"
+                                            ]
                                         }
                                     },
                                     "required": [
                                         "user",
                                         "organization",
-                                        "roles"
+                                        "roles",
+                                        "abilities"
                                     ]
                                 }
                             }
@@ -4822,6 +4926,27 @@
                             "null"
                         ]
                     },
+                    "branding": {
+                        "type": "object",
+                        "properties": {
+                            "primary_color": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "logo_url": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            }
+                        },
+                        "required": [
+                            "primary_color",
+                            "logo_url"
+                        ]
+                    },
                     "project": {
                         "type": [
                             "object",
@@ -4880,6 +5005,7 @@
                     "started_at",
                     "completed_at",
                     "created_at",
+                    "branding",
                     "project"
                 ],
                 "title": "App.Http.Resources.ParticipantResource"
@@ -5060,6 +5186,10 @@
             "DashboardActivityResource": {
                 "type": "object",
                 "properties": {
+                    "id": {
+                        "type": "integer",
+                        "description": "The row's own id, so the feed can LINK to the candidate instead\nof naming them. `candidate_ref` below is the calling system's\nopaque identifier and addresses nothing in this product \u2014 a feed\nthat says who just moved and gives no way to go and look is a\npage you read and then leave to use the search box."
+                    },
                     "candidate_ref": {
                         "type": "string"
                     },
@@ -5077,6 +5207,7 @@
                     }
                 },
                 "required": [
+                    "id",
                     "candidate_ref",
                     "display_name",
                     "status",
@@ -5386,6 +5517,18 @@
                     "slug": {
                         "type": "string"
                     },
+                    "primary_color": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "logo_url": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
                     "default_webhook_url": {
                         "type": [
                             "string",
@@ -5421,6 +5564,8 @@
                     "id",
                     "name",
                     "slug",
+                    "primary_color",
+                    "logo_url",
                     "default_webhook_url",
                     "default_webhook_events",
                     "has_default_webhook_secret",
@@ -5964,6 +6109,21 @@
                                 "position"
                             ]
                         }
+                    },
+                    "can": {
+                        "type": "object",
+                        "properties": {
+                            "update": {
+                                "type": "boolean"
+                            },
+                            "delete": {
+                                "type": "boolean"
+                            }
+                        },
+                        "required": [
+                            "update",
+                            "delete"
+                        ]
                     }
                 },
                 "required": [
@@ -5988,7 +6148,8 @@
                     "created_at",
                     "updated_at",
                     "pin_context",
-                    "competencies"
+                    "competencies",
+                    "can"
                 ],
                 "title": "ProjectResource"
             },
