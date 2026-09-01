@@ -1602,6 +1602,7 @@ export interface components {
             id: number;
             candidate_ref: string;
             display_name: string;
+            email: string;
             role_code: string | null;
             language: string | null;
             /** @enum {string} */
@@ -1655,6 +1656,7 @@ export interface components {
             id: number;
             candidate_ref: string;
             display_name: string;
+            email: string;
             role_code: string | null;
             language: string | null;
             /** @enum {string} */
@@ -2874,9 +2876,18 @@ export interface operations {
                 "application/json": {
                     project_id: number;
                     candidate_ref: string;
+                    /** Format: email */
+                    email: string;
                     display_name: string;
                     role_code?: string | null;
                     lang?: string | null;
+                    /**
+                     * @description Defaults to TRUE. The operator pressed "invite a candidate";
+                     *     producing a link and silently not sending it is the behaviour
+                     *     that made this feature necessary in the first place. An operator
+                     *     who wants to deliver the link some other way opts out explicitly.
+                     */
+                    send_email?: boolean;
                 };
             };
         };
@@ -2889,6 +2900,11 @@ export interface operations {
                     "application/json": {
                         entry_url: string;
                         expires_at: string;
+                        /**
+                         * @description Reported back so the UI can say "sent to grace@example.test"
+                         *     rather than leaving the operator to guess whether it went.
+                         */
+                        email_sent: boolean;
                     };
                 };
             };
@@ -2901,12 +2917,12 @@ export interface operations {
                 content: {
                     "application/json": {
                         /** @constant */
-                        message: "Conflict: participant has already completed this assessment.";
+                        message: "entry_link_participant_completed";
                         /** @constant */
                         reason: "completed";
                     } | {
                         /** @constant */
-                        message: "Conflict: this participant's assessment failed and must be re-opened by an operator before a new link can be issued.";
+                        message: "entry_link_participant_failed";
                         /** @constant */
                         reason: "failed";
                     };
@@ -3373,8 +3389,13 @@ export interface operations {
                     "application/json": {
                         /** @constant */
                         error: "credential_in_use";
-                        /** @constant */
-                        message: "Unbind every template using this credential before deleting it.";
+                        /**
+                         * @description A code, not a sentence: the API has no idea what language
+                         *     the operator reads, and `templates` below already names the
+                         *     ones blocking the delete.
+                         * @constant
+                         */
+                        message: "credential_in_use";
                         templates: {
                             [key: string]: unknown;
                         };
@@ -3737,6 +3758,14 @@ export interface operations {
                 "application/json": {
                     project_id: number;
                     candidate_ref: string;
+                    /**
+                     * Format: email
+                     * @description Required: the email IS the candidate's identity across projects
+                     *     and organizations (CLAUDE.md ruling 8, reversed 2026-09-01), and
+                     *     the column is NOT NULL. There is no legacy contract to keep —
+                     *     this product is greenfield by ruling.
+                     */
+                    email: string;
                     display_name: string;
                     role_code?: string | null;
                     language?: string | null;
@@ -4407,6 +4436,8 @@ export interface operations {
                 "application/json": {
                     project_id: number;
                     candidate_ref: string;
+                    /** Format: email */
+                    email: string;
                     display_name: string;
                     role_code?: string | null;
                     lang?: string | null;
