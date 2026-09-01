@@ -27,7 +27,7 @@ export default defineConfig({
   use: {
     // IPv4 explicitly: the Nitro node-server binds dual-stack but Playwright
     // resolves `localhost` to IPv4 first — use 127.0.0.1 to avoid IPv6 bind timeouts.
-    baseURL: 'http://127.0.0.1:3000',
+    baseURL: 'http://127.0.0.1:4174',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
@@ -53,16 +53,28 @@ export default defineConfig({
   // against a real endpoint (/api/health); binding forced to IPv4 via HOST.
   webServer: {
     command: 'bun run build && node .output/server/index.mjs',
-    url: 'http://127.0.0.1:3000/api/health',
+    // 4174, NOT 3000, and the port is the whole point.
+    //
+    // `reuseExistingServer` is true locally, and the local docker stack
+    // publishes this app on 3000. So running the E2E while `./dev.sh` was up
+    // handed the whole suite to the CONTAINER: a server built from a different
+    // checkout, with none of the env below — no mock provider, no measurement
+    // ID, an apiBase pointing somewhere else. 39 specs failed, every one of
+    // them correctly, against an app they were never meant to be testing.
+    //
+    // Nothing in the output says which server answered, which is what made it
+    // cost an afternoon. The backoffice suite has always used its own 4173 and
+    // never had the problem; this is the same fix.
+    url: 'http://127.0.0.1:4174/api/health',
     env: {
       HOST: '0.0.0.0',
-      PORT: '3000',
-      NITRO_PORT: '3000',
+      PORT: '4174',
+      NITRO_PORT: '4174',
       // apiBase INCLUDES the /api suffix (AGENTS.md, .env.example, docker-compose.yml).
       // Left unset, apiBase would be '' and every candidate call would resolve to a
       // same-origin '/candidate/...' URL that the specs' '**/api/candidate/...' route
       // globs do not match — the E2E would exercise a URL shape no environment uses.
-      NUXT_PUBLIC_API_BASE: 'http://127.0.0.1:3000/api',
+      NUXT_PUBLIC_API_BASE: 'http://127.0.0.1:4174/api',
       // C10 PR7: wires the W3-documented mock injection point (factory.ts) so E2E
       // specs can drive the interview state machine to `live`/`done` without a
       // real HeyGen/Tavus SDK connection. See app/providers/factory.ts and
