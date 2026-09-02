@@ -40,7 +40,7 @@ export function useCandidateBranding() {
    * Accept branding somebody else already fetched.
    *
    * Applying the colour here rather than in the caller keeps the one write to
-   * `--primary` in the one module that owns it.
+   * `--color-primary` in the one module that owns it.
    */
   function prime(branding: CandidateBranding | null | undefined): void {
     primed = true
