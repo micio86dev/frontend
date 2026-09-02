@@ -1463,6 +1463,7 @@ export interface components {
             completed_at: string | null;
             created_at: string | null;
             branding: {
+                name: string | null;
                 primary_color: string | null;
                 logo_url: string | null;
             };
@@ -1737,6 +1738,7 @@ export interface components {
                 id: number;
                 name: string;
                 provider: string;
+                llm_model: string | null;
             } | null;
             webhook_url: string | null;
             webhook_events: string[];
