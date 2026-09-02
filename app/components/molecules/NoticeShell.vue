@@ -45,6 +45,24 @@
         class="relative max-h-12 w-auto max-w-[12rem] object-contain object-left"
       />
       <p v-else class="relative text-2xl leading-none font-semibold tracking-[0.3em]">BEAI</p>
+
+      <!--
+        WHOSE assessment this is. The mark above is the ORGANIZATION's when one
+        is configured and OURS when it is not, so neither state actually names
+        the client — a candidate invited by Acme reached a page naming nobody.
+
+        Rendered as text rather than folded into the logo's `alt`: the logo is
+        `alt=""` decoration on purpose, and with one configured this line is
+        the only way a screen reader learns whose assessment this is. Absent
+        when there is no name, never an empty line holding the space.
+      -->
+      <p
+        v-if="organizationName"
+        data-testid="notice-shell-org"
+        class="relative text-base leading-none font-medium text-primary-foreground/90"
+      >
+        {{ organizationName }}
+      </p>
       <!-- A hairline, not a gap: it ties the two lines into one lockup and
            gives the eye a reason to travel from the mark to the sentence. -->
       <span aria-hidden="true" class="relative h-px w-12 bg-primary-foreground/40" />
@@ -124,7 +142,7 @@ import { useCandidateBranding } from '~/app/composables/useCandidateBranding'
  * no-op once primed, so the common path (a page that already fetched the
  * session) costs no extra request.
  */
-const { logoUrl, ensureLoaded } = useCandidateBranding()
+const { logoUrl, organizationName, ensureLoaded } = useCandidateBranding()
 
 onMounted(() => {
   void ensureLoaded()

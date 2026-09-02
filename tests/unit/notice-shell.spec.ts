@@ -124,3 +124,63 @@ describe("NoticeShell — the organization's mark, or ours, but never nothing", 
     expect(wrapper.text()).not.toContain('BEAI')
   })
 })
+
+/**
+ * WHOSE assessment this is.
+ *
+ * The shell showed the organization's logo OR the BEAI wordmark and nothing
+ * else, so a candidate invited by Acme reached a page that named nobody. The
+ * name now sits beside the mark on every notice route.
+ *
+ * It does not replace `BEAI`. The product has a brand of its own and the
+ * candidate is on OUR platform taking THEIR assessment — the page has to say
+ * both, which is exactly what the logo/wordmark fallback already refuses to
+ * compromise on.
+ */
+describe('NoticeShell — the organization is named, not just drawn', () => {
+  beforeEach(async () => {
+    const { useCandidateBranding } = await import('../../app/composables/useCandidateBranding')
+    useCandidateBranding().reset()
+  })
+
+  it('names the organization beside the mark', async () => {
+    const { useCandidateBranding } = await import('../../app/composables/useCandidateBranding')
+    useCandidateBranding().prime({
+      primary_color: null,
+      logo_url: null,
+      name: 'Acme Selezione',
+    })
+
+    const wrapper = mountShell()
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="notice-shell-org"]').text()).toBe('Acme Selezione')
+    // The product wordmark stays. Both, never one instead of the other.
+    expect(wrapper.text()).toContain('BEAI')
+  })
+
+  it('names it alongside a configured logo too', async () => {
+    // The logo carries `alt=""` because it is decoration; this line is the
+    // accessible name, so with a logo configured it is the ONLY way a screen
+    // reader learns whose assessment this is.
+    const { useCandidateBranding } = await import('../../app/composables/useCandidateBranding')
+    useCandidateBranding().prime({
+      primary_color: null,
+      logo_url: 'https://cdn.test/acme.png',
+      name: 'Acme Selezione',
+    })
+
+    const wrapper = mountShell()
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="notice-shell-org"]').text()).toBe('Acme Selezione')
+  })
+
+  it('renders NOTHING rather than an empty line when there is no name', async () => {
+    const wrapper = mountShell()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="notice-shell-org"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('BEAI')
+  })
+})

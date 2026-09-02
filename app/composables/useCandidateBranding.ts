@@ -27,11 +27,20 @@ import { candidateFetch } from '~/app/utils/candidate-api'
 export interface CandidateBranding {
   primary_color: string | null
   logo_url: string | null
+  /**
+   * WHOSE assessment this is.
+   *
+   * Optional in the TYPE only so a stored response predating the field does
+   * not have to be migrated; the API always sends the key. Absent renders as
+   * absent — never as an empty line where a name should be.
+   */
+  name?: string | null
 }
 
 // Module-scoped, like the candidate session itself: every surface shares one
 // answer and one in-flight request.
 const logoUrl = ref<string | null>(null)
+const organizationName = ref<string | null>(null)
 let primed = false
 let inFlight: Promise<void> | null = null
 
@@ -45,6 +54,10 @@ export function useCandidateBranding() {
   function prime(branding: CandidateBranding | null | undefined): void {
     primed = true
     logoUrl.value = branding?.logo_url ?? null
+    // Trimmed to null rather than stored blank: an organization with a blank
+    // name must render as no name at all, not as an empty line sitting where
+    // one should be.
+    organizationName.value = branding?.name?.trim() || null
     applyBrandColor(branding?.primary_color)
   }
 
@@ -81,8 +94,15 @@ export function useCandidateBranding() {
     primed = false
     inFlight = null
     logoUrl.value = null
+    organizationName.value = null
     applyBrandColor(null)
   }
 
-  return { logoUrl: readonly(logoUrl), prime, ensureLoaded, reset }
+  return {
+    logoUrl: readonly(logoUrl),
+    organizationName: readonly(organizationName),
+    prime,
+    ensureLoaded,
+    reset,
+  }
 }
