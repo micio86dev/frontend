@@ -296,7 +296,7 @@ export interface paths {
          *     better. `is_active` used to be the organization-wide fallback, so
          *     switching it off silently changed which template every unpinned project
          *     ran on. Every project now names its own, so `is_active` is only "the one
-         *          offered as the default for new projects" — turning it off is reversible
+         *          * offered as the default for new projects" — turning it off is reversible
          *     bookkeeping, not a live reconfiguration.
          *
          *     NO config revalidation, unlike `activate()`. That check exists to catch a
