@@ -191,6 +191,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/avatar-templates/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The picker list: id, name, provider. Nothing else
+         * @description `index()` above stays admin-only because this resource carries `config`,
+         *     and that holds provider-side identifiers (avatarId, voiceId, faceId,
+         *     palId) which are closer to credentials than to settings. But
+         *     `projects.avatar_template_id` is NOT NULL, so every operator creating a
+         *     project has to choose one — and an operator who cannot list templates
+         *     cannot choose. Their select came back empty and the form refused its own
+         *     submit, with nothing they could do about it.
+         *
+         *     So this is the narrow answer rather than a widened `viewAny`: exactly
+         *     the three fields choosing a template requires. A viewer gets it too —
+         *     reading a project's configuration should show which template it names,
+         *     not a bare id.
+         *
+         *     The shape is hand-built rather than run through `AvatarTemplateResource`
+         *     ON PURPOSE. A resource is a list of fields somebody will add to; this
+         *     endpoint's entire value is that it cannot grow one, and a future field on
+         *     that resource must not silently become readable by every role.
+         */
+        get: operations["avatarTemplate.options"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/avatar-templates/field-specs": {
         parameters: {
             query?: never;
@@ -260,7 +296,7 @@ export interface paths {
          *     better. `is_active` used to be the organization-wide fallback, so
          *     switching it off silently changed which template every unpinned project
          *     ran on. Every project now names its own, so `is_active` is only "the one
-         *          offered as the default for new projects" — turning it off is reversible
+         *          * offered as the default for new projects" — turning it off is reversible
          *     bookkeeping, not a live reconfiguration.
          *
          *     NO config revalidation, unlike `activate()`. That check exists to catch a
@@ -1697,6 +1733,11 @@ export interface components {
             nudge_min_chars: number | null;
             exit_redirect_url: string | null;
             avatar_template_id: number | null;
+            avatar_template: {
+                id: number;
+                name: string;
+                provider: string;
+            } | null;
             webhook_url: string | null;
             webhook_events: string[];
             has_webhook_secret: boolean;
@@ -2486,6 +2527,34 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "avatarTemplate.options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            id: number;
+                            name: string;
+                            provider: string;
+                            is_active: boolean;
+                        }[];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "avatarTemplate.fieldSpecs": {
