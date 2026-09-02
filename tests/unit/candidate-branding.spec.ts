@@ -25,7 +25,7 @@ describe('useCandidateBranding', () => {
   beforeEach(async () => {
     candidateFetchMock.mockReset()
     ;(await branding()).reset()
-    document.documentElement.style.removeProperty('--primary')
+    document.documentElement.style.removeProperty('--color-primary')
   })
 
   afterEach(async () => {
@@ -40,7 +40,7 @@ describe('useCandidateBranding', () => {
     const store = await branding()
     await store.ensureLoaded()
 
-    expect(document.documentElement.style.getPropertyValue('--primary')).toBe('#123456')
+    expect(document.documentElement.style.getPropertyValue('--color-primary')).toBe('#123456')
     expect(store.logoUrl.value).toBe('https://cdn.test/logo.png')
   })
 
@@ -48,7 +48,7 @@ describe('useCandidateBranding', () => {
     // The fallback is the stylesheet's own Quint purple. Writing it here would
     // put a second copy of the brand constant in a second file, and the two
     // would drift the first time the palette changes.
-    document.documentElement.style.setProperty('--primary', '#ffffff')
+    document.documentElement.style.setProperty('--color-primary', '#ffffff')
     candidateFetchMock.mockResolvedValue({
       branding: { primary_color: null, logo_url: null },
     })
@@ -56,7 +56,7 @@ describe('useCandidateBranding', () => {
     const store = await branding()
     await store.ensureLoaded()
 
-    expect(document.documentElement.style.getPropertyValue('--primary')).toBe('')
+    expect(document.documentElement.style.getPropertyValue('--color-primary')).toBe('')
     expect(store.logoUrl.value).toBeNull()
   })
 
@@ -72,7 +72,7 @@ describe('useCandidateBranding', () => {
     const store = await branding()
     await store.ensureLoaded()
 
-    expect(document.documentElement.style.getPropertyValue('--primary')).toBe('')
+    expect(document.documentElement.style.getPropertyValue('--color-primary')).toBe('')
   })
 
   it('never throws, and does not retry a failure on every mount', async () => {
@@ -99,7 +99,7 @@ describe('useCandidateBranding', () => {
     await store.ensureLoaded()
 
     expect(candidateFetchMock).not.toHaveBeenCalled()
-    expect(document.documentElement.style.getPropertyValue('--primary')).toBe('#abcdef')
+    expect(document.documentElement.style.getPropertyValue('--color-primary')).toBe('#abcdef')
   })
 
   it('single-flights concurrent callers into one request', async () => {
