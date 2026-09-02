@@ -46,7 +46,7 @@ export default defineEventHandler(async (event) => {
     // bug this file exists to remove.
     throw createError({
       statusCode: 500,
-      statusMessage: 'BEAI_API_ORIGIN is not configured; the API proxy has no target.',
+      statusMessage: 'NUXT_API_ORIGIN is not configured; the API proxy has no target.',
     })
   }
 
