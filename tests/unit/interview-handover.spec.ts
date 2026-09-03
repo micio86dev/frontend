@@ -87,16 +87,19 @@ function registerFreshMockProvider() {
 }
 
 function makeStartResponse(
-  overrides: { session_id?: string; provider?: string; question_index?: string } = {}
+  overrides: { session_id?: number; provider?: string; question_index?: number } = {}
 ) {
   return {
-    session_id: overrides.session_id ?? '1',
+    session_id: overrides.session_id ?? 1,
     provider: overrides.provider ?? 'heygen',
     provider_token: 'tok',
     conversation_url: null,
+    // Required by the contract, so the fixture sends it — see the same note in
+    // use-interview-session.spec.ts.
+    audio_only: false,
     question_context: {
       competency_code: 'PRS',
-      question_index: overrides.question_index ?? '0',
+      question_index: overrides.question_index ?? 0,
       end_phrase: 'Passiamo alla prossima domanda.',
       final_phrase: 'Grazie per il tuo tempo.',
     },
@@ -163,7 +166,7 @@ async function mountLive() {
   const session = (wrapper.vm as unknown as { session: ReturnType<typeof useInterviewSession> })
     .session
   session.acceptConsent()
-  mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: '42' }))
+  mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: 42 }))
   session.confirmDevices()
   await flushPromises()
   mockProviderRegistry[0]!._emit('state', 'ready')
@@ -182,9 +185,7 @@ async function beginHandover(
     total_competencies: 3,
     next_action: 'continue',
   })
-  mockCandidateFetch.mockResolvedValueOnce(
-    makeStartResponse({ session_id: '99', question_index: '1' })
-  )
+  mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: 99, question_index: 1 }))
 
   mockProviderRegistry[0]!._emit('state', 'complete')
   await flushPromises()

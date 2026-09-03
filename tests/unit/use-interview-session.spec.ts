@@ -149,22 +149,27 @@ vi.stubGlobal('navigateTo', mockNavigateTo)
 
 function makeStartResponse(
   overrides: {
-    question_index?: string
+    question_index?: number
     end_phrase?: string
     final_phrase?: string
     competency_code?: string
     provider?: string
-    session_id?: string
+    session_id?: number
   } = {}
 ) {
   return {
-    session_id: overrides.session_id ?? '42',
+    session_id: overrides.session_id ?? 42,
     provider: overrides.provider ?? 'heygen',
     provider_token: 'tok-123',
     conversation_url: null,
+    // REQUIRED by the contract, so the fixture sends it: the real API always
+    // does, and a fixture that omits a required field describes a response the
+    // server cannot produce — which is how a guard for it looks unnecessary
+    // until the day it isn't.
+    audio_only: false,
     question_context: {
       competency_code: overrides.competency_code ?? 'PRS',
-      question_index: overrides.question_index ?? '0',
+      question_index: overrides.question_index ?? 0,
       end_phrase: overrides.end_phrase ?? 'Passiamo alla prossima domanda.',
       final_phrase: overrides.final_phrase ?? 'Grazie per il tuo tempo.',
     },
@@ -253,7 +258,7 @@ async function flushPromises() {
 
 // Create a session and advance to live state
 async function createLiveSession(
-  questionIndex = '0',
+  questionIndex = 0,
   competencies = DEFAULT_COMPETENCIES,
   audioDeviceId?: string
 ) {
@@ -290,7 +295,7 @@ describe('boundary-window utterance loss', () => {
     // Asserted as an ORDERING, not as "the call happened": a test that only
     // checked /utterance was called would pass against the losing code, since
     // it IS called — it just loses the race.
-    const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+    const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
     const provider = mockProviderRegistry[0]!
 
     let releaseUtterance!: () => void
@@ -339,7 +344,7 @@ describe('boundary-window utterance loss', () => {
 })
 
 async function beginHealthyHeyGenOverlap() {
-  const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+  const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
   const outgoing = mockProviderRegistry[0]!
 
   mockCandidateFetch.mockResolvedValueOnce({
@@ -351,7 +356,7 @@ async function beginHealthyHeyGenOverlap() {
   // the same id for both would pass even with the contamination bug,
   // since "wrong" and "right" would be indistinguishable numbers.
   mockCandidateFetch.mockResolvedValueOnce(
-    makeStartResponse({ question_index: '1', provider: 'heygen', session_id: '99' })
+    makeStartResponse({ question_index: 1, provider: 'heygen', session_id: 99 })
   )
 
   outgoing._emit('state', 'complete')
@@ -462,14 +467,15 @@ describe('useInterviewSession', () => {
       // Response with end_phrase ONLY inside question_context (correct path)
       // A stale top-level end_phrase field should NOT be picked up
       const response = {
-        session_id: '42',
+        session_id: 42,
         provider: 'heygen',
         provider_token: 'tok-123',
         conversation_url: null,
+        audio_only: false,
         // stale top-level field — MUST NOT be used (design note: destructure from question_context)
         question_context: {
           competency_code: 'PRS',
-          question_index: '0',
+          question_index: 0,
           end_phrase: 'Nested phrase correct.',
           final_phrase: 'Grazie per il tuo tempo.',
         },
@@ -516,7 +522,7 @@ describe('useInterviewSession', () => {
     })
 
     it('/end 200 with competencies remaining → state end_of_question', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
 
       mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
 
@@ -531,7 +537,7 @@ describe('useInterviewSession', () => {
       // detection from `question_index + 1 >= competencies.length`. That
       // comparison ran against a list the page never filled, so it was `0 >= 0`
       // and ended every interview after one question. The server decides now.
-      const session = await createLiveSession('4', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(4, DEFAULT_COMPETENCIES)
 
       mockCandidateFetch.mockResolvedValueOnce({
         ended_competencies: 5,
@@ -550,7 +556,7 @@ describe('useInterviewSession', () => {
       // harmless only because both racers advanced to the same place. Under a
       // directive-driven machine the loser has no directive, and the winner is
       // already advancing.
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
 
       mockCandidateFetch.mockRejectedValueOnce(makeFetchError(409))
 
@@ -780,10 +786,11 @@ describe('useInterviewSession', () => {
       session.acceptConsent()
 
       mockCandidateFetch.mockResolvedValueOnce({
-        session_id: '42',
+        session_id: 42,
         provider: 'heygen',
         provider_token: 'tok-123',
         conversation_url: null,
+        audio_only: false,
         // question_context is entirely absent — the contract violation.
       })
 
@@ -799,13 +806,14 @@ describe('useInterviewSession', () => {
       session.acceptConsent()
 
       mockCandidateFetch.mockResolvedValueOnce({
-        session_id: '42',
+        session_id: 42,
         provider: 'heygen',
         provider_token: 'tok-123',
         conversation_url: null,
+        audio_only: false,
         question_context: {
           competency_code: 'PRS',
-          question_index: '0',
+          question_index: 0,
           // end_phrase and final_phrase both absent
         },
       })
@@ -919,7 +927,7 @@ describe('useInterviewSession', () => {
     })
 
     it('reaching `done` on the last competency → clears the candidate session', async () => {
-      const session = await createLiveSession('4', DEFAULT_COMPETENCIES) // last competency
+      const session = await createLiveSession(4, DEFAULT_COMPETENCIES) // last competency
       mockCandidateFetch.mockResolvedValueOnce({
         ended_competencies: 5,
         total_competencies: 5,
@@ -946,7 +954,7 @@ describe('useInterviewSession', () => {
     })
 
     it('reaching `end_of_question` (not terminal) does NOT clear the session', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
 
       currentMockProvider._emit('state', 'complete')
@@ -964,31 +972,8 @@ describe('useInterviewSession', () => {
     // Its replacement lives in "pause narrows to live": pause() from
     // end_of_question is a no-op.
 
-    it('paused → resume() → live (no backend call)', async () => {
-      // Destination changed by D13: `live` is the only entry edge now, so it is
-      // also the only place resume() can land. The old `?? 'end_of_question'`
-      // fallback would send a mid-competency resume to the scheduled-pause
-      // screen, whose Continue calls /start for the NEXT competency — tearing
-      // the avatar down and losing the turn in progress.
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
-
-      session.pause()
-      await nextTick()
-
-      const callsBefore = mockCandidateFetch.mock.calls.length
-      session.resume()
-      await nextTick()
-
-      expect(session.state.value).toBe('live')
-      expect(mockCandidateFetch.mock.calls.length).toBe(callsBefore)
-    })
-
-    // The Pause control is rendered while the session is `live` (session.vue), but
-    // pause() only ever accepted `end_of_question`. Pressing it mid-interview was a
-    // silent no-op — the candidate asked for a break and the recording kept running.
-
     it('live → pause() → paused (no backend call)', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       expect(session.state.value).toBe('live')
 
       const callsBefore = mockCandidateFetch.mock.calls.length
@@ -1002,7 +987,7 @@ describe('useInterviewSession', () => {
     it('pausing a live question mutes the microphone', async () => {
       // A pause that leaves the mic open is not a pause: the candidate believes
       // they are off the record while their audio still reaches the provider.
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
 
       session.pause()
       await flushPromises()
@@ -1011,7 +996,7 @@ describe('useInterviewSession', () => {
     })
 
     it('resuming from a live pause returns to live and unmutes', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
 
       session.pause()
       await flushPromises()
@@ -1021,14 +1006,6 @@ describe('useInterviewSession', () => {
       expect(session.state.value).toBe('live')
       expect(currentMockProvider.setMicMuted).toHaveBeenLastCalledWith(false)
     })
-
-    // REMOVED (D13): this asserted pre-D13 behaviour — that resume() returns to
-    // end_of_question. It kept passing only because pause() from that state is
-    // now a no-op, so the session never entered `paused` and the assertion
-    // compared end_of_question against itself. A test that passes for a reason
-    // unrelated to its name is worse than none.
-    // Replaced by "pause() from end_of_question is a no-op" and
-    // "resume() from paused can only land on live".
 
     it('pause() is ignored from a non-pausable state', async () => {
       const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
@@ -1054,7 +1031,7 @@ describe('useInterviewSession', () => {
       // genuinely requested for the next competency — never absence alone,
       // which would pass just as happily on a machine that silently dropped
       // the next competency altogether.
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       const outgoing = mockProviderRegistry[0]!
 
       mockCandidateFetch.mockResolvedValueOnce({
@@ -1063,7 +1040,7 @@ describe('useInterviewSession', () => {
         next_action: 'continue',
       })
       mockCandidateFetch.mockResolvedValueOnce(
-        makeStartResponse({ question_index: '1', provider: 'heygen' })
+        makeStartResponse({ question_index: 1, provider: 'heygen' })
       )
 
       currentMockProvider._emit('state', 'complete')
@@ -1080,7 +1057,7 @@ describe('useInterviewSession', () => {
     })
 
     it('next_action=pause shows the scheduled-pause screen and calls no /start', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
 
       mockCandidateFetch.mockResolvedValueOnce({
         ended_competencies: 2,
@@ -1097,7 +1074,7 @@ describe('useInterviewSession', () => {
     })
 
     it('next_action=done goes straight to the done screen', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
 
       mockCandidateFetch.mockResolvedValueOnce({
         ended_competencies: 3,
@@ -1112,7 +1089,7 @@ describe('useInterviewSession', () => {
     })
 
     it('exposes the server progress counts', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
 
       mockCandidateFetch.mockResolvedValueOnce({
         ended_competencies: 2,
@@ -1132,7 +1109,7 @@ describe('useInterviewSession', () => {
       // all land on the screen that asks the candidate to press continue. The
       // failure mode that must never happen is silently ending an interview that
       // is not over — that is the defect this change removes.
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
 
       mockCandidateFetch.mockResolvedValueOnce(undefined)
 
@@ -1143,7 +1120,7 @@ describe('useInterviewSession', () => {
     })
 
     it('an unrecognised directive value also degrades to pause', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
 
       mockCandidateFetch.mockResolvedValueOnce({
         ended_competencies: 1,
@@ -1161,7 +1138,7 @@ describe('useInterviewSession', () => {
       // 409 is the loser of the avatar-complete/timer race. Both callers used to
       // advance, harmlessly, because they advanced to the same state. Under a
       // directive-driven machine the loser has no directive and must not act.
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
 
       mockCandidateFetch.mockRejectedValueOnce({ status: 409 })
 
@@ -1174,14 +1151,14 @@ describe('useInterviewSession', () => {
 
   describe('Skip is gone (D11)', () => {
     it('endQuestion only accepts timeout', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
 
       mockCandidateFetch.mockResolvedValueOnce({
         ended_competencies: 1,
         total_competencies: 3,
         next_action: 'continue',
       })
-      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ question_index: '1' }))
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ question_index: 1 }))
 
       await session.endQuestion('timeout')
       await flushPromises()
@@ -1193,7 +1170,7 @@ describe('useInterviewSession', () => {
 
   describe('pause narrows to live (D13)', () => {
     it('pause() from end_of_question is a no-op', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
 
       mockCandidateFetch.mockResolvedValueOnce({
         ended_competencies: 1,
@@ -1211,7 +1188,7 @@ describe('useInterviewSession', () => {
     })
 
     it('resume() from paused can only land on live', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
 
       session.pause()
       await flushPromises()
@@ -1245,7 +1222,7 @@ describe('useInterviewSession', () => {
   describe('invisible-competency-handover — D2 event identity (the crux)', () => {
     /** The incoming's own /start never resolves — the 10s bound fires and releases the outgoing. */
     async function beginStalledHeyGenOverlap() {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       const outgoing = mockProviderRegistry[0]!
 
       mockCandidateFetch.mockResolvedValueOnce({
@@ -1338,7 +1315,7 @@ describe('useInterviewSession', () => {
 
   describe('invisible-competency-handover — the noop (409) branch genuinely cancels the bound, across time', () => {
     it('409 on the handover /end → the bound timer is cancelled; advancing 10s+ does NOT release the outgoing or touch state', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       const outgoing = mockProviderRegistry[0]!
 
       mockCandidateFetch.mockRejectedValueOnce({ status: 409 })
@@ -1367,7 +1344,7 @@ describe('useInterviewSession', () => {
 
   describe('invisible-competency-handover — the five target==="incoming" /start failure branches', () => {
     async function beginHealthyOverlapPendingIncomingStart() {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       const outgoing = mockProviderRegistry[0]!
       mockCandidateFetch.mockResolvedValueOnce({
         ended_competencies: 1,
@@ -1472,7 +1449,7 @@ describe('useInterviewSession', () => {
   describe('invisible-competency-handover — observability breadcrumbs on every degrade path', () => {
     it('logs a structured breadcrumb when the bound fires', async () => {
       const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       const outgoing = mockProviderRegistry[0]!
       mockCandidateFetch.mockImplementationOnce(() => new Promise(() => undefined))
 
@@ -1502,7 +1479,7 @@ describe('useInterviewSession', () => {
 
     it('logs a structured breadcrumb when the connecting-ceiling gives up', async () => {
       const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       const outgoing = mockProviderRegistry[0]!
       mockCandidateFetch.mockImplementationOnce(() => new Promise(() => undefined))
 
@@ -1523,7 +1500,7 @@ describe('useInterviewSession', () => {
 
     it('logs a structured breadcrumb when an incoming /start attempt is abandoned', async () => {
       const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
-      await createLiveSession('0', DEFAULT_COMPETENCIES)
+      await createLiveSession(0, DEFAULT_COMPETENCIES)
       const outgoing = mockProviderRegistry[0]!
       mockCandidateFetch.mockResolvedValueOnce({
         ended_competencies: 1,
@@ -1544,14 +1521,14 @@ describe('useInterviewSession', () => {
 
     it('logs a structured breadcrumb when a promote is raced by the outgoing dying mid-crossfade (C1)', async () => {
       const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       const outgoing = mockProviderRegistry[0]!
       mockCandidateFetch.mockResolvedValueOnce({
         ended_competencies: 1,
         total_competencies: 3,
         next_action: 'continue',
       })
-      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: '99' }))
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: 99 }))
 
       outgoing._emit('state', 'complete')
       await flushPromises()
@@ -1583,7 +1560,7 @@ describe('useInterviewSession', () => {
   describe('invisible-competency-handover — B2: guards close the WHOLE handover window', () => {
     /** Captures the exact window: complete handled, /end dispatched, still pending. */
     async function beginHandoverWithEndPending() {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       const outgoing = mockProviderRegistry[0]!
       mockCandidateFetch.mockImplementationOnce(() => new Promise(() => undefined))
 
@@ -1623,7 +1600,7 @@ describe('useInterviewSession', () => {
 
   describe('invisible-competency-handover — M1: confirmDevices()/retry() abandon the bound timer even before incomingSession exists', () => {
     it('M1 RED — retry() mid-handover (before incomingSession exists) does NOT leave the bound timer armed against the FRESH session it just started', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       const outgoing = mockProviderRegistry[0]!
 
       // /end never resolves — incomingSession never gets populated.
@@ -1632,7 +1609,7 @@ describe('useInterviewSession', () => {
       await nextTick()
 
       // The candidate (or an operator flow) retries — a fresh session begins.
-      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: '77' }))
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: 77 }))
       session.retry()
       await flushPromises()
 
@@ -1661,7 +1638,7 @@ describe('useInterviewSession', () => {
 
   describe('invisible-competency-handover — C1: outgoing dies mid-crossfade → the already-painted incoming is promoted, not stranded', () => {
     it('C1 RED — outgoing error AFTER the incoming has painted (mid-crossfade) still promotes the incoming to live', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       const outgoing = mockProviderRegistry[0]!
 
       mockCandidateFetch.mockResolvedValueOnce({
@@ -1669,7 +1646,7 @@ describe('useInterviewSession', () => {
         total_competencies: 3,
         next_action: 'continue',
       })
-      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: '99' }))
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: 99 }))
 
       outgoing._emit('state', 'complete')
       await flushPromises()
@@ -1700,7 +1677,7 @@ describe('useInterviewSession', () => {
 
   describe('invisible-competency-handover — B3/B4/C3: the connecting-ceiling bounds the post-bound wait', () => {
     it('B3 RED — the incoming reports readiness but never paints: the ceiling gives up and surfaces the retryable error screen, never an infinite wait', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       const outgoing = mockProviderRegistry[0]!
 
       mockCandidateFetch.mockResolvedValueOnce({
@@ -1708,7 +1685,7 @@ describe('useInterviewSession', () => {
         total_competencies: 3,
         next_action: 'continue',
       })
-      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: '99' }))
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: 99 }))
 
       outgoing._emit('state', 'complete')
       await flushPromises()
@@ -1736,7 +1713,7 @@ describe('useInterviewSession', () => {
     })
 
     it('B4 RED — the incoming exhausts its /start retries AFTER the bound already fired: the ceiling still recovers the interview, never an unrecoverable dead end', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       const outgoing = mockProviderRegistry[0]!
 
       mockCandidateFetch.mockResolvedValueOnce({
@@ -1769,7 +1746,7 @@ describe('useInterviewSession', () => {
     })
 
     it('the connecting-ceiling does NOT fire when promote() succeeds first — no stray error after a healthy handover', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       const outgoing = mockProviderRegistry[0]!
 
       mockCandidateFetch.mockResolvedValueOnce({
@@ -1777,7 +1754,7 @@ describe('useInterviewSession', () => {
         total_competencies: 3,
         next_action: 'continue',
       })
-      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: '99' }))
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: 99 }))
 
       outgoing._emit('state', 'complete')
       await flushPromises()
@@ -1824,7 +1801,7 @@ describe('useInterviewSession', () => {
         next_action: 'continue',
       })
       mockCandidateFetch.mockResolvedValueOnce(
-        makeStartResponse({ question_index: '1', provider: 'tavus' })
+        makeStartResponse({ question_index: 1, provider: 'tavus' })
       )
 
       outgoing._emit('state', 'complete')
@@ -1844,7 +1821,7 @@ describe('useInterviewSession', () => {
 
   describe('invisible-competency-handover — D4: the outgoing mic is muted BEFORE /end', () => {
     it('3.2 — setMicMuted(true) is called on the OUTGOING before POST /end is dispatched', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       const outgoing = mockProviderRegistry[0]!
 
       const callOrder: string[] = []
@@ -1894,13 +1871,13 @@ describe('useInterviewSession', () => {
       // nextCompetency() re-enters confirmDevices() to issue the next provider
       // session. Losing the id there would silently switch microphones halfway
       // through the interview.
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES, 'mic-actual')
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES, 'mic-actual')
 
       mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
       currentMockProvider._emit('state', 'complete')
       await flushPromises()
 
-      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ question_index: '1' }))
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ question_index: 1 }))
       session.nextCompetency()
       await flushPromises()
 
@@ -1936,7 +1913,7 @@ describe('useInterviewSession', () => {
     })
 
     it('removes resize listener on transition to done', async () => {
-      const session = await createLiveSession('4', DEFAULT_COMPETENCIES) // last competency
+      const session = await createLiveSession(4, DEFAULT_COMPETENCIES) // last competency
 
       mockCandidateFetch.mockResolvedValueOnce({
         ended_competencies: 5,
@@ -1998,7 +1975,7 @@ describe('useInterviewSession', () => {
 
   describe('nextCompetency() — advance to next /start', () => {
     it('nextCompetency from end_of_question → calls /start again', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
 
       mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
       currentMockProvider._emit('state', 'complete')
@@ -2007,7 +1984,7 @@ describe('useInterviewSession', () => {
       expect(session.state.value).toBe('end_of_question')
 
       // Next competency
-      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ question_index: '1' }))
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ question_index: 1 }))
       session.nextCompetency()
       await nextTick()
 
@@ -2230,7 +2207,7 @@ describe('useInterviewSession', () => {
   describe('/end unexpected error → console.warn; state transitions normally', () => {
     it('502 from /end → console.warn fired; state transitions to end_of_question', async () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
 
       // /end returns 502 (not 409, not 403) → warn is logged, then state proceeds
       mockCandidateFetch.mockRejectedValueOnce(makeFetchError(502))
@@ -2314,7 +2291,7 @@ describe('useInterviewSession', () => {
     })
 
     it('unpublishes both when the question ends (end_of_question)', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       expect(session.activeProvider.value).toBe(currentMockProvider)
 
       mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
@@ -2344,7 +2321,7 @@ describe('useInterviewSession', () => {
 
   describe('endQuestion()', () => {
     it("timeout → POST /end with ended_reason 'timeout'", async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
 
       await session.endQuestion('timeout')
@@ -2356,7 +2333,7 @@ describe('useInterviewSession', () => {
     })
 
     it("skip → POST /end with ended_reason 'skipped'", async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       mockCandidateFetch.mockResolvedValueOnce(undefined) // /end 200
 
       await session.endQuestion('skipped')
@@ -2367,7 +2344,7 @@ describe('useInterviewSession', () => {
     })
 
     it('advances to end_of_question when competencies remain', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       mockCandidateFetch.mockResolvedValueOnce(undefined)
 
       await session.endQuestion('timeout')
@@ -2380,7 +2357,7 @@ describe('useInterviewSession', () => {
       // Superseded by D11 twice over: the destination comes from the directive
       // now, and `skipped` is no longer a reason the client can produce — the
       // Skip control is gone and only the timer ends a question early.
-      const session = await createLiveSession('4', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(4, DEFAULT_COMPETENCIES)
       mockCandidateFetch.mockResolvedValueOnce({
         ended_competencies: 5,
         total_competencies: 5,
@@ -2394,7 +2371,7 @@ describe('useInterviewSession', () => {
     })
 
     it('stops the provider — it is cut off mid-turn, unlike the completed path', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       mockCandidateFetch.mockResolvedValueOnce(undefined)
 
       await session.endQuestion('timeout')
@@ -2404,7 +2381,7 @@ describe('useInterviewSession', () => {
     })
 
     it('403 from /end → terminal, and does NOT advance to end_of_question', async () => {
-      const session = await createLiveSession('0', DEFAULT_COMPETENCIES)
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       mockCandidateFetch.mockRejectedValueOnce(makeFetchError(403))
 
       await session.endQuestion('timeout')

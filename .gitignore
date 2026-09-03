@@ -35,3 +35,6 @@ coverage/
 public/proctor/wasm/
 public/proctor/*.task
 public/proctor/*.tflite
+
+# Local skill-registry cache (tooling artifact, never project code)
+.atl/

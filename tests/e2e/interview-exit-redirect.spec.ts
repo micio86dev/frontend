@@ -2,6 +2,17 @@ import { test, expect } from '@playwright/test'
 import type { Page } from '@playwright/test'
 
 /**
+ * Role-based locator for the done screen.
+ *
+ * The project standard is that E2E locators are role-based. The screen is a
+ * `<section>` with `aria-labelledby` pointing at its own heading, so it exposes
+ * the `region` role with that heading as its name — asserting through the role
+ * proves the accessibility contract on every run, which a testid cannot.
+ */
+const doneScreen = (page: import('@playwright/test').Page) =>
+  page.getByRole('region', { name: /interview completed/i })
+
+/**
  * Playwright E2E — Exit redirect at interview completion (D8/D10, C10 PR7)
  *
  * Task 14.2 / 15.7:
@@ -261,7 +272,7 @@ test.describe('Exit redirect at interview completion — E2E', () => {
     await goThroughDeviceCheckToLive(page)
     await completeInterview(page)
 
-    await expect(page.getByTestId('done-screen')).toBeVisible({ timeout: 10_000 })
+    await expect(doneScreen(page)).toBeVisible({ timeout: 10_000 })
     await expect(page.getByRole('heading', { name: /interview completed/i })).toBeVisible()
     // Still on the token-free session route — no external navigation occurred.
     expect(page.url()).toContain('/interview/session')

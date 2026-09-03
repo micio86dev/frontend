@@ -41,7 +41,10 @@
     },
     "live": {
       "timer_label": "Tempo rimanente",
-      "pause": "Pausa"
+      "pause": "Pausa",
+      "voice_visualizer_label": "Voce dell’intervistatore",
+      "avatar_label": "Intervistatore",
+      "region_label": "Colloquio in corso"
     },
     "end_of_question": {
       "title": "Domanda completata",
@@ -79,6 +82,16 @@
       "spent_link": {
         "title": "Questo invito è già stato utilizzato",
         "body": "Questo invito è già stato utilizzato e non può essere riutilizzato. Se non hai ancora completato il colloquio, contatta chi ti ha invitato."
+      },
+      "malformed_response": {
+        "title": "Risposta imprevista dal servizio di intervista",
+        "body": "Il servizio di intervista ha restituito una risposta che non siamo riusciti a interpretare, quindi la sessione non può proseguire. Il problema è dalla nostra parte, non dipende da qualcosa che hai fatto. Contatta l'assistenza.",
+        "contact": "Contatta l’assistenza"
+      },
+      "generic": {
+        "title": "L'intervista non può proseguire",
+        "body": "La sessione si è interrotta per un motivo tecnico e non può essere ripresa da qui. Contatta l'assistenza.",
+        "contact": "Contatta l’assistenza"
       }
     },
     "document_title": "Colloquio BEAI",
@@ -99,7 +112,8 @@
     },
     "transition": {
       "title": "Un attimo",
-      "body": "Sto preparando la prossima domanda."
+      "body": "Sto preparando la prossima domanda.",
+      "progressLabel": "Avanzamento"
     }
   },
   "analytics_consent": {

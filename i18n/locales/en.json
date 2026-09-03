@@ -41,7 +41,10 @@
     },
     "live": {
       "timer_label": "Time remaining",
-      "pause": "Pause"
+      "pause": "Pause",
+      "voice_visualizer_label": "Interviewer voice",
+      "avatar_label": "Interviewer",
+      "region_label": "Live interview"
     },
     "end_of_question": {
       "title": "Question Completed",
@@ -79,6 +82,16 @@
       "spent_link": {
         "title": "This Invitation Has Already Been Used",
         "body": "This invitation has already been used and cannot be used again. If you have not yet completed your interview, please contact whoever invited you."
+      },
+      "malformed_response": {
+        "title": "Unexpected Response from the Interview Service",
+        "body": "The interview service returned something we could not read, so the session cannot continue. This is a problem on our side, not with anything you did. Please contact support.",
+        "contact": "Contact Support"
+      },
+      "generic": {
+        "title": "The Interview Cannot Continue",
+        "body": "The session ended for a technical reason and cannot be resumed from here. Please contact support.",
+        "contact": "Contact Support"
       }
     },
     "document_title": "BEAI Interview",
@@ -99,7 +112,8 @@
     },
     "transition": {
       "title": "One moment",
-      "body": "Preparing the next question."
+      "body": "Preparing the next question.",
+      "progressLabel": "Progress"
     }
   },
   "analytics_consent": {
