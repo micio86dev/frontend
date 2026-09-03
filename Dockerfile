@@ -6,7 +6,7 @@
 # Per D17 (non-root, healthchecked, small final image) and D18 (Bun build → Node SSR).
 
 # ─── Stage 1: Build ──────────────────────────────────────────────────────────
-FROM oven/bun:1.3.14 AS builder
+FROM oven/bun:1.4.0 AS builder
 
 WORKDIR /app
 

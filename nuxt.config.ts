@@ -105,6 +105,21 @@ export default defineNuxtConfig({
 
   // Runtime config
   runtimeConfig: {
+    /**
+     * SERVER-ONLY, and deliberately not under `public`: this is the origin the
+     * Nitro proxy in `server/routes/api/[...].ts` forwards to, and it is a
+     * Docker-internal hostname. Shipping it to the browser is precisely the
+     * bug that proxy removes.
+     *
+     * Fed by NUXT_API_ORIGIN. The name is not a preference: Nuxt maps only
+     * `NUXT_`-prefixed environment variables onto runtimeConfig at runtime,
+     * so any other name is simply never read and this stays ''. This comment
+     * said BEAI_API_ORIGIN, and so did the proxy's own 500 message — an
+     * operator hitting that error on Railway would have set the variable it
+     * named, got the same 500, and had nothing to go on.
+     */
+    apiOrigin: '',
+
     public: {
       // NUXT_PUBLIC_API_BASE. The value INCLUDES the /api suffix (e.g.
       // http://api:8000/api) — see app/utils/api-url.ts. Left empty here so a missing
