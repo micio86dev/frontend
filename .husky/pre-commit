@@ -1,1 +1,16 @@
 bunx lint-staged
+
+# Gentleman Guardian Angel — adversarial code review, BLOCKING.
+#
+# AFTER lint-staged, not before: eslint --fix and prettier --write REWRITE the
+# staged files, so running the review first would judge code that is not the
+# code being committed.
+#
+# This app has carried a fully configured .gga — provider, file patterns,
+# exclusions, AGENTS.md as its rule file, strict mode — while nothing invoked
+# it. The wrapper has run it as a blocking pre-commit hook all along; these
+# three repos did not, so substantial code shipped with CI and lint behind it
+# but no adversarial pass. CI proves the code WORKS; this is what catches a
+# comment that lies, a guard that cannot fail, or a claim the mechanism does
+# not deliver.
+gga run || exit 1
