@@ -576,12 +576,17 @@ describe('interview/session.vue — timer expiry and skip', () => {
     expect(labels.some((l) => l.includes('interview.end_of_question.pause'))).toBe(false)
   })
 
-  it('renders NO standalone paused screen — paused always implies a mounted avatar', async () => {
-    // `live` is the only entry to `paused`, and the provider session stays up
-    // through it, so the in-avatar panel is the only reachable resume control.
-    // This assertion is what makes deleting the standalone section safe:
-    // without it, removing dead markup could silently produce a blank screen
-    // with no way back — exactly the dead end v0.6.3 had to repair.
+  it('renders the paused screen with NO avatar mounted — the pause tore the session down', async () => {
+    // The inverse of what this test used to assert, because the requirement
+    // inverted. It used to pin "paused always implies a mounted avatar", which
+    // held while a pause merely muted the microphone and kept the provider
+    // session up. A pause now ENDS that session — the only way to stop the
+    // provider billing conversation minutes — so `avatarMounted` is false the
+    // moment the candidate pauses.
+    //
+    // Left inside the avatar branch, the panel would unmount with the player
+    // and strand the candidate on a blank screen with no way back: exactly the
+    // dead end v0.6.3 had to repair, reached from the other direction.
     const session = makeSession({ state: 'paused', provider: null })
     const wrapper = await mountPage(session)
 
@@ -589,7 +594,8 @@ describe('interview/session.vue — timer expiry and skip', () => {
       .findAll('button')
       .find((b) => b.text().includes('interview.paused.resume'))
 
-    expect(resume).toBeUndefined()
+    expect(resume).toBeDefined()
+    expect(wrapper.find('[data-testid="paused-live-panel"]').exists()).toBe(true)
   })
 
   it('tears down and redirects to the configured error page when state becomes `error`', async () => {

@@ -681,6 +681,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/candidate/interview/suspend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pause the interview by TEARING THE PROVIDER SESSION DOWN
+         * @description WHY A PAUSE HAS TO DO THIS
+         *     --------------------------
+         *     The client used to pause by muting the candidate's own microphone and
+         *     nothing else. Two things followed, and both were reported from a real
+         *     interview: the avatar kept its turn and kept talking through the pause,
+         *     and the provider conversation stayed open. Tavus and HeyGen bill live
+         *     conversation minutes, so a candidate who stepped away was billed for an
+         *     interview nobody was having.
+         *
+         *     Interrupting the avatar and muting its audio locally would fix the first
+         *     symptom and none of the second. Only ending the provider session stops
+         *     the meter, so that is what pause does.
+         *
+         *     WHY THAT IS CHEAP RATHER THAN DRASTIC
+         *     -------------------------------------
+         *     This is the FIRST HALF of `handleResumeInCorso()`, which already exists
+         *     and is already relied upon: harvest the outgoing transcript while it is
+         *     still readable, close the live-clock stretch, tear the provider session
+         *     down. The second half — issuing a fresh token — is what `/start` does,
+         *     and `OpeningTextComposer` already carries a `resume` variant written for
+         *     exactly this.
+         *
+         *     So resume needs no new endpoint. Suspend leaves the session `in_corso`
+         *     with a NULL ref, which is precisely the state `/start` already resumes:
+         *     `handleResumeInCorso()` guards its harvest and teardown with
+         *     `$oldRef !== null`, so it skips straight to issuing.
+         *
+         *     WHAT IT DELIBERATELY DOES NOT TOUCH
+         *     -----------------------------------
+         *     `status`, `ended_at`, the participant, and the scoring dispatch. A paused
+         *     interview is not a finished one, and a pause that reached `/end`'s
+         *     machinery would score a candidate on the half of an answer they had given
+         *     when they stepped away.
+         *
+         *     IDEMPOTENT. The client sends this on the pause gesture and again on
+         *     page-hide; both can fire for one action. A null ref means there is
+         *     nothing left to tear down, which is success, not an error state to show
+         *     a candidate mid-interview.
+         */
+        post: operations["interview.suspend"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/candidate/interview/end": {
         parameters: {
             query?: never;
@@ -3576,6 +3633,36 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "interview.suspend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    session_id: number;
+                };
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        suspended: boolean;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
         };
     };
     "interview.end": {
