@@ -684,6 +684,32 @@ export function useInterviewSession(
     }
   }
 
+  /**
+   * Ask the server to tear the provider conversation down.
+   *
+   * Fire-and-forget on purpose. The candidate has ALREADY been shown the paused
+   * screen and the avatar has ALREADY been stopped locally by the time this
+   * settles; blocking the UI on it would make pausing feel broken, and failing
+   * it visibly would tell a candidate about a billing concern that is not
+   * theirs. A suspend that does not land leaves a provider session running only
+   * until `/start` re-issues, which tears the stale ref down anyway.
+   */
+  async function callSuspend(dbSessionId: number): Promise<void> {
+    // Same choke point as `callEnd`: whatever the candidate said before pausing
+    // must reach the server before the provider session that produced it stops
+    // existing.
+    await drainUtterances()
+
+    try {
+      await candidateFetch('/candidate/interview/suspend', {
+        method: 'POST',
+        body: { session_id: dbSessionId },
+      })
+    } catch {
+      // Deliberately silent — see above.
+    }
+  }
+
   async function callEnd(
     dbSessionId: number,
     endedReason: 'completed' | EndQuestionReason
@@ -1331,17 +1357,11 @@ export function useInterviewSession(
   }
 
   /**
-   * Pause a LIVE question (D13). The mic is muted and the provider session is
-   * kept alive; a pause that leaves the mic open is not a pause.
+   * Pause a LIVE question (D13) by ENDING the provider session.
    *
    * `live` is now the ONLY entry. `end_of_question` no longer offers a Pause
    * control because it IS the scheduled-pause screen — a Pause button on a pause
    * screen is meaningless.
-   *
-   * NOT YET a pause that stops the provider billing. Tearing the session down
-   * and re-issuing it on resume is written and parked: it is held back because
-   * its interaction with server-side transcript harvesting is unproven, and the
-   * transcript is the one thing here that cannot be reconstructed.
    *
    * D2/B2: also refused for the WHOLE handover window (`handoverActive`, not
    * `incomingSession !== null` — the latter left a gap between
@@ -1352,29 +1372,65 @@ export function useInterviewSession(
    * itself a visible break; an enabled-but-inert button is the defect the
    * live pause was fixed for.
    *
-   * INVARIANT: assigns `state.value` DIRECTLY and must never be routed through
-   * `transitionTo()`, which calls `clearActiveProvider()` for the terminal
-   * states. `paused` is deliberately absent from that list; routing it there as
-   * a "consistency" cleanup would unmount AvatarPlayer and destroy the very
-   * session this pause exists to preserve.
+   * STILL assigns `state.value` directly rather than routing through
+   * `transitionTo()`. The reason has changed but the rule has not: `paused` is
+   * not a terminal state and must not pick up the rest of that path's cleanup.
+   * The old comment here forbade unmounting the player at all — "would destroy
+   * the very session this pause exists to preserve" — and that requirement has
+   * inverted. Destroying the session is now the point.
    */
   function pause() {
     if (state.value !== 'live') return
     if (handoverActive.value) return
 
+    const handle = activeSession.value
+
     state.value = 'paused'
-    activeSession.value?.provider.setMicMuted(true).catch(() => {})
+
+    // Muting the candidate's microphone is NOT what a pause is.
+    //
+    // That is all this used to do, and it left the two things a pause is
+    // actually for undone: the avatar kept its turn and kept talking, because
+    // nothing ever interrupted it, and the provider conversation stayed open.
+    // Tavus and HeyGen bill live conversation minutes, so a candidate who
+    // stepped away for ten minutes was billed for ten minutes of an interview
+    // nobody was having.
+    //
+    // Interrupting the avatar and muting its downlink would fix the first and
+    // not the second. Only ending the session stops the meter.
+    handle?.provider.stop().catch(() => {})
+
+    if (handle) {
+      void callSuspend(handle.dbSessionId)
+    }
+
+    clearActiveProvider()
   }
 
   /**
-   * Resume to `live`. The provider session was kept alive through the pause,
-   * so this only lifts the microphone mute.
+   * Resume by re-issuing the provider session `pause()` tore down.
+   *
+   * Goes back through `/start`, which resumes the SAME `in_corso` competency —
+   * not the next one, and not the current one restarted. The candidate waits
+   * for a reconnect; nobody pays for the minutes they were away.
    */
   function resume() {
     if (state.value !== 'paused') return
 
-    state.value = 'live'
-    activeSession.value?.provider.setMicMuted(false).catch(() => {})
+    // Re-issue rather than un-mute. `pause()` ended the provider session, so
+    // there is nothing left to unmute — and nothing needs inventing here,
+    // because `/start` already knows this exact state.
+    //
+    // Suspend leaves the competency `in_corso` with a NULL provider ref, which
+    // is the state `handleResumeInCorso()` on the API already resumes: it issues
+    // a fresh token, keeps the transcript harvested before the teardown, and
+    // greets with `OpeningTextComposer`'s `resume` variant — written, long
+    // before this change, for "a fresh provider session re-issued for an
+    // in-progress competency".
+    //
+    // `confirmDevices()` is the same entry `retry()` uses and carries its own
+    // re-entrancy latch.
+    confirmDevices()
   }
 
   function retry() {

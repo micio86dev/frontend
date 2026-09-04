@@ -130,6 +130,33 @@
       alone was unreachable: the session only becomes live once the provider emits
       'ready', which it cannot do until it has been started by the player.
     -->
+    <!--
+      Paused.
+
+      ITS OWN BRANCH, ordered BEFORE `avatarMounted`, and that ordering is the
+      whole point. This panel used to live inside the avatar section because a
+      pause kept the provider session up, so `avatarMounted` stayed true.
+      Pausing now TEARS THAT SESSION DOWN — the only way to stop the provider
+      billing conversation minutes for an interview nobody is having — so
+      `avatarMounted` goes false the moment the candidate pauses. Left where it
+      was, the panel would unmount with the player and strand the candidate on a
+      blank screen with no way to resume.
+    -->
+    <section
+      v-else-if="session.state.value === 'paused'"
+      class="flex w-full max-w-3xl flex-col items-center gap-4 rounded-xl border border-border bg-card p-6"
+      aria-labelledby="paused-heading"
+      data-testid="paused-live-panel"
+    >
+      <h2 id="paused-heading" class="text-lg font-semibold text-foreground">
+        {{ $t('interview.paused.title') }}
+      </h2>
+      <p class="text-sm text-muted-foreground">{{ $t('interview.paused.body') }}</p>
+      <Button @click="session.resume()">
+        {{ $t('interview.paused.resume') }}
+      </Button>
+    </section>
+
     <section
       v-else-if="avatarMounted"
       class="flex w-full max-w-3xl flex-col gap-4"
@@ -139,8 +166,9 @@
         The <AvatarPlayer> instance(s) themselves render from the persistent
         player mount layer above `<main>`'s exclusive chain, not here — see
         that block's comment (invisible-competency-handover D3/D5/D6). This
-        section owns only the surrounding chrome: timer, caption, pause,
-        proctoring, and the paused panel.
+        section owns only the surrounding chrome: timer, caption, pause and
+        proctoring. The paused panel is its own branch above — pausing tears the
+        provider session down, so this branch is gone by then.
       -->
 
       <template v-if="session.state.value === 'live'">
@@ -179,23 +207,6 @@
           />
         </ClientOnly>
       </template>
-      <!--
-        Paused mid-question.
-
-        The provider session stays up while paused, so `avatarMounted` is still
-        true and this branch keeps rendering.
-      -->
-      <div
-        v-else-if="session.state.value === 'paused'"
-        class="flex flex-col items-center gap-4 rounded-xl border border-border bg-card p-6"
-        data-testid="paused-live-panel"
-      >
-        <h2 class="text-lg font-semibold text-foreground">{{ $t('interview.paused.title') }}</h2>
-        <p class="text-sm text-muted-foreground">{{ $t('interview.paused.mic_muted') }}</p>
-        <Button @click="session.resume()">
-          {{ $t('interview.paused.resume') }}
-        </Button>
-      </div>
     </section>
 
     <!-- End of Question screen -->
@@ -224,12 +235,6 @@
         {{ $t('interview.scheduled_pause.resume') }}
       </Button>
     </section>
-
-    <!-- The standalone `paused` section lived here. It is gone: `live` is the
-         only entry to `paused` now, so `paused` implies `avatarMounted` and the
-         in-avatar panel above is the only reachable one. Leaving this would have
-         left a second, unreachable resume control for a future reader to wire
-         back up. The invariant is pinned by a unit test. -->
 
     <!-- Done screen -->
     <section

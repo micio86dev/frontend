@@ -965,46 +965,76 @@ describe('useInterviewSession', () => {
     })
   })
 
-  describe('pause / resume (client-side only)', () => {
+  describe('pause / resume — the pause ENDS the provider session', () => {
     // REMOVED by D13: `end_of_question` is now the SA-04 scheduled-pause screen,
     // so it no longer carries a Pause control — a Pause button on a pause screen
     // is meaningless, and that control was the only trigger for this edge.
     // Its replacement lives in "pause narrows to live": pause() from
     // end_of_question is a no-op.
+    //
+    // These three tests used to assert the opposite of what they assert now:
+    // that pause made NO backend call, muted the microphone, and that resume
+    // un-muted it. That was the whole defect. Muting the candidate's own mic
+    // left the avatar talking and the provider conversation open, and Tavus and
+    // HeyGen bill live conversation minutes — so a candidate who stepped away
+    // was billed for an interview nobody was having.
 
-    it('live → pause() → paused (no backend call)', async () => {
+    it('live → pause() → paused, and the provider session is torn down', async () => {
       const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
       expect(session.state.value).toBe('live')
 
-      const callsBefore = mockCandidateFetch.mock.calls.length
       session.pause()
-      await nextTick()
+      await flushPromises()
 
       expect(session.state.value).toBe('paused')
-      expect(mockCandidateFetch.mock.calls.length).toBe(callsBefore)
+
+      // The player is UNMOUNTED, so the avatar cannot keep talking through the
+      // pause. Asserted on `players` rather than on the provider's `stop`:
+      // teardown is wrapped in place for exactly-once, which replaces the spy.
+      expect(session.players.value.length).toBe(0)
+
+      // And the server is told, so the provider stops billing. Muting alone
+      // could never have done this.
+      const suspendCalls = mockCandidateFetch.mock.calls.filter(
+        (c) => String(c[0]) === '/candidate/interview/suspend'
+      )
+      expect(suspendCalls.length).toBe(1)
     })
 
-    it('pausing a live question mutes the microphone', async () => {
-      // A pause that leaves the mic open is not a pause: the candidate believes
-      // they are off the record while their audio still reaches the provider.
+    it('pausing does NOT merely mute the microphone', async () => {
+      // The mutation this pins: restore `setMicMuted(true)` in place of the
+      // teardown and the suspend call above disappears, leaving the meter
+      // running. Asserting the absence here keeps the old implementation from
+      // quietly coming back as a "safer" alternative.
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
+      const provider = currentMockProvider
+
+      session.pause()
+      await flushPromises()
+
+      expect(provider.setMicMuted).not.toHaveBeenCalledWith(true)
+    })
+
+    it('resuming re-issues the provider session through /start', async () => {
       const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
 
       session.pause()
       await flushPromises()
 
-      expect(currentMockProvider.setMicMuted).toHaveBeenCalledWith(true)
-    })
+      const startsBefore = mockCandidateFetch.mock.calls.filter(
+        (c) => String(c[0]) === '/candidate/interview/start'
+      ).length
 
-    it('resuming from a live pause returns to live and unmutes', async () => {
-      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
-
-      session.pause()
-      await flushPromises()
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ question_index: 0 }))
       session.resume()
       await flushPromises()
 
-      expect(session.state.value).toBe('live')
-      expect(currentMockProvider.setMicMuted).toHaveBeenLastCalledWith(false)
+      // There is nothing left to un-mute: resume goes back through /start,
+      // which resumes the SAME in_corso competency with a fresh provider ref.
+      const startsAfter = mockCandidateFetch.mock.calls.filter(
+        (c) => String(c[0]) === '/candidate/interview/start'
+      ).length
+      expect(startsAfter).toBe(startsBefore + 1)
     })
 
     it('pause() is ignored from a non-pausable state', async () => {
@@ -1187,14 +1217,21 @@ describe('useInterviewSession', () => {
       expect(session.state.value).toBe('end_of_question')
     })
 
-    it('resume() from paused can only land on live', async () => {
+    it('resume() from paused reconnects to live, via a fresh provider session', async () => {
       const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
 
       session.pause()
       await flushPromises()
       expect(session.state.value).toBe('paused')
 
+      // A reconnect, not an un-mute: pause ended the provider session, so
+      // resume re-issues one through /start and waits for it to be ready. That
+      // is why this is no longer a synchronous flip back to `live`.
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ question_index: 0 }))
       session.resume()
+      await flushPromises()
+
+      currentMockProvider._emit('state', 'ready')
       await flushPromises()
 
       expect(session.state.value).toBe('live')
