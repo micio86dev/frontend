@@ -53,7 +53,7 @@
     },
     "paused": {
       "title": "Interview Paused",
-      "mic_muted": "Your microphone is off. Nothing is being recorded until you resume.",
+      "body": "The interview is on hold and nothing is being recorded. Resuming reconnects you to the same question, right where you left it.",
       "resume": "Resume"
     },
     "done": {

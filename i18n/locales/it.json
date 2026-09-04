@@ -53,7 +53,7 @@
     },
     "paused": {
       "title": "Colloquio in pausa",
-      "mic_muted": "Il microfono è disattivato. Nessuna risposta viene registrata finché non riprendi.",
+      "body": "Il colloquio è in pausa e non viene registrato nulla. Riprendendo ti ricolleghi alla stessa domanda, esattamente da dove l'hai lasciata.",
       "resume": "Riprendi"
     },
     "done": {
