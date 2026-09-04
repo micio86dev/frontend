@@ -699,7 +699,11 @@ export interface paths {
          *     (4) FIX-3 guard: if session.status !== 'in_corso' → ROLLBACK → 409.
          *     (5) HeyGen: replaceUtterances inside txn. Tavus: no reconcile.
          *     (6) UPDATE session status = ended_reason, ended_at = now().
-         *     (7) Count ended sessions (status ∈ {completed, timeout, skipped}) for this participant+project.
+         *     (7) Count ended sessions for this participant+project, via CompetencyTally::ended():
+         *         status ∈ {completed, timeout, skipped}, OR status = 'error' with
+         *         error_count >= MAX_ERROR_ATTEMPTS. That last disjunct is not optional —
+         *         settleCompletionIfFinished()'s docblock below explains at length that a
+         *         tally disagreeing with resolveNextCompetency() is what stranded participants.
          *     (8) Last-question CAS: Participant::where(id, status=in_corso)->update(in_valutazione).
          *         Only if $won === 1: dispatch FinalizeInterview::dispatch($pid)->afterCommit().
          *     (9) COMMIT. Return 200.
@@ -1572,6 +1576,17 @@ export interface paths {
          * Ingest a live transcript utterance (best-effort)
          * @description resolveOwnedSession MUST be called FIRST — it enforces participant_id + org isolation
          *     and returns 404 for any non-owned, cross-org, or nonexistent session.
+         *
+         *     `ts` is validated as a DATE, not a string. It is bound into a
+         *     `?::timestamptz` cast below, so an unparseable value used to reach
+         *     Postgres and come back as a QueryException — a 500 and an error-level log
+         *     line for what is a validation failure, on the highest-volume write in the
+         *     product. This method promises 422 for exactly that.
+         *
+         *     The reasoning lives here rather than beside the rule: Scramble publishes
+         *     comments inside the validation array into `openapi.json`, and from there
+         *     into the generated TS clients of both Nuxt apps. Notes about our own 500s
+         *     are not part of a contract a candidate app consumes.
          */
         post: operations["utterance.store"];
         delete?: never;
@@ -5219,6 +5234,7 @@ export interface operations {
                     /** @enum {string} */
                     speaker: "candidate" | "avatar";
                     text: string;
+                    /** Format: date-time */
                     ts: string;
                 };
             };
