@@ -35,6 +35,14 @@ const MOCK_START_RESPONSE = {
   session_id: 1,
   provider: 'heygen',
   provider_token: 'heygen-token-xyz',
+  // REQUIRED by the contract, so the fixture sends it.
+  //
+  // `isValidStartResponse()` rejects a body without it and routes the candidate
+  // to the non-retryable `malformed_response` terminal — which is what this
+  // whole suite did, silently, from the moment `audio_only` became required:
+  // a fixture that omits a required field describes a response the server
+  // cannot produce, and every test that needed a live session died on it.
+  audio_only: false,
   question_context: {
     question_index: 0,
     total_questions: 1,
