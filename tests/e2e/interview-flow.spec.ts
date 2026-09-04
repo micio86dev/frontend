@@ -2,6 +2,29 @@ import { test, expect } from '@playwright/test'
 import { checkA11y } from './fixtures/a11y'
 
 /**
+ * Role-based locators for the four end-state screens.
+ *
+ * The project standard is that E2E locators are role-based, and these were the
+ * last testid holdouts. Each screen is a `<section>` with `aria-labelledby`
+ * pointing at its own heading, so it exposes the `region` role with that
+ * heading as its accessible name — and the retry is a real `<Button>` with a
+ * translated label. Asserting through the role therefore proves the
+ * accessibility contract on every run, which a testid can never do: a screen
+ * that lost its heading would still match a testid and would no longer be
+ * reachable by anyone navigating landmarks.
+ */
+const doneScreen = (page: import('@playwright/test').Page) =>
+  page.getByRole('region', { name: /interview completed/i })
+const errorScreen = (page: import('@playwright/test').Page) =>
+  page.getByRole('region', { name: /an error occurred/i })
+const terminalScreen = (page: import('@playwright/test').Page) =>
+  page.getByRole('region', { name: /service temporarily unavailable|session|link/i })
+const retryButton = (page: import('@playwright/test').Page) =>
+  page.getByRole('button', { name: /try again/i })
+const transitionPanel = (page: import('@playwright/test').Page) =>
+  page.getByRole('region', { name: /one moment/i })
+
+/**
  * Playwright E2E — Full interview flow tests (Task 5.9 RED → GREEN)
  *
  * All provider events are driven by the MockInterviewProvider fixture via
@@ -500,7 +523,7 @@ test.describe('Interview flow — E2E', () => {
         p.emitFinalPhrase()
       })
 
-      await expect(page.getByTestId('done-screen')).toBeVisible({ timeout: 15000 })
+      await expect(doneScreen(page)).toBeVisible({ timeout: 15000 })
     })
 
     test('a continue directive advances with NO screen and no candidate click', async ({
@@ -539,7 +562,7 @@ test.describe('Interview flow — E2E', () => {
       // absence of the other screens would pass just as happily if the page had
       // died — the same hole as the assertion-free test this replaced.
       await expect(page.getByRole('button', { name: /^pause$/i })).toBeVisible({ timeout: 15000 })
-      await expect(page.getByTestId('done-screen')).toBeHidden()
+      await expect(doneScreen(page)).toBeHidden()
       await expect(page.getByRole('button', { name: /resume interview/i })).toBeHidden()
     })
 
@@ -755,8 +778,8 @@ test.describe('Interview flow — E2E', () => {
       })
 
       // 10s bound (HANDOVER_BOUND_MS) — the panel appears, never an error.
-      await expect(page.getByTestId('transition-panel')).toBeVisible({ timeout: 12000 })
-      await expect(page.getByTestId('error-screen')).toHaveCount(0)
+      await expect(transitionPanel(page)).toBeVisible({ timeout: 12000 })
+      await expect(errorScreen(page)).toHaveCount(0)
     })
 
     // WebKit-only (D4): unmuting a PLAYING element without a fresh user
@@ -861,7 +884,7 @@ test.describe('Interview flow — E2E', () => {
       await goThroughDeviceCheck(page)
 
       // After 3 retries (3s each) the session transitions to 'error'.
-      await expect(page.getByTestId('error-screen')).toBeVisible({ timeout: 15000 })
+      await expect(errorScreen(page)).toBeVisible({ timeout: 15000 })
       expect(callCount).toBeGreaterThanOrEqual(3)
     })
 
@@ -883,8 +906,8 @@ test.describe('Interview flow — E2E', () => {
       await goThroughDeviceCheck(page)
 
       // 403 → terminalReason = '403' → terminal screen, no retry button.
-      await expect(page.getByTestId('terminal-screen')).toBeVisible({ timeout: 5000 })
-      await expect(page.getByTestId('retry-button')).not.toBeVisible()
+      await expect(terminalScreen(page)).toBeVisible({ timeout: 5000 })
+      await expect(retryButton(page)).not.toBeVisible()
     })
 
     test('error screen has retry button', async ({ page }) => {
@@ -915,9 +938,9 @@ test.describe('Interview flow — E2E', () => {
       await goThroughDeviceCheck(page)
 
       // Wait for error screen after 3 retries
-      await expect(page.getByTestId('error-screen')).toBeVisible({ timeout: 15000 })
+      await expect(errorScreen(page)).toBeVisible({ timeout: 15000 })
       // Retry button is present
-      await expect(page.getByTestId('retry-button')).toBeVisible()
+      await expect(retryButton(page)).toBeVisible()
     })
   })
 
@@ -960,7 +983,7 @@ test.describe('Interview flow — E2E', () => {
       // Back on the SAME competency: `live` again, no /start in between, so no
       // done screen and no scheduled-pause screen.
       await expect(pauseButton).toBeVisible({ timeout: 10000 })
-      await expect(page.getByTestId('done-screen')).toBeHidden()
+      await expect(doneScreen(page)).toBeHidden()
       await expect(page.getByRole('button', { name: /resume interview/i })).toBeHidden()
     })
   })

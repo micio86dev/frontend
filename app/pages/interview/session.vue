@@ -1,7 +1,7 @@
 <template>
   <main
     class="flex min-h-screen flex-col items-center justify-center bg-background p-4"
-    :aria-label="$t('interview.consent.title')"
+    :aria-label="$t('interview.document_title')"
   >
     <!--
       Player mount layer (invisible-competency-handover D3/D5/D6) — ALWAYS
@@ -37,6 +37,7 @@
             :provider="p.provider"
             :config="p.config"
             :muted="p.muted"
+            :audio-only="p.audioOnly"
             :overlay="p.role !== 'live'"
             @state="onProviderState"
             @transcript="onTranscriptFromPlayer(p.role, $event)"
@@ -91,12 +92,16 @@
       v-else-if="session.state.value === 'connecting' && !avatarMounted && hasRunACompetency"
       data-testid="transition-panel"
       class="flex max-w-lg flex-col items-center gap-4 rounded-xl border border-border bg-card p-8 shadow-md"
+      aria-labelledby="transition-heading"
       aria-live="polite"
       aria-busy="true"
     >
-      <h2 class="text-xl font-semibold text-foreground">{{ $t('interview.transition.title') }}</h2>
+      <h2 id="transition-heading" class="text-xl font-semibold text-foreground">
+        {{ $t('interview.transition.title') }}
+      </h2>
       <p class="text-sm text-muted-foreground">{{ $t('interview.transition.body') }}</p>
       <p class="text-sm text-muted-foreground">
+        <span class="sr-only">{{ $t('interview.transition.progressLabel') }}</span>
         {{ session.endedCompetencies.value ?? 0 }} / {{ session.totalCompetencies.value ?? 0 }}
       </p>
     </section>
@@ -128,7 +133,7 @@
     <section
       v-else-if="avatarMounted"
       class="flex w-full max-w-3xl flex-col gap-4"
-      aria-label="Live interview"
+      :aria-label="$t('interview.live.region_label')"
     >
       <!--
         The <AvatarPlayer> instance(s) themselves render from the persistent
@@ -174,17 +179,11 @@
           />
         </ClientOnly>
       </template>
-
       <!--
         Paused mid-question.
 
-        The provider session stays up while paused — tearing it down would restart
-        the question from its opening line on resume — so `avatarMounted` is still
-        true and this branch keeps rendering. The standalone `paused` section below
-        is ordered AFTER this one in the v-if chain and therefore unreachable here,
-        which left a candidate who paused a live question with no way to resume.
-        That section still serves the between-competencies pause, where the
-        provider has already been unpublished.
+        The provider session stays up while paused, so `avatarMounted` is still
+        true and this branch keeps rendering.
       -->
       <div
         v-else-if="session.state.value === 'paused'"
@@ -298,7 +297,15 @@
         </h1>
         <p class="text-sm text-muted-foreground">{{ $t('interview.terminal.403.body') }}</p>
       </template>
-      <template v-else>
+      <!--
+        One branch per TerminalReason, and a fallback keyed to NO reason.
+        `absent_phrase` used to be both its own case and the catch-all, so
+        `malformed_response` — a broken /start body, which the composable is at
+        pains to keep a SEPARATE non-retryable terminal — rendered under a key
+        naming a candidate behaviour. The copy happened not to lie; the next
+        reason added would not have been so lucky.
+      -->
+      <template v-else-if="session.terminalReason.value === 'absent_phrase'">
         <h1 id="terminal-heading" class="text-2xl font-semibold text-foreground">
           {{ $t('interview.terminal.absent_phrase.title') }}
         </h1>
@@ -311,6 +318,34 @@
           data-testid="terminal-contact"
         >
           {{ $t('interview.terminal.absent_phrase.contact') }}
+        </a>
+      </template>
+      <template v-else-if="session.terminalReason.value === 'malformed_response'">
+        <h1 id="terminal-heading" class="text-2xl font-semibold text-foreground">
+          {{ $t('interview.terminal.malformed_response.title') }}
+        </h1>
+        <p class="text-sm text-muted-foreground">
+          {{ $t('interview.terminal.malformed_response.body') }}
+        </p>
+        <a
+          href="mailto:support@beai.app"
+          class="text-sm text-primary underline underline-offset-4 hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          data-testid="terminal-contact"
+        >
+          {{ $t('interview.terminal.malformed_response.contact') }}
+        </a>
+      </template>
+      <template v-else>
+        <h1 id="terminal-heading" class="text-2xl font-semibold text-foreground">
+          {{ $t('interview.terminal.generic.title') }}
+        </h1>
+        <p class="text-sm text-muted-foreground">{{ $t('interview.terminal.generic.body') }}</p>
+        <a
+          href="mailto:support@beai.app"
+          class="text-sm text-primary underline underline-offset-4 hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          data-testid="terminal-contact"
+        >
+          {{ $t('interview.terminal.generic.contact') }}
         </a>
       </template>
     </section>

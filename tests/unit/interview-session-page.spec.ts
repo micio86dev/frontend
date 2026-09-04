@@ -26,6 +26,18 @@ import type {
   ProviderSession,
 } from '~/app/composables/useInterviewSession'
 
+/**
+ * Raised from the 5s default, and not because a test is slow at what it tests.
+ *
+ * Every case here dynamically `import()`s the page inside its own body — the
+ * `vi.resetModules()` + `vi.doMock()` shape the file depends on makes hoisting
+ * the import impossible. Warm, that import is ~2s; on a COLD Vite transform
+ * cache it has been measured at ~9s, which is what CI runs every time. A
+ * timeout that only holds on a warm cache is a red build with no defect behind
+ * it.
+ */
+vi.setConfig({ testTimeout: 30000 })
+
 // ---------------------------------------------------------------------------
 // Hoisted composable mocks
 // ---------------------------------------------------------------------------
@@ -565,11 +577,11 @@ describe('interview/session.vue — timer expiry and skip', () => {
   })
 
   it('renders NO standalone paused screen — paused always implies a mounted avatar', async () => {
-    // `live` is the only entry to `paused` now, so the provider is always still
-    // published and the in-avatar panel is the only reachable resume control.
-    // This assertion is what makes deleting the standalone section safe: without
-    // it, removing dead markup could silently produce a blank screen with no way
-    // back — exactly the dead end v0.6.3 had to repair.
+    // `live` is the only entry to `paused`, and the provider session stays up
+    // through it, so the in-avatar panel is the only reachable resume control.
+    // This assertion is what makes deleting the standalone section safe:
+    // without it, removing dead markup could silently produce a blank screen
+    // with no way back — exactly the dead end v0.6.3 had to repair.
     const session = makeSession({ state: 'paused', provider: null })
     const wrapper = await mountPage(session)
 
@@ -742,5 +754,54 @@ describe('interview/session.vue — expired-session variant (D-D)', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('interview.terminal.session_expired.title')
+  })
+
+  // `absent_phrase` was both a case and the catch-all, so every other reason
+  // rendered under a key naming a candidate behaviour. Each of these goes red if
+  // its branch is removed and the fallback swallows the reason again.
+  const noRedirects = () => {
+    mockUseExitRedirect.mockReturnValue({
+      exitRedirectUrl: ref<string | null>(null),
+      errorRedirectUrl: ref<string | null>(null),
+      sessionFetchFailed: ref<'unauthenticated' | 'unavailable' | null>(null),
+      fetchSession: vi.fn(async () => undefined),
+      redirect: vi.fn(() => false),
+      redirectToError: vi.fn(() => false),
+    })
+  }
+
+  it('terminalReason="malformed_response" renders its own copy, not absent_phrase', async () => {
+    noRedirects()
+
+    const session = makeSession({ state: 'terminal', provider: null })
+    session.terminalReason.value = 'malformed_response' as never
+    const wrapper = await mountPage(session)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('interview.terminal.malformed_response.title')
+    expect(wrapper.text()).not.toContain('interview.terminal.absent_phrase.title')
+  })
+
+  it('terminalReason="absent_phrase" still renders absent_phrase', async () => {
+    noRedirects()
+
+    const session = makeSession({ state: 'terminal', provider: null })
+    session.terminalReason.value = 'absent_phrase' as never
+    const wrapper = await mountPage(session)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('interview.terminal.absent_phrase.title')
+  })
+
+  it('an unset terminalReason falls back to neutral copy that names no cause', async () => {
+    noRedirects()
+
+    const session = makeSession({ state: 'terminal', provider: null })
+    session.terminalReason.value = null
+    const wrapper = await mountPage(session)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('interview.terminal.generic.title')
+    expect(wrapper.text()).not.toContain('interview.terminal.absent_phrase.title')
   })
 })

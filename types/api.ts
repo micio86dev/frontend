@@ -666,6 +666,13 @@ export interface paths {
          *       - Retry issue(). On success, persist ref and flip to in_corso.
          *
          *     FIX-8: both session UPDATE and participant UPDATE are inside ONE short transaction.
+         *
+         *     The 201 shape is spelled out for Scramble because it cannot follow
+         *     `buildSuccessResponse()` — a private helper two call sites deep, whose
+         *     fields come from method calls on `$this`. Left inferred, it produced a
+         *     shape MISSING `audio_only` entirely, and the candidate app generates its
+         *     client from this spec: the field existed on the wire, was absent from the
+         *     type, and reading it was a compile error in the app that needs it.
          */
         post: operations["interview.start"];
         delete?: never;
@@ -692,7 +699,11 @@ export interface paths {
          *     (4) FIX-3 guard: if session.status !== 'in_corso' → ROLLBACK → 409.
          *     (5) HeyGen: replaceUtterances inside txn. Tavus: no reconcile.
          *     (6) UPDATE session status = ended_reason, ended_at = now().
-         *     (7) Count ended sessions (status ∈ {completed, timeout, skipped}) for this participant+project.
+         *     (7) Count ended sessions for this participant+project, via CompetencyTally::ended():
+         *         status ∈ {completed, timeout, skipped}, OR status = 'error' with
+         *         error_count >= MAX_ERROR_ATTEMPTS. That last disjunct is not optional —
+         *         settleCompletionIfFinished()'s docblock below explains at length that a
+         *         tally disagreeing with resolveNextCompetency() is what stranded participants.
          *     (8) Last-question CAS: Participant::where(id, status=in_corso)->update(in_valutazione).
          *         Only if $won === 1: dispatch FinalizeInterview::dispatch($pid)->afterCommit().
          *     (9) COMMIT. Return 200.
@@ -704,6 +715,15 @@ export interface paths {
          *     closure, `DB::transaction()` rolls back the ENTIRE txn automatically — the
          *     DELETE never commits, ended_at is never stamped, and FinalizeInterview is
          *     never dispatched. Caught below and surfaced as 502 (Upstream classification).
+         *
+         *     The 200 body is spelled out for Scramble, which could not follow it
+         *     through `buildDirective()` and therefore published this endpoint as
+         *     returning NOTHING. That is not a cosmetic gap: the candidate app's whole
+         *     directive state machine — continue / pause / done — plus the progress
+         *     readout on the end-of-question and transition screens all read these three
+         *     fields, so the generated client said the body was empty while the app
+         *     depended on it. The drift check stayed green because it compares the spec
+         *     to the generated types and cannot see a hand-written inline generic.
          */
         post: operations["interview.end"];
         delete?: never;
@@ -1368,10 +1388,17 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The shape is declared for Scramble, and not as documentation for its own
+         * Every client, for the switcher
+         * @description Reachable ONLY by a superadmin, so the cross-tenant read is the point
+         *     rather than a leak — and it returns identity only. Nothing about
+         *     webhooks, credentials or settings crosses here: the switcher needs a
+         *     name to put in a menu, and every other read stays behind the acting
+         *     organization the caller then selects.
+         *
+         *     The shape is declared for Scramble, and not as documentation for its own
          *     sake: both Nuxt apps generate their typed client from this spec, so an
          *     undeclared `response()->json()` produced `data: string` and the switcher
-         *     failed to compile against its own API
+         *     failed to compile against its own API.
          */
         get: operations["superadmin.organizations"];
         put?: never;
@@ -1390,12 +1417,61 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
+        /**
+         * Select a client to act as, or `null` to see them all again
+         * @description The id is validated against the table rather than trusted: an unknown
+         *     id would otherwise scope every subsequent read to an organization that
+         *     does not exist, and the superadmin would see an empty product with no
+         *     explanation.
+         */
         put: operations["superadmin.setActingOrganization"];
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/admin/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/admin/settings — the platform's own knobs
+         * @description Superadmin only, 403 for everyone else, for the same reason the client
+         *     list above is: these endpoints hold no record whose existence needs
+         *     hiding — they are a capability, and the caller is authenticated.
+         *
+         *     The shape is spelled out for Scramble, like `/auth/me`'s and for the same
+         *     reason: `app(PlatformSettings::class)->…` is a container call it cannot
+         *     follow, so the inferred type came out as a bare `string`. The backoffice
+         *     generates its client from this spec, which turned every
+         *     `max_questions_per_competency.standard` read into a compile error in the
+         *     repository that consumes it.
+         */
+        get: operations["superadmin.settings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/admin/settings — change a platform knob
+         * @description PARTIAL by design: naming only `standard` must leave `potential` where
+         *     it was. A settings endpoint that treats an unmentioned key as "set it to
+         *          * nothing" turns every narrow edit into a wide one.
+         *
+         *     The floor of 1 is not decoration. A cap of 0 does not read as "unlimited"
+         *     and does not read as "authoring is off" — it reads as every save failing
+         *     with a message about a maximum, which is the least explicable state this
+         *     knob could be left in. The ceiling keeps a `standard` interview an
+         *     interview: past a handful of predefined questions the adaptivity that is
+         *     the product has nothing left to do.
+         */
+        patch: operations["superadmin.updateSettings"];
         trace?: never;
     };
     "/users": {
@@ -1500,6 +1576,17 @@ export interface paths {
          * Ingest a live transcript utterance (best-effort)
          * @description resolveOwnedSession MUST be called FIRST — it enforces participant_id + org isolation
          *     and returns 404 for any non-owned, cross-org, or nonexistent session.
+         *
+         *     `ts` is validated as a DATE, not a string. It is bound into a
+         *     `?::timestamptz` cast below, so an unparseable value used to reach
+         *     Postgres and come back as a QueryException — a 500 and an error-level log
+         *     line for what is a validation failure, on the highest-volume write in the
+         *     product. This method promises 422 for exactly that.
+         *
+         *     The reasoning lives here rather than beside the rule: Scramble publishes
+         *     comments inside the validation array into `openapi.json`, and from there
+         *     into the generated TS clients of both Nuxt apps. Notes about our own 500s
+         *     are not part of a contract a candidate app consumes.
          */
         post: operations["utterance.store"];
         delete?: never;
@@ -2032,10 +2119,15 @@ export interface components {
          *     the same kind of invariant as `competencies ⊆ {MTG, LAT}` and `role_code
          *     must be null`, which already live in the project FormRequests.
          *
-         *       standard  — at most ONE per competency
+         *       standard  — at most ONE per competency by default
          *                   ("the first question per competency may be predefined")
-         *       potential — at most FOUR per competency
+         *       potential — at most FOUR per competency by default
          *                   ("4 predefined questions per competency", SA-08)
+         *
+         *     Those two numbers are now PLATFORM SETTINGS (`App\Support\Settings\
+         *     PlatformSettings`) rather than a constant here, so a superadmin can move
+         *     them without a release. They remain platform-level and not tenant-level:
+         *     the cap describes the assessment method, not a client's preference.
          *
          *     The cap is a maximum, never a minimum. A `standard` project with no authored
          *     question is the normal case — the AI opens the competency itself, exactly as
@@ -2652,22 +2744,38 @@ export interface operations {
                             apiClients: {
                                 viewAny: boolean;
                                 create: boolean;
+                                delete: boolean;
                             };
                             users: {
                                 viewAny: boolean;
                                 create: boolean;
+                                update: boolean;
+                                deactivate: boolean;
+                                activate: boolean;
                             };
                             llmCredentials: {
                                 viewAny: boolean;
                                 create: boolean;
+                                update: boolean;
+                                delete: boolean;
                             };
                             avatarTemplates: {
                                 viewAny: boolean;
                                 create: boolean;
+                                update: boolean;
+                                activate: boolean;
+                                delete: boolean;
                             };
                             projects: {
                                 viewAny: boolean;
                                 create: boolean;
+                                update: boolean;
+                                delete: boolean;
+                            };
+                            participants: {
+                                viewAny: boolean;
+                                create: boolean;
+                                recover: boolean;
                             };
                         };
                     };
@@ -3449,7 +3557,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        session_id: number;
+                        provider: string;
+                        provider_token: string | null;
+                        conversation_url: string | null;
+                        audio_only: boolean;
+                        question_context: {
+                            competency_code: string;
+                            question_index: number;
+                            end_phrase: string;
+                            final_phrase: string;
+                            prompt_version: string | null;
+                            competency_ordinal: number | null;
+                            total_competencies: number | null;
+                        };
+                    };
                 };
             };
             401: components["responses"]["AuthenticationException"];
@@ -3476,22 +3599,18 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": {
+                        ended_competencies: number;
+                        total_competencies: number;
+                        /** @enum {string} */
+                        next_action: "continue" | "pause" | "done";
+                    };
+                };
             };
             401: components["responses"]["AuthenticationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: components["responses"]["ValidationException"];
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @constant */
-                        error: "provider_error";
-                    };
-                };
-            };
         };
     };
     "llmCredential.index": {
@@ -4909,6 +5028,70 @@ export interface operations {
             422: components["responses"]["ValidationException"];
         };
     };
+    "superadmin.settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            max_questions_per_competency: {
+                                standard: number;
+                                potential: number;
+                            };
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "superadmin.updateSettings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    max_questions_per_competency: {
+                        standard: number;
+                        potential: number;
+                    };
+                };
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            max_questions_per_competency: {
+                                standard: number;
+                                potential: number;
+                            };
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
     "user.index": {
         parameters: {
             query?: never;
@@ -5051,6 +5234,7 @@ export interface operations {
                     /** @enum {string} */
                     speaker: "candidate" | "avatar";
                     text: string;
+                    /** Format: date-time */
                     ts: string;
                 };
             };

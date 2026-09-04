@@ -37,14 +37,45 @@
     <!-- eslint-disable-next-line vuejs-accessibility/media-has-caption -->
     <video
       ref="videoEl"
-      class="size-full object-cover"
+      :class="audioOnly ? 'absolute size-px opacity-0' : 'size-full object-cover'"
       autoplay
       playsinline
-      :aria-label="$t ? $t('interview.live.timer_label') : 'Avatar video'"
+      :aria-hidden="audioOnly ? 'true' : undefined"
+      :aria-label="$t('interview.live.avatar_label')"
     />
-    <div v-if="!isReady" class="absolute inset-0 flex items-center justify-center">
-      <Skeleton class="size-full" />
-    </div>
+
+    <!--
+      Voice-only: the element above STAYS MOUNTED and audible, and is merely
+      taken out of sight. It owns playback — the visualizer only taps the
+      stream to read amplitude, and a second sink for the same audio would
+      play every word twice.
+
+      `size-px opacity-0`, not `hidden` and not `display:none`: a detached or
+      undisplayed media element is free to stop rendering, and "the interviewer
+      went silent" is not a risk worth taking to save a rule.
+
+      Without this branch the element received a stream carrying no video track
+      and painted an undecoded frame — vertical green-and-black banding for the
+      whole interview, in the exact rectangle where a candidate expects a face.
+    -->
+    <VoiceVisualizer
+      v-if="audioOnly"
+      :stream="analysableStream"
+      :active="!muted"
+      :label="$t('interview.live.voice_visualizer_label')"
+    />
+
+    <!--
+      REMOVED, not moved. This skeleton rendered `v-if="!isReady"` INSIDE a root
+      that is `opacity-0` for exactly that condition: transparent precisely when
+      it was meant to be visible, and unmounted the moment the root became
+      opaque. Nobody has ever seen it.
+      Not replaced with a visible one either. The opacity gate exists so the
+      panel fades in on the first real frame instead of flashing the dark
+      `--color-avatar-bg` rectangle, and a loading shimmer inside that fade
+      would reintroduce the flash it was written to remove — this component is
+      mounted for a second or two at most before the provider paints.
+    -->
   </div>
 </template>
 
@@ -108,7 +139,7 @@
  *                stops the first connect from flashing that dark box.
  */
 import { ref, onMounted, onUnmounted, watchEffect } from 'vue'
-import { Skeleton } from '~/components/ui/skeleton'
+import VoiceVisualizer from '~/components/VoiceVisualizer.client.vue'
 import type {
   InterviewProvider,
   StartConfig,
@@ -122,8 +153,17 @@ const props = withDefaults(
     config: StartConfig
     overlay?: boolean
     muted?: boolean
+    /**
+     * The project's template runs voice-only, as `/start` reports it.
+     *
+     * Defaults to FALSE so a client that has not been told renders the avatar
+     * — the failure this defaults toward is "a video panel for a voiceless
+     * stream", which is visible and reportable, rather than "no avatar at all",
+     * which looks like the product deciding to hide the interviewer.
+     */
+    audioOnly?: boolean
   }>(),
-  { overlay: false, muted: false }
+  { overlay: false, muted: false, audioOnly: false }
 )
 
 const emit = defineEmits<{
@@ -135,6 +175,20 @@ const emit = defineEmits<{
 
 const videoEl = ref<HTMLElement | null>(null)
 const isReady = ref(false)
+
+/**
+ * The provider's stream, read back off the element it was mounted on.
+ *
+ * Taken from `srcObject` rather than from the provider, deliberately: every
+ * provider already contracts to attach its stream to the element handed to
+ * `start()`, so this works for all of them and adds nothing to the provider
+ * interface — which is also the interface that must never leak vendor
+ * identity.
+ *
+ * Populated once the element is actually playing, which is the same signal
+ * `painted` already waits for.
+ */
+const analysableStream = ref<MediaStream | null>(null)
 
 // D4: applied IMPERATIVELY, not as a template `:muted` binding. On <video>,
 // the `muted` DOM PROPERTY is what actually silences playback; the `muted`
@@ -153,6 +207,11 @@ function wirePaintedDetection(el: HTMLVideoElement) {
     if (fired) return
     fired = true
     isReady.value = true
+
+    const source = el.srcObject
+
+    analysableStream.value = source instanceof MediaStream ? source : null
+
     emit('painted')
   }
 

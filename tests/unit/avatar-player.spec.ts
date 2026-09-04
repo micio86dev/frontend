@@ -71,7 +71,16 @@ describe('AvatarPlayer.client.vue', () => {
     const { default: AvatarPlayer } = await import('~/app/components/AvatarPlayer.client.vue')
     const declaredProps = (AvatarPlayer as unknown as { props?: Record<string, unknown> }).props
 
-    expect(Object.keys(declaredProps ?? {})).toEqual(['provider', 'config', 'overlay', 'muted'])
+    // `audioOnly` joined the list for voice-only templates. It describes the
+    // INTERVIEW (no video track on the stream), never the candidate's
+    // microphone — which is what this exact-list assertion exists to keep out.
+    expect(Object.keys(declaredProps ?? {})).toEqual([
+      'provider',
+      'config',
+      'overlay',
+      'muted',
+      'audioOnly',
+    ])
     expect(Object.keys(declaredProps ?? {})).not.toContain('micMuted')
   })
 
@@ -338,5 +347,50 @@ describe('AvatarPlayer.client.vue', () => {
       expect(root.classList.contains('relative')).toBe(true)
       expect(root.classList.contains('absolute')).toBe(false)
     })
+  })
+})
+
+/**
+ * Voice-only templates.
+ *
+ * A template with `audioOnly` produces a stream with no video track. The
+ * element still received it and painted an undecoded frame — vertical green
+ * and black banding, for the whole interview, in the rectangle where a
+ * candidate expects a face.
+ */
+describe('AvatarPlayer — voice-only', () => {
+  it('renders the voice visualizer instead of showing the video element', async () => {
+    const wrapper = await mountPlayer(makeProvider(), { audioOnly: true })
+
+    expect(wrapper.find('[data-testid="voice-visualizer"]').exists()).toBe(true)
+  })
+
+  it('KEEPS the media element mounted, merely out of sight', async () => {
+    // The element owns playback. Unmounting it — or hiding it with `display:
+    // none`, which frees a browser to stop rendering — silences the
+    // interviewer, which is a worse defect than the banding this replaces.
+    const wrapper = await mountPlayer(makeProvider(), { audioOnly: true })
+
+    const video = wrapper.find('video')
+
+    expect(video.exists()).toBe(true)
+    expect(video.classes()).not.toContain('hidden')
+    expect(video.attributes('aria-hidden')).toBe('true')
+  })
+
+  it('shows no visualizer for a normal template', async () => {
+    const wrapper = await mountPlayer(makeProvider())
+
+    expect(wrapper.find('[data-testid="voice-visualizer"]').exists()).toBe(false)
+    expect(wrapper.find('video').classes()).toContain('size-full')
+  })
+
+  it('defaults to showing the avatar when nothing says otherwise', async () => {
+    // Fail toward "a video panel for a voiceless stream", which is visible and
+    // reportable, never toward "no avatar at all", which reads as the product
+    // deciding to hide the interviewer.
+    const wrapper = await mountPlayer(makeProvider())
+
+    expect(wrapper.find('[data-testid="voice-visualizer"]').exists()).toBe(false)
   })
 })

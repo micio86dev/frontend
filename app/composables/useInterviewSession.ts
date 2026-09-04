@@ -101,6 +101,8 @@
 import { ref, shallowRef, computed, type ComputedRef } from 'vue'
 import { createProvider } from '~/app/providers/factory'
 import type { InterviewProvider, ProviderName, StartConfig } from '~/app/types/interview-provider'
+import type { operations } from '~~/types/api'
+
 import type { IntegrityEventInternal } from '~/app/utils/proctor-config'
 import {
   candidateFetch,
@@ -108,6 +110,39 @@ import {
   CandidateUnauthorizedError,
 } from '~/app/utils/candidate-api'
 import { useCandidateSession } from '~/app/composables/useCandidateSession'
+
+/**
+ * The `/candidate/interview/start` success body, DERIVED from the generated
+ * client.
+ *
+ * It used to be hand-written here twice — once as this `candidateFetch<…>`
+ * generic and once as `isValidStartResponse`'s type predicate — and both copies
+ * had already drifted from the contract they claimed to describe:
+ * `session_id` is an integer in the spec and was typed `string` here, the same
+ * for `question_context.question_index`, and `audio_only` is published as
+ * REQUIRED while the local copy called it optional and carried a comment
+ * defending that on the grounds of an older API version that does not exist.
+ *
+ * `bun run codegen` regenerates `types/api.ts` from the committed spec and
+ * `scripts/check-client-drift.sh` guards it — but nothing in the app imported
+ * the artifact, so the check was green while the app read a parallel truth.
+ *
+ * The RUNTIME validation below is unchanged and still earns its place: a type
+ * is a claim about what the server promised, never evidence of what it sent.
+ */
+type StartResponse = operations['interview.start']['responses'][200]['content']['application/json']
+
+/**
+ * The `/candidate/interview/end` 200 body, DERIVED for the same reason.
+ *
+ * It was an inline generic inventing three fields, and the committed spec said
+ * the body was EMPTY — Scramble could not follow `buildDirective()`, so it
+ * published nothing. The whole directive machine (continue / pause / done) and
+ * the progress readout hung off fields the contract denied existed, and the
+ * drift check could not see it: that check compares the spec to the generated
+ * types, never to a hand-written generic. The API now publishes the shape.
+ */
+type EndResponse = operations['interview.end']['responses'][200]['content']['application/json']
 
 // ---------------------------------------------------------------------------
 // Types
@@ -159,6 +194,17 @@ export interface ProviderSession {
   dbSessionId: number
   /** From the `/start` response. Never surfaced to the UI (D9) — provider-anonymity. */
   providerName: ProviderName
+  /**
+   * This project's template runs voice-only (`/start` → `audio_only`).
+   *
+   * Per SESSION rather than read once for the interview: a competency handover
+   * mints a fresh `/start`, and reading it from the session that is actually
+   * mounted keeps the answer attached to the stream it describes.
+   *
+   * Not provider identity and safe to surface: it says the interview has no
+   * video, never who renders it.
+   */
+  audioOnly: boolean
 }
 
 /** The visual/audio role a mounted provider session currently plays (D6). */
@@ -172,6 +218,8 @@ export interface SessionPlayer {
   role: HandoverRole
   /** Downlink control for AvatarPlayer's `muted` prop (D4). */
   muted: boolean
+  /** Render the voice visualizer instead of a video element. */
+  audioOnly: boolean
 }
 
 export interface UseInterviewSessionOptions {
@@ -313,22 +361,23 @@ function providerErrorCode(payload: unknown): string | null {
  * answer identically. That is the same defect class the 401 fix addresses:
  * retry cannot fix a contract violation, so this is a non-retryable terminal.
  */
-function isValidStartResponse(response: unknown): response is {
-  session_id: string
-  provider: string
-  provider_token: string | null
-  conversation_url: string | null
-  question_context: {
-    competency_code: string
-    question_index: string
-    end_phrase: string
-    final_phrase: string
-  }
-} {
+function isValidStartResponse(response: unknown): response is StartResponse {
   if (!response || typeof response !== 'object') return false
   const r = response as Record<string, unknown>
 
-  if (typeof r['session_id'] !== 'string' && typeof r['session_id'] !== 'number') return false
+  // `number` ONLY, as the contract publishes it. Also accepting a string
+  // widened the predicate past the type it returns: `response is StartResponse`
+  // asserts `session_id: number`, so a string body passed a guard whose whole
+  // job is to catch exactly that shape drift.
+  if (typeof r['session_id'] !== 'number') return false
+
+  // CHECKED, because the predicate claims it. `StartResponse` derives from the
+  // generated client, where `audio_only` is REQUIRED — so a guard that returns
+  // `response is StartResponse` without looking at it makes a claim it has not
+  // earned. A server that dropped the field would pass, and the app would
+  // silently mount a video panel for a voiceless stream: precisely the contract
+  // drift this guard exists to catch.
+  if (typeof r['audio_only'] !== 'boolean') return false
   if (typeof r['provider'] !== 'string' || r['provider'].length === 0) return false
 
   const questionContext = r['question_context']
@@ -337,7 +386,9 @@ function isValidStartResponse(response: unknown): response is {
 
   if (typeof q['end_phrase'] !== 'string' || q['end_phrase'].length === 0) return false
   if (typeof q['final_phrase'] !== 'string' || q['final_phrase'].length === 0) return false
-  if (q['question_index'] === undefined || q['question_index'] === null) return false
+  // Same reason: the generated type says `number`, so a non-null check alone
+  // let a string through a claim that it is one.
+  if (typeof q['question_index'] !== 'number') return false
 
   return true
 }
@@ -416,6 +467,7 @@ export function useInterviewSession(
         config: live.config,
         role: 'live',
         muted: false,
+        audioOnly: live.audioOnly,
       })
     }
     const incoming = incomingSession.value
@@ -426,6 +478,7 @@ export function useInterviewSession(
         config: incoming.config,
         role: incomingEntering.value ? 'entering' : 'incoming',
         muted: !incomingEntering.value,
+        audioOnly: incoming.audioOnly,
       })
     }
     return list
@@ -641,11 +694,7 @@ export function useInterviewSession(
     await drainUtterances()
 
     try {
-      const response = await candidateFetch<{
-        ended_competencies?: number
-        total_competencies?: number
-        next_action?: string
-      }>('/candidate/interview/end', {
+      const response = await candidateFetch<Partial<EndResponse>>('/candidate/interview/end', {
         method: 'POST',
         body: {
           session_id: dbSessionId,
@@ -1110,18 +1159,7 @@ export function useInterviewSession(
     // enters `connecting` for the happy handover path.
 
     try {
-      const response = await candidateFetch<{
-        session_id: string
-        provider: string
-        provider_token: string | null
-        conversation_url: string | null
-        question_context: {
-          competency_code: string
-          question_index: string
-          end_phrase: string
-          final_phrase: string
-        }
-      }>('/candidate/interview/start', {
+      const response = await candidateFetch<StartResponse>('/candidate/interview/start', {
         method: 'POST',
       })
 
@@ -1167,6 +1205,10 @@ export function useInterviewSession(
         config: startConfig,
         dbSessionId,
         providerName,
+        // `=== true`, not a truthy read: an older API that does not send the
+        // field must resolve to "show the avatar", and `undefined` must never
+        // become "hide it".
+        audioOnly: response.audio_only === true,
       }
 
       // Wire BEFORE publishing: AvatarPlayer mounts and starts the provider as soon as
@@ -1289,24 +1331,17 @@ export function useInterviewSession(
   }
 
   /**
-   * Pause the interview.
-   *
-   * Pausable from BOTH `live` and `end_of_question`. It used to accept only
-   * `end_of_question` while the page rendered the Pause control during `live` too,
-   * so pressing it mid-question was a silent no-op.
-   *
-   * From `live` the microphone is muted as well. A pause that leaves the mic open
-   * is not a pause: the candidate believes they are off the record while their audio
-   * still reaches the provider. The provider session itself stays up — tearing it
-   * down would restart the question from its opening line on resume.
-   */
-  /**
    * Pause a LIVE question (D13). The mic is muted and the provider session is
    * kept alive; a pause that leaves the mic open is not a pause.
    *
    * `live` is now the ONLY entry. `end_of_question` no longer offers a Pause
    * control because it IS the scheduled-pause screen — a Pause button on a pause
    * screen is meaningless.
+   *
+   * NOT YET a pause that stops the provider billing. Tearing the session down
+   * and re-issuing it on resume is written and parked: it is held back because
+   * its interaction with server-side transcript harvesting is unproven, and the
+   * transcript is the one thing here that cannot be reconstructed.
    *
    * D2/B2: also refused for the WHOLE handover window (`handoverActive`, not
    * `incomingSession !== null` — the latter left a gap between
@@ -1332,10 +1367,8 @@ export function useInterviewSession(
   }
 
   /**
-   * Resume to `live` — the only possible destination now that `live` is the only
-   * entry. The old `pausedFrom ?? 'end_of_question'` fallback is gone: under the
-   * new flow that screen calls /start for the NEXT competency, so the fallback
-   * would have torn the avatar down and restarted the current question.
+   * Resume to `live`. The provider session was kept alive through the pause,
+   * so this only lifts the microphone mute.
    */
   function resume() {
     if (state.value !== 'paused') return
