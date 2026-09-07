@@ -1466,35 +1466,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/clients": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Every client, with the platform-wide statistics the console renders
-         * @description Reachable ONLY by a superadmin. `ClientOverviewReader` strips the
-         *     tenant scope itself — an "Act as" selection MUST NOT narrow this
-         *     estate to one client (design D2 Trap 1): the superadmin's own ambient
-         *     bypass goes OFF the moment they act as somebody, and a scoped read
-         *     would then return one organization instead of every client the page
-         *     exists to show.
-         *
-         *     The shape is declared for Scramble for the same reason `organizations()`
-         *     and `settings()` already are: `app(ClientOverviewReader::class)->all()`
-         *     is a container call it cannot follow.
-         */
-        get: operations["superadmin.clients"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/admin/acting-organization": {
         parameters: {
             query?: never;
@@ -2862,12 +2833,6 @@ export interface operations {
                                 viewAny: boolean;
                                 create: boolean;
                                 recover: boolean;
-                            };
-                            clients: {
-                                viewAny: boolean;
-                            };
-                            platformSettings: {
-                                viewAny: boolean;
                             };
                         };
                     };
@@ -5113,38 +5078,6 @@ export interface operations {
                         data: {
                             id: number;
                             name: string;
-                        }[];
-                        acting_organization_id: number | null;
-                    };
-                };
-            };
-            401: components["responses"]["AuthenticationException"];
-        };
-    };
-    "superadmin.clients": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: {
-                            id: number;
-                            name: string;
-                            created_at: string | null;
-                            projects: number;
-                            candidates: number;
-                            completed: number;
-                            errored: number;
-                            last_activity_at: string | null;
                         }[];
                         acting_organization_id: number | null;
                     };
