@@ -1788,23 +1788,34 @@ export interface components {
         };
         /** DashboardActivityResource */
         DashboardActivityResource: {
-            /**
-             * @description The row's own id, so the feed can LINK to the candidate instead
-             *     of naming them. `candidate_ref` below is the calling system's
-             *     opaque identifier and addresses nothing in this product — a feed
-             *     that says who just moved and gives no way to go and look is a
-             *     page you read and then leave to use the search box.
-             */
             id: number;
             candidate_ref: string;
             display_name: string;
             status: string;
-            project_name: string;
+            project_name: string | null;
             updated_at: string;
         };
         /** DashboardMetricsResource */
         DashboardMetricsResource: {
-            [key: string]: unknown;
+            participants_by_status: {
+                [key: string]: number;
+            };
+            evaluations_by_status: {
+                [key: string]: number;
+            };
+            completion_rate: number;
+            ai_usage: {
+                input_tokens: number;
+                output_tokens: number;
+                latency_ms_p50: number | null;
+                latency_ms_p95: number | null;
+            };
+            costs: {
+                scoring_usd: number;
+                conversation_usd: number;
+                total_usd: number;
+                currency: string;
+            };
         };
         /** EvaluationIndexResource */
         EvaluationIndexResource: {
@@ -3236,7 +3247,15 @@ export interface operations {
     };
     "dashboard.metrics": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Inclusive lower bound (`YYYY-MM-DD`). Omit for no lower bound. */
+                from?: string | null;
+                /**
+                 * @description Inclusive upper bound (`YYYY-MM-DD`), covering the whole of that
+                 *     day. Must be on or after `from`. Omit for no upper bound.
+                 */
+                to?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3255,11 +3274,20 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            422: components["responses"]["ValidationException"];
         };
     };
     "dashboard.activity": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Inclusive lower bound (`YYYY-MM-DD`). Omit for no lower bound. */
+                from?: string | null;
+                /**
+                 * @description Inclusive upper bound (`YYYY-MM-DD`), covering the whole of that
+                 *     day. Must be on or after `from`. Omit for no upper bound.
+                 */
+                to?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3278,6 +3306,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            422: components["responses"]["ValidationException"];
         };
     };
     "entryLink.store": {
