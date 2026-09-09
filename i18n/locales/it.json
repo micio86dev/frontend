@@ -9,7 +9,7 @@
   },
   "unsupported": {
     "title": "Browser non supportato",
-    "message": "Questa applicazione richiede un browser desktop supportato (Chrome, Edge, Safari). Per favore accedi da un computer."
+    "message": "Questa applicazione richiede un browser desktop supportato (Chrome, Edge, Opera o Safari). Accedi da un computer."
   },
   "health": {
     "status": "ok"
@@ -26,7 +26,7 @@
       "mic_ok": "Microfono operativo",
       "camera_error": "Fotocamera non rilevata o non accessibile. Controlla le autorizzazioni del browser.",
       "mic_error": "Microfono non rilevato o il livello audio è troppo basso. Prova a parlare.",
-      "continue": "Continua al colloquio",
+      "continue": "Inizia l'intervista",
       "camera_instruction": "Posizionati nell'inquadratura per permetterci di verificare la fotocamera.",
       "mic_instruction": "Pronuncia alcune parole per permetterci di verificare il microfono.",
       "mic_detected": "Livello del microfono rilevato.",
