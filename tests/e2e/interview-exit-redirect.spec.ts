@@ -230,10 +230,10 @@ async function injectDeviceMocks(page: Page) {
 async function goThroughDeviceCheckToLive(page: Page) {
   await page.goto(EN_INTERVIEW_URL)
   await page.getByRole('button', { name: /accept and continue/i }).click()
-  await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+  await expect(page.getByRole('button', { name: /start the interview/i })).toBeEnabled({
     timeout: 8000,
   })
-  await page.getByRole('button', { name: /continue to interview/i }).click()
+  await page.getByRole('button', { name: /start the interview/i }).click()
 
   // The W3 mock provider auto-transitions connecting → ready → listening on
   // start(), which drives the session to `live`. Wait for the E2E hook exposed

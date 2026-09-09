@@ -2,7 +2,7 @@
     "openapi": "3.1.0",
     "info": {
         "title": "BEAI",
-        "version": "0.46.0"
+        "version": "0.48.0"
     },
     "servers": [
         {
@@ -2170,6 +2170,42 @@
                 }
             }
         },
+        "/framework/potential-competencies": {
+            "get": {
+                "operationId": "framework.potentialCompetencies",
+                "description": "The competencies a `potential` assessment scores: MTG and LAT.\n\nThey belong to NO role \u2014 that is what makes them the potential set \u2014\nso `roleCompetencies` above cannot serve them, and the backoffice was\nbuilding them locally from two hardcoded codes with no `id`. Without an\nid `CompetencyPicker` refuses to tick a box, so a `potential` project\ncould not have its competencies selected at all: both boxes rendered,\nneither responded, and an already-persisted set rendered unchecked.\n\nDriven by `type`, never by a hardcoded code list: the catalogue decides\nwhich competencies are potential, and a third one must appear here the\nday it is authored rather than the day someone edits this method.\n\n`bars_available` is deliberately false for every row. Coverage is a\nquestion about a role\u00d7competency pair, and these belong to no role \u2014\nthe same reason the frontend's local list answered `null` for it.",
+                "summary": "GET /api/framework/potential-competencies",
+                "tags": [
+                    "Framework"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Array of `CompetencyResource`",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/CompetencyResource"
+                                            }
+                                        }
+                                    },
+                                    "required": [
+                                        "data"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/AuthenticationException"
+                    }
+                }
+            }
+        },
         "/framework/versions": {
             "get": {
                 "operationId": "framework.versions",
@@ -3788,6 +3824,293 @@
                 }
             }
         },
+        "/admin/platform-users": {
+            "get": {
+                "operationId": "platformUser.index",
+                "tags": [
+                    "PlatformUser"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Array of `PlatformUserResource`",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/PlatformUserResource"
+                                            }
+                                        }
+                                    },
+                                    "required": [
+                                        "data"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "An error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "description": "Error overview.",
+                                            "examples": [
+                                                ""
+                                            ]
+                                        }
+                                    },
+                                    "required": [
+                                        "message"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/AuthenticationException"
+                    }
+                }
+            },
+            "post": {
+                "operationId": "platformUser.store",
+                "summary": "`organization_id` and `is_superadmin` are never read from the request \u2014\nthey are decided here, exactly as `UserController::store()` decides them\nfor an organization's people. A field that is never read cannot be\ncrafted",
+                "tags": [
+                    "PlatformUser"
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StorePlatformUserRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "`PlatformUserResource`",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/components/schemas/PlatformUserResource"
+                                        }
+                                    },
+                                    "required": [
+                                        "data"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/AuthorizationException"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/ValidationException"
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/AuthenticationException"
+                    }
+                }
+            }
+        },
+        "/admin/platform-users/{id}": {
+            "patch": {
+                "operationId": "platformUser.update",
+                "tags": [
+                    "PlatformUser"
+                ],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdatePlatformUserRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "`PlatformUserResource`",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/components/schemas/PlatformUserResource"
+                                        }
+                                    },
+                                    "required": [
+                                        "data"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/AuthorizationException"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/ModelNotFoundException"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/ValidationException"
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/AuthenticationException"
+                    }
+                }
+            }
+        },
+        "/admin/platform-users/{id}/deactivate": {
+            "post": {
+                "operationId": "platformUser.deactivate",
+                "summary": "The guarded verb. Reaching zero active superadmins is unrecoverable from\ninside the product, so the count and the write share one transaction and\none row lock \u2014 see PlatformUserGuards",
+                "tags": [
+                    "PlatformUser"
+                ],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No content"
+                    },
+                    "422": {
+                        "description": "Refused: the write would leave no active administrator.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        },
+                                        "message": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error",
+                                        "message"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "An error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "description": "Error overview.",
+                                            "examples": [
+                                                ""
+                                            ]
+                                        }
+                                    },
+                                    "required": [
+                                        "message"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/ModelNotFoundException"
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/AuthenticationException"
+                    }
+                }
+            }
+        },
+        "/admin/platform-users/{id}/activate": {
+            "post": {
+                "operationId": "platformUser.activate",
+                "summary": "Never guarded: activating only ever ADDS a survivor, so there is no\ninvariant for it to break",
+                "tags": [
+                    "PlatformUser"
+                ],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No content"
+                    },
+                    "403": {
+                        "description": "An error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "description": "Error overview.",
+                                            "examples": [
+                                                ""
+                                            ]
+                                        }
+                                    },
+                                    "required": [
+                                        "message"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/ModelNotFoundException"
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/AuthenticationException"
+                    }
+                }
+            }
+        },
         "/profile": {
             "get": {
                 "operationId": "profile.show",
@@ -4203,11 +4526,11 @@
                             }
                         }
                     },
-                    "422": {
-                        "$ref": "#/components/responses/ValidationException"
-                    },
                     "401": {
                         "$ref": "#/components/responses/AuthenticationException"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/ValidationException"
                     },
                     "403": {
                         "$ref": "#/components/responses/AuthorizationException"
@@ -4216,8 +4539,8 @@
             },
             "delete": {
                 "operationId": "projects.destroy",
-                "description": "Soft-deletes the project. Returns HTTP 204 No Content.\nThe pinned FrameworkVersion remains locked (soft-delete does not unlock).\nProject is resolved manually \u2014 see class docblock.",
-                "summary": "DELETE /api/projects/{project}",
+                "description": "204 on success; 409 while the project is `active`. The pinned\nFrameworkVersion remains locked either way (soft-delete does not\nunlock), and the project is resolved manually \u2014 see class docblock.\n\nNO `@scramble-return` here, deliberately. Annotating it overrode\nper-path inference and published ONE 200 carrying the error body \u2014 the\n204 gone, the 409 invisible, and both Nuxt clients generated against a\nresponse this endpoint never sends. `AvatarTemplateController::destroy`\nhas the same 204/409 shape, carries no annotation, and its spec is\nright.\n\nThe ARCHIVED rule is checked HERE rather than in the policy, and that\nplacement is the whole point: `Gate::before` returns true for a\nsuperadmin and short-circuits every policy method, so a lifecycle\ninvariant written as a permission is one every superadmin skips without\nnoticing. Permission is `who`; this is `what state`.\n\n409, not 403: the caller IS allowed to delete projects. This one is in\nthe wrong state, and telling an admin they lack permission would send\nthem to ask for a role they already have.\n\nThe refused state is `active`, NOT \"anything but archived\", and the\ndifference is not cosmetic. Deleting a `draft` costs nothing \u2014 nobody\nhas been interviewed under it \u2014 while the same button on an `active`\nproject takes a live assessment away from candidates mid-interview, and\nno confirmation dialog makes that recoverable.\n\nDemanding `archived` would have trapped every draft permanently: the\nonly approved transitions are `draft -> active` and\n`active -> archived`, so the one route out of a mistyped draft would\nhave been to PUBLISH it to candidates first \u2014 which also freezes\n`assessment_type` and `role_code` on the way past.",
+                "summary": "DELETE /api/projects/{project} \u2014 soft-delete, never while live",
                 "tags": [
                     "Project"
                 ],
@@ -4235,6 +4558,30 @@
                     "204": {
                         "description": "No content"
                     },
+                    "409": {
+                        "description": "",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "const": "Archive the project before deleting it."
+                                        },
+                                        "error": {
+                                            "type": "string",
+                                            "const": "project_is_active"
+                                        }
+                                    },
+                                    "required": [
+                                        "message",
+                                        "error"
+                                    ]
+                                }
+                            }
+                        }
+                    },
                     "403": {
                         "$ref": "#/components/responses/AuthorizationException"
                     },
@@ -4247,6 +4594,8 @@
         "/projects/{project}/questions": {
             "get": {
                 "operationId": "projectQuestion.index",
+                "description": "`StoreProjectQuestionRequest` already refuses the (N+1)th question, but\nthe backoffice had no way to know N before trying: the setting lives\nbehind the superadmin-only platform-settings endpoint, so an operator\nmet the cap as a 422 on a question they had already written. It depends\non the project's `assessment_type`, which is exactly what this route\nalready resolved.",
+                "summary": "The cap travels WITH the list, in `meta`",
                 "tags": [
                     "ProjectQuestion"
                 ],
@@ -4262,7 +4611,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Array of `ProjectQuestionResource`",
+                        "description": "",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -4271,12 +4620,66 @@
                                         "data": {
                                             "type": "array",
                                             "items": {
-                                                "$ref": "#/components/schemas/ProjectQuestionResource"
+                                                "type": "object",
+                                                "properties": {
+                                                    "id": {
+                                                        "type": "integer"
+                                                    },
+                                                    "project_id": {
+                                                        "type": "integer"
+                                                    },
+                                                    "competency_id": {
+                                                        "type": "integer"
+                                                    },
+                                                    "competency_code": {
+                                                        "type": [
+                                                            "string",
+                                                            "null"
+                                                        ]
+                                                    },
+                                                    "text": {
+                                                        "type": "object",
+                                                        "additionalProperties": {
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "position": {
+                                                        "type": "integer"
+                                                    },
+                                                    "created_at": {
+                                                        "type": "string"
+                                                    },
+                                                    "updated_at": {
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "id",
+                                                    "project_id",
+                                                    "competency_id",
+                                                    "competency_code",
+                                                    "text",
+                                                    "position",
+                                                    "created_at",
+                                                    "updated_at"
+                                                ]
                                             }
+                                        },
+                                        "meta": {
+                                            "type": "object",
+                                            "properties": {
+                                                "max_questions_per_competency": {
+                                                    "type": "integer"
+                                                }
+                                            },
+                                            "required": [
+                                                "max_questions_per_competency"
+                                            ]
                                         }
                                     },
                                     "required": [
-                                        "data"
+                                        "data",
+                                        "meta"
                                     ]
                                 }
                             }
@@ -4447,31 +4850,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "type": "object",
-                                "properties": {
-                                    "text": {
-                                        "type": "object",
-                                        "properties": {
-                                            "en": {
-                                                "type": "string",
-                                                "maxLength": 2000
-                                            },
-                                            "it": {
-                                                "type": [
-                                                    "string",
-                                                    "null"
-                                                ],
-                                                "maxLength": 2000
-                                            }
-                                        },
-                                        "required": [
-                                            "en"
-                                        ]
-                                    }
-                                },
-                                "required": [
-                                    "text"
-                                ]
+                                "$ref": "#/components/schemas/UpdateProjectQuestionRequest"
                             }
                         }
                     }
@@ -4498,11 +4877,11 @@
                     "403": {
                         "$ref": "#/components/responses/AuthorizationException"
                     },
-                    "422": {
-                        "$ref": "#/components/responses/ValidationException"
-                    },
                     "401": {
                         "$ref": "#/components/responses/AuthenticationException"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/ValidationException"
                     }
                 }
             },
@@ -4634,6 +5013,21 @@
                                         },
                                         "redis_eviction_policy": {
                                             "type": "string"
+                                        },
+                                        "mail": {
+                                            "type": "object",
+                                            "properties": {
+                                                "mailer": {
+                                                    "type": "string"
+                                                },
+                                                "delivers": {
+                                                    "type": "boolean"
+                                                }
+                                            },
+                                            "required": [
+                                                "mailer",
+                                                "delivers"
+                                            ]
                                         }
                                     },
                                     "required": [
@@ -4641,7 +5035,8 @@
                                         "worker",
                                         "queue",
                                         "failed",
-                                        "redis_eviction_policy"
+                                        "redis_eviction_policy",
+                                        "mail"
                                     ]
                                 }
                             }
@@ -4684,6 +5079,21 @@
                                         },
                                         "redis_eviction_policy": {
                                             "type": "string"
+                                        },
+                                        "mail": {
+                                            "type": "object",
+                                            "properties": {
+                                                "mailer": {
+                                                    "type": "string"
+                                                },
+                                                "delivers": {
+                                                    "type": "boolean"
+                                                }
+                                            },
+                                            "required": [
+                                                "mailer",
+                                                "delivers"
+                                            ]
                                         }
                                     },
                                     "required": [
@@ -4691,7 +5101,8 @@
                                         "worker",
                                         "queue",
                                         "failed",
-                                        "redis_eviction_policy"
+                                        "redis_eviction_policy",
+                                        "mail"
                                     ]
                                 }
                             }
@@ -5642,7 +6053,7 @@
         "/users/{id}/deactivate": {
             "post": {
                 "operationId": "user.deactivate",
-                "description": "204 No Content. Soft deactivation only \u2014 the row survives so\naudit-relevant authorship survives (D5).",
+                "description": "The guard refusal is RETURNED, not left to `UserGuardException::render()`.\nScramble infers error responses from what a controller visibly answers,\nso a globally-rendered 422 never reached the generated client \u2014 and the\nbackoffice reads `{error}` off exactly this rejection to explain the\nrefusal. A contract the client depends on and the spec does not declare\nis one rename away from silently degrading.\n\nThe 422 body is `{error, message}`: `last_admin` when refusing for a\npeer, `self_deactivation` when the caller is the last one.\n\n204 No Content. Soft deactivation only \u2014 the row survives so\naudit-relevant authorship survives (D5).",
                 "summary": "POST /api/users/{id}/deactivate",
                 "tags": [
                     "User"
@@ -5660,6 +6071,28 @@
                 "responses": {
                     "204": {
                         "description": "No content"
+                    },
+                    "422": {
+                        "description": "Refused: the write would leave no active administrator.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        },
+                                        "message": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "error",
+                                        "message"
+                                    ]
+                                }
+                            }
+                        }
                     },
                     "403": {
                         "$ref": "#/components/responses/AuthorizationException"
@@ -7001,6 +7434,44 @@
                 ],
                 "title": "ParticipantResource"
             },
+            "PlatformUserResource": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "email": {
+                        "type": "string"
+                    },
+                    "is_deactivated": {
+                        "type": "boolean"
+                    },
+                    "created_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "updated_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "email",
+                    "is_deactivated",
+                    "created_at",
+                    "updated_at"
+                ],
+                "title": "PlatformUserResource"
+            },
             "ProfileResource": {
                 "type": "object",
                 "properties": {
@@ -7024,6 +7495,9 @@
                             "string",
                             "null"
                         ]
+                    },
+                    "is_superadmin": {
+                        "type": "boolean"
                     },
                     "organization": {
                         "type": [
@@ -7056,6 +7530,7 @@
                     "email",
                     "locale",
                     "role",
+                    "is_superadmin",
                     "organization",
                     "photo_url"
                 ],
@@ -7167,11 +7642,14 @@
                             "null"
                         ]
                     },
-                    "avatar_template_id": {
+                    "error_redirect_url": {
                         "type": [
-                            "integer",
+                            "string",
                             "null"
                         ]
+                    },
+                    "avatar_template_id": {
+                        "type": "integer"
                     },
                     "avatar_template": {
                         "type": [
@@ -7325,6 +7803,7 @@
                     "pause_every_n_competencies",
                     "nudge_min_chars",
                     "exit_redirect_url",
+                    "error_redirect_url",
                     "avatar_template_id",
                     "avatar_template",
                     "webhook_url",
@@ -7799,6 +8278,32 @@
                 ],
                 "title": "SessionSummaryResource"
             },
+            "StorePlatformUserRequest": {
+                "type": "object",
+                "description": "Validates POST /api/admin/platform-users (platform-user-management D2).\n\nThere is no `role` rule and no `organization_id` rule, and their absence is\nthe point rather than an omission: both are DECIDED by the surface, exactly\nas `/api/users` decides them for an organization's people. A field that is\nnever read cannot be crafted.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "description": "Unique across EVERY user, not only platform ones: `email` is the\nlogin identity for this whole system, and two rows sharing it\nwould make authentication ambiguous.",
+                        "maxLength": 255
+                    },
+                    "password": {
+                        "type": "string",
+                        "minLength": 8
+                    }
+                },
+                "required": [
+                    "name",
+                    "email",
+                    "password"
+                ],
+                "title": "StorePlatformUserRequest"
+            },
             "StoreProjectQuestionRequest": {
                 "type": "object",
                 "description": "Validates a predefined question\n(potential-competencies-and-authored-questions, AD-4).\n\nHOW MANY questions are allowed is a function of the project's assessment\ntype, and that rule lives HERE rather than in the model or the table: it is\nthe same kind of invariant as `competencies \u2286 {MTG, LAT}` and `role_code\nmust be null`, which already live in the project FormRequests.\n\n  standard  \u2014 at most ONE per competency by default\n              (\"the first question per competency may be predefined\")\n  potential \u2014 at most FOUR per competency by default\n              (\"4 predefined questions per competency\", SA-08)\n\nThose two numbers are now PLATFORM SETTINGS (`App\\Support\\Settings\\\nPlatformSettings`) rather than a constant here, so a superadmin can move\nthem without a release. They remain platform-level and not tenant-level:\nthe cap describes the assessment method, not a client's preference.\n\nThe cap is a maximum, never a minimum. A `standard` project with no authored\nquestion is the normal case \u2014 the AI opens the competency itself, exactly as\nit does today \u2014 and a half-configured `potential` project must be savable\nwhile the operator is still writing the other three.",
@@ -7875,7 +8380,8 @@
                             "null"
                         ],
                         "items": {
-                            "type": "integer"
+                            "type": "integer",
+                            "description": "`exists` is load-bearing: `validateStandard` iterates\n`whereIn(...)->get()`, so an unknown id is never looped over and\nreached the foreign key as a 500."
                         }
                     },
                     "pause_every_n_competencies": {
@@ -7920,7 +8426,7 @@
                     },
                     "avatar_template_id": {
                         "type": "integer",
-                        "description": "Which avatar template this project runs on. Nullable: absent\nmeans \"use the organization's active template\", the behaviour\nevery project had before this field existed. Org-scoped `Rule::exists`, exactly like `framework_version_id`\nabove \u2014 a foreign template must be refused HERE, not merely\nignored by `ActiveTemplateResolver` later. Ignoring it would\nstill leave a cross-tenant id persisted in our row.\nREQUIRED. It shipped nullable with the organization's active\ntemplate as a fallback, and the fallback is exactly what let the\nconfiguration choose silently instead of the project \u2014 the defect\nthe column was added to fix. An organization that owns no\ntemplate therefore cannot create a project until it has one:\ndeliberate, and surfaced as a validation error on this field\nrather than as an interview that runs on something nobody chose."
+                        "description": "REQUIRED, and org-scoped: see `avatarTemplateRule()` in the\ntrait for why, and for the soft-delete clause."
                     },
                     "webhook_secret": {
                         "type": [
@@ -8131,6 +8637,27 @@
                 ],
                 "title": "UpdatePasswordRequest"
             },
+            "UpdatePlatformUserRequest": {
+                "type": "object",
+                "description": "Validates PATCH /api/admin/platform-users/{id} (platform-user-management D2).\n\nEvery field is `sometimes`: a partial update must not blank what it does not\nmention. `role` and `organization_id` are absent for the same reason as on\nthe store request \u2014 they are the surface's to decide, not the caller's.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "description": "Ignoring THIS row, or renaming a user without changing their\naddress would fail against their own record.",
+                        "maxLength": 255
+                    },
+                    "password": {
+                        "type": "string",
+                        "minLength": 8
+                    }
+                },
+                "title": "UpdatePlatformUserRequest"
+            },
             "UpdateProfilePhotoRequest": {
                 "type": "object",
                 "description": "UpdateProfilePhotoRequest (user-avatar-image, design D3/D3b).\n\nValidates POST /api/profile/photo. `max:2048` (KB) is the SHAPE check \u2014\n`ValidatePostSize` already returns 413 for anything past nginx's\n`client_max_body_size 8m` / PHP's `post_max_size=8M` before this even\nruns. The REAL enforcement is `config('profile.photo.max_bytes')`\n(2 MiB), checked in ProfilePhotoController against the real byte count,\nnever this literal.\n\nWhat this rule does NOT do, stated plainly, per design D3 \u2014 the residual\nis documented in code, not just in design.md:\n\n- No re-encode: EXIF (including GPS coordinates, camera serial, capture\n  timestamp, and any embedded thumbnail) survives verbatim into every\n  presigned URL served from the stored object.\n- Polyglots and trailing payloads pass every check here \u2014 bytes appended\n  after valid image data are never inspected, so the object is\n  effectively a byte-capped arbitrary-content store keyed to a user id.\n- A 4096\u00d74096 PNG (the dimension cap's own ceiling) is roughly 64 MB\n  decompressed once a browser renders it \u2014 the cap bounds the spike, it\n  does not remove it.\n- Nothing decodes server-side, so a header-valid file crafted to crash a\n  specific image decoder is not detected.\n\nThe only route to closing any of the above is re-encoding, which needs\n`ext-gd` or `ext-imagick` \u2014 neither is installed in either Dockerfile\nstage, and adding one is explicitly out of scope for this change.\nClient-side canvas re-encoding is a UX convenience, never a control: it\nmakes honest uploads fit the cap and incidentally drops EXIF, but an\nattacker posts the multipart request directly and skips it entirely.\n\nREQ: Upload Is Validated By Content, Not By Declared Type\n(openspec/changes/user-avatar-image/specs/user-self-service/spec.md)",
@@ -8169,6 +8696,35 @@
                     }
                 },
                 "title": "UpdateProfileRequest"
+            },
+            "UpdateProjectQuestionRequest": {
+                "type": "object",
+                "description": "UpdateProjectQuestionRequest.\n\nOnly the WORDING is editable. The competency is deliberately absent from\nthese rules: a question written to probe one competency is not a question\nabout another, and \"moving\" it would silently change what an interview\nmeasures. Delete and re-author instead.\n\nExtracted from an inline `$request->validate()` in the controller that\nduplicated `StoreProjectQuestionRequest`'s shape \u2014 raising `max:2000` in\none would have left the other silently disagreeing.\n\nAuthorization happens HERE, not in the controller, and it has to. A\nFormRequest is resolved during method-argument resolution, which Laravel\nruns BEFORE the controller body \u2014 so leaving the tenant lookup downstream\nlet validation overtake it, and a PATCH to another organization's project\nanswered 422 for an invalid body where the file's own doctrine says 404.",
+                "properties": {
+                    "text": {
+                        "type": "object",
+                        "properties": {
+                            "en": {
+                                "type": "string",
+                                "maxLength": 2000
+                            },
+                            "it": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "maxLength": 2000
+                            }
+                        },
+                        "required": [
+                            "en"
+                        ]
+                    }
+                },
+                "required": [
+                    "text"
+                ],
+                "title": "UpdateProjectQuestionRequest"
             },
             "UpdateProjectRequest": {
                 "type": "object",
