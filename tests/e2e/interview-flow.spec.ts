@@ -136,12 +136,12 @@ function endDirective(ended: number, total: number, action: 'continue' | 'pause'
 // ---------------------------------------------------------------------------
 // Device mocks — getUserMedia + AudioContext, so device check completes
 // automatically (camera live, mic OK via immediate RMS spike). This enables
-// the "Continue to Interview" button so confirmDevices() fires.
+// the "Start the interview" button so confirmDevices() fires.
 //
 // DeviceCheck.client.vue is a .client.vue component registered as "DeviceCheck".
 // It mounts inside <ClientOnly> in the production build. The mocks below allow
 // navigator.mediaDevices.getUserMedia to succeed and AudioContext to report a
-// mic RMS above threshold — enabling the "Continue to Interview" button without
+// mic RMS above threshold — enabling the "Start the interview" button without
 // real hardware. Module-scoped so every describe block below can share it.
 // ---------------------------------------------------------------------------
 
@@ -858,7 +858,7 @@ test.describe('Interview flow — E2E', () => {
 
   test.describe('Error paths', () => {
     // Helper: navigate to EN interview URL, accept consent, wait for DeviceCheck
-    // to be fully rendered, then click "Continue to Interview".
+    // to be fully rendered, then click "Start the interview".
     async function goThroughDeviceCheck(
       page: Parameters<typeof test>[0] extends { page: infer P } ? P : never
     ) {

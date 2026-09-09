@@ -52,3 +52,21 @@ describe('UnsupportedPage (SA-11 gate)', () => {
     expect(wrapper.find('[data-testid="health-status"]').exists()).toBe(false)
   })
 })
+
+describe('the supported-browser list', () => {
+  it('names every browser the product actually supports', async () => {
+    // The one screen whose job is naming them, and Opera was missing —
+    // CLAUDE.md's NFR lists Chrome/Edge/Opera/Safari, and an Opera user was
+    // being told to switch to a browser they were already using.
+    const [en, it] = await Promise.all([
+      import('../../i18n/locales/en.json'),
+      import('../../i18n/locales/it.json'),
+    ])
+
+    for (const bundle of [en.default, it.default]) {
+      for (const browser of ['Chrome', 'Edge', 'Opera', 'Safari']) {
+        expect(bundle.unsupported.message).toContain(browser)
+      }
+    }
+  })
+})
