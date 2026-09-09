@@ -514,10 +514,10 @@ test.describe('Interview flow — E2E', () => {
 
       await page.goto(EN_INTERVIEW_URL)
       await page.getByRole('button', { name: /accept and continue/i }).click()
-      await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+      await expect(page.getByRole('button', { name: /start the interview/i })).toBeEnabled({
         timeout: 8000,
       })
-      await page.getByRole('button', { name: /continue to interview/i }).click()
+      await page.getByRole('button', { name: /start the interview/i }).click()
 
       // Drive the mock provider to completion — the only path to /end.
       await page.waitForFunction(
@@ -549,10 +549,10 @@ test.describe('Interview flow — E2E', () => {
 
       await page.goto(EN_INTERVIEW_URL)
       await page.getByRole('button', { name: /accept and continue/i }).click()
-      await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+      await expect(page.getByRole('button', { name: /start the interview/i })).toBeEnabled({
         timeout: 8000,
       })
-      await page.getByRole('button', { name: /continue to interview/i }).click()
+      await page.getByRole('button', { name: /start the interview/i }).click()
 
       await page.waitForFunction(
         () => Boolean((window as never as Record<string, unknown>).__mockInterviewProvider),
@@ -587,10 +587,10 @@ test.describe('Interview flow — E2E', () => {
 
       await page.goto(EN_INTERVIEW_URL)
       await page.getByRole('button', { name: /accept and continue/i }).click()
-      await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+      await expect(page.getByRole('button', { name: /start the interview/i })).toBeEnabled({
         timeout: 8000,
       })
-      await page.getByRole('button', { name: /continue to interview/i }).click()
+      await page.getByRole('button', { name: /start the interview/i }).click()
 
       await page.waitForFunction(
         () => Boolean((window as never as Record<string, unknown>).__mockInterviewProvider),
@@ -611,10 +611,10 @@ test.describe('Interview flow — E2E', () => {
     test('the live screen offers no Skip control', async ({ page }) => {
       await page.goto(EN_INTERVIEW_URL)
       await page.getByRole('button', { name: /accept and continue/i }).click()
-      await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+      await expect(page.getByRole('button', { name: /start the interview/i })).toBeEnabled({
         timeout: 8000,
       })
-      await page.getByRole('button', { name: /continue to interview/i }).click()
+      await page.getByRole('button', { name: /start the interview/i }).click()
 
       await expect(page.getByRole('button', { name: /^skip$/i })).toHaveCount(0)
     })
@@ -641,10 +641,10 @@ test.describe('Interview flow — E2E', () => {
     ) {
       await page.goto(EN_INTERVIEW_URL)
       await page.getByRole('button', { name: /accept and continue/i }).click()
-      await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+      await expect(page.getByRole('button', { name: /start the interview/i })).toBeEnabled({
         timeout: 8000,
       })
-      await page.getByRole('button', { name: /continue to interview/i }).click()
+      await page.getByRole('button', { name: /start the interview/i }).click()
       await page.waitForFunction(
         () => Boolean((window as never as Record<string, unknown>).__mockInterviewProvider),
         null,
@@ -866,10 +866,10 @@ test.describe('Interview flow — E2E', () => {
       await page.getByRole('button', { name: /accept and continue/i }).click()
       // DeviceCheck.client.vue mounts asynchronously inside <ClientOnly>.
       // With device mocks active, cameraOk and micOk become true within 100ms.
-      await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+      await expect(page.getByRole('button', { name: /start the interview/i })).toBeEnabled({
         timeout: 8000,
       })
-      await page.getByRole('button', { name: /continue to interview/i }).click()
+      await page.getByRole('button', { name: /start the interview/i }).click()
     }
 
     test('429 x3 shows error+retry screen', async ({ page }) => {
@@ -970,10 +970,10 @@ test.describe('Interview flow — E2E', () => {
       // done-screen test replaced above.
       await page.goto(EN_INTERVIEW_URL)
       await page.getByRole('button', { name: /accept and continue/i }).click()
-      await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+      await expect(page.getByRole('button', { name: /start the interview/i })).toBeEnabled({
         timeout: 8000,
       })
-      await page.getByRole('button', { name: /continue to interview/i }).click()
+      await page.getByRole('button', { name: /start the interview/i }).click()
 
       const pauseButton = page.getByRole('button', { name: /^pause$/i })
       await expect(pauseButton).toBeVisible({ timeout: 15000 })
@@ -1121,10 +1121,10 @@ test.describe('Interview flow — E2E', () => {
       await injectDeviceMocks(page)
       await page.goto(EN_INTERVIEW_URL)
       await page.getByRole('button', { name: /accept and continue/i }).click()
-      await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+      await expect(page.getByRole('button', { name: /start the interview/i })).toBeEnabled({
         timeout: 8000,
       })
-      await page.getByRole('button', { name: /continue to interview/i }).click()
+      await page.getByRole('button', { name: /start the interview/i }).click()
 
       await expect.poll(() => startAuthHeader, { timeout: 10_000 }).toBe(`Bearer ${candidateToken}`)
     })
@@ -1368,7 +1368,7 @@ test.describe('Interview flow — E2E', () => {
       await expect(cameraPicker).toBeEnabled()
       await expect.poll(() => getActiveCameraLabel(page)).toBe(ALT_CAM.label)
 
-      const continueButton = page.getByRole('button', { name: /continue to interview/i })
+      const continueButton = page.getByRole('button', { name: /start the interview/i })
       await expect(continueButton).toBeEnabled({ timeout: 8000 })
       await continueButton.click()
 
@@ -1397,7 +1397,7 @@ test.describe('Interview flow — E2E', () => {
 
       // Never dead-ends: the default device is acquired despite the stale ids.
       await expect.poll(() => getActiveCameraLabel(page)).toBe(DEFAULT_CAM.label)
-      await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+      await expect(page.getByRole('button', { name: /start the interview/i })).toBeEnabled({
         timeout: 8000,
       })
 
@@ -1492,7 +1492,7 @@ test.describe('Interview flow — E2E', () => {
       await retryButton.click()
 
       // release() then check() re-runs getUserMedia — this time it succeeds.
-      await expect(page.getByRole('button', { name: /continue to interview/i })).toBeEnabled({
+      await expect(page.getByRole('button', { name: /start the interview/i })).toBeEnabled({
         timeout: 8000,
       })
     })
