@@ -81,6 +81,11 @@ const DENIED_KEYS = new Set([
   // is treated identically on both sides.
   'candidate_ref',
   'display_name',
+  // The candidate email is the GLOBAL identity key (CLAUDE.md ruling 8,
+  // reversed 2026-09-01) and is named in the GDPR retention sign-off
+  // (ruling 2). Unlike candidate_ref it is directly identifying with no
+  // calling system needed to resolve it.
+  'email',
   'transcript',
   'prompt',
   'answer',

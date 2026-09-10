@@ -64,6 +64,7 @@ describe('scrubSentryEvent — key-based denylist', () => {
         candidateRef: 'acme-672',
         display_name: 'Mario Rossi',
         displayName: 'Mario Rossi',
+        email: 'mario.rossi@example.test',
       })
     )
 
@@ -74,6 +75,12 @@ describe('scrubSentryEvent — key-based denylist', () => {
     // alongside anything else.
     expect(encoded).not.toContain('acme-672')
     expect(encoded).not.toContain('Mario Rossi')
+
+    // The email is the candidate's GLOBAL identity key (CLAUDE.md ruling 8,
+    // reversed 2026-09-01) and is named in the GDPR retention sign-off
+    // (ruling 2). `redactAnalyticsPath` already strips `?email=` from URLs —
+    // the codebase agreed it was sensitive before the denylist did.
+    expect(encoded).not.toContain('mario.rossi@example.test')
   })
 
   it('4. secrets nested at any depth are scrubbed', () => {
