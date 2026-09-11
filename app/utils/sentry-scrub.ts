@@ -156,8 +156,11 @@ function isDeniedKey(key: string): boolean {
   // `providerApiKey`) is covered without an edit here — enumerating every
   // future field name is impossible; a naming convention is not.
   return (
-    normalized.endsWith('_token') ||
-    normalized.endsWith('_secret') ||
+    // ONLY `_key`. `_token`, `_secret` and `_messages` were shadowed dead by the
+    // last-segment check above — `token`, `secret` and `messages` are all in the
+    // set, so that branch always decided first and these could never fire. `key`
+    // alone is NOT in the set (too generic to deny outright), which is why this
+    // one is still reachable.
     normalized.endsWith('_key') ||
     // Any key NAMING an address, not merely one suffixed with it. The api half
     // considered `endsWith('_email')` and rejected it by name: it misses
@@ -165,11 +168,7 @@ function isDeniedKey(key: string): boolean {
     // pluralised in the list above. This file's own contract at the top is that
     // where a leak class exists on both sides it carries the api's EXACT
     // denylist rather than inventing a second convention.
-    normalized.includes('email') ||
-    // The AI conversation arrives as a JSON STRING under one key, so there is
-    // nothing inside for a key denylist to walk. `gen_ai.input.messages`
-    // normalises to `gen_ai_input_messages`.
-    normalized.endsWith('_messages')
+    normalized.includes('email')
   )
 }
 

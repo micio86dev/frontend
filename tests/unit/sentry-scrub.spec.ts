@@ -246,3 +246,37 @@ describe('namespaced keys must reach the denylist the api reaches', () => {
     expect(encoded).not.toContain('my answer')
   })
 })
+
+describe('every confidential-content key is pinned, not just the ones with a rule', () => {
+  // Each of these normalises to ITSELF — its last segment is the whole key — so
+  // no other rule reaches it. Deleting any one line is a live leak that the
+  // whole suite would stay green through.
+  it.each([
+    ['text', 'Nel mio ultimo progetto ho gestito un conflitto'],
+    ['explanation', 'The candidate de-escalated a peer dispute'],
+    ['transcripts', 'full transcript body'],
+    ['prompts', 'Score this answer'],
+    ['answers', 'I led the migration'],
+    ['utterances', 'ho gestito un conflitto'],
+    ['contents', 'spoken content body'],
+    ['messages', '[{"content":"my answer"}]'],
+  ])('scrubs %s', (key, marker) => {
+    const scrubbed = scrubSentryEvent(eventWith({ [key]: marker }))
+
+    expect(JSON.stringify(scrubbed.extra)).not.toContain(marker)
+  })
+
+  it('scrubs a hyphenated header key and an acronym-leading one', () => {
+    // `X-Api-Key` lowercases to `x-api-key` and `_key` cannot match across a
+    // hyphen; `APIKey` has no lowercase character before the uppercase one so
+    // the camelCase split never fires. Both passes existed untested.
+    const scrubbed = scrubSentryEvent(
+      eventWith({ 'X-Api-Key': 'HEADERLEAK', APIKey: 'ACRONYMLEAK', SSOToken: 'ACRONYMLEAK2' })
+    )
+
+    const encoded = JSON.stringify(scrubbed.extra)
+
+    expect(encoded).not.toContain('HEADERLEAK')
+    expect(encoded).not.toContain('ACRONYMLEAK')
+  })
+})
