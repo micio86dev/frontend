@@ -184,19 +184,46 @@
     </Button>
 
     <!-- Continue — the mic gate is deliberately hard (D6): a spoken assessment
-         with a dead microphone is unusable. disabled:opacity-90 overrides the
-         vendored default's disabled:opacity-50: WCAG 1.4.3 exempts inactive
-         controls from the contrast minimum, but this button is disabled by
-         DEFAULT on first paint (before the mic has had a chance to pass) and
-         axe scans this screen in that exact state — so it must independently
-         hold >=4.5:1 rather than rely on the exemption. -->
+         with a dead microphone is unusable.
+
+         The gate was always correct; the AFFORDANCE was not. `disabled:opacity-90`
+         (which this replaces) dimmed the filled purple CTA by 10%, so the one
+         control on the screen the candidate cannot use looked exactly like the
+         one they should press — an enabled-but-inert button, the same defect the
+         live Pause control was fixed for.
+
+         So the disabled state changes SURFACE, not just alpha: a flat `bg-muted`
+         panel with a visible border reads as inactive next to `bg-primary`, and
+         `disabled:opacity-100` cancels the vendored `disabled:opacity-50` so the
+         contrast is carried by real tokens instead of alpha. `text-foreground/70`
+         composites to ~5.5:1 in light (#646464 on #f7f7f7) and ~6.0:1 in dark
+         (#c1c1c1 on #3d3d3d) — computed from the oklch tokens in main.css rather
+         than eyeballed. Both clear AA. That matters because this button is
+         disabled by DEFAULT on first paint and axe scans the screen in exactly
+         that state — WCAG 1.4.3 exempts inactive controls, but we do not lean on
+         the exemption.
+
+         `disabled:pointer-events-auto` lifts the base variant's
+         `pointer-events-none` so `cursor: not-allowed` can actually render
+         (DESIGN.md §cursor — `not-allowed` is unreachable on a non-pointer
+         target; same reasoning already recorded for the dropdown/select rows).
+         Activation stays blocked by the native `disabled` attribute on a real
+         `<button>`, so nothing becomes clickable.
+
+         The LABEL carries the reason. A disabled control with no explanation
+         reads as a bug, not a rule (DESIGN.md, forms rule 7) — while the gate is
+         closed the button states what the candidate must do to open it. -->
     <Button
       data-testid="continue-button"
-      class="disabled:opacity-90"
-      :disabled="!deviceCheck.cameraOk.value || !deviceCheck.micOk.value"
+      class="disabled:pointer-events-auto disabled:cursor-not-allowed disabled:border-border disabled:bg-muted disabled:text-foreground/70 disabled:opacity-100 disabled:shadow-none"
+      :disabled="!canContinue"
       @click="handleContinue"
     >
-      {{ $t('interview.device_check.continue') }}
+      {{
+        canContinue
+          ? $t('interview.device_check.continue')
+          : $t('interview.device_check.continue_blocked')
+      }}
     </Button>
   </div>
 </template>
@@ -210,8 +237,7 @@
  * meter, instructional/recovery copy, and the Continue/Retry gate.
  *
  * Picker wiring to useMediaDeviceList (camera/mic Select controls,
- * switchCamera/switchMicrophone) is Slice 6 — deliberately not in this file
- * yet, per the slice boundary in tasks.md.
+ * switchCamera/switchMicrophone) landed here in Slice 6 and is present below.
  *
  * Emits 'confirmed' with the MediaStream to hand off to useProctor.
  *
@@ -285,6 +311,15 @@ const micMeterPercent = computed(() =>
 const micThresholdPercent = computed(() =>
   Math.min(100, Math.round((MIC_SPEAK_THRESHOLD / MIC_METER_DISPLAY_CEILING) * 100))
 )
+
+/**
+ * The hard gate (D6), read by BOTH the `disabled` binding and the label.
+ *
+ * One source: a template that disabled on the raw expression while labelling
+ * off a second one could drift into a button that says "Start the interview"
+ * and refuses to start it.
+ */
+const canContinue = computed(() => deviceCheck.cameraOk.value && deviceCheck.micOk.value)
 
 const micStatusText = computed(() => {
   if (deviceCheck.micOk.value) return t('interview.device_check.mic_ok')

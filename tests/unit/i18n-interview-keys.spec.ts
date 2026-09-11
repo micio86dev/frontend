@@ -35,6 +35,7 @@ const REQUIRED_KEYS = [
   'interview.device_check.camera_error',
   'interview.device_check.mic_error',
   'interview.device_check.continue',
+  'interview.device_check.continue_blocked',
   // Slice 5 (device-check-preview-and-device-selection, D11) — instructional
   // copy, mic-meter non-visual equivalent, browser-neutral recovery (D7), and
   // the micUnavailable dead-end fix (D6).
