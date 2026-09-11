@@ -64,6 +64,7 @@ describe('scrubSentryEvent — key-based denylist', () => {
         candidateRef: 'acme-672',
         display_name: 'Mario Rossi',
         displayName: 'Mario Rossi',
+        email: 'mario.rossi@example.test',
       })
     )
 
@@ -74,6 +75,12 @@ describe('scrubSentryEvent — key-based denylist', () => {
     // alongside anything else.
     expect(encoded).not.toContain('acme-672')
     expect(encoded).not.toContain('Mario Rossi')
+
+    // The email is the candidate's GLOBAL identity key (CLAUDE.md ruling 8,
+    // reversed 2026-09-01) and is named in the GDPR retention sign-off
+    // (ruling 2). `redactAnalyticsPath` already strips `?email=` from URLs —
+    // the codebase agreed it was sensitive before the denylist did.
+    expect(encoded).not.toContain('mario.rossi@example.test')
   })
 
   it('4. secrets nested at any depth are scrubbed', () => {
@@ -176,5 +183,100 @@ describe('redactUrl', () => {
   it('passes through undefined and empty strings unchanged', () => {
     expect(redactUrl(undefined)).toBeUndefined()
     expect(redactUrl('')).toBe('')
+  })
+})
+
+describe('the suffix convention has to cover the address too', () => {
+  it('scrubs any field ending in _email, camelCase included', () => {
+    // Same reasoning the _token/_secret/_key suffixes already carry: enumerating
+    // every future field name is impossible, a naming convention is not. An
+    // address is the one candidate identifier that resolves to a person with no
+    // calling system in the loop.
+    const scrubbed = scrubSentryEvent(
+      eventWith({
+        candidate_email: 'mario.rossi@example.test',
+        contactEmail: 'anna.bianchi@example.test',
+        // The plural and the compound, which a `_email` SUFFIX misses and the
+        // api's `str_contains` catches. The two halves must not disagree.
+        email_address: 'carla.verdi@example.test',
+        emails: ['dario.neri@example.test'],
+      })
+    )
+
+    const encoded = JSON.stringify(scrubbed.extra)
+
+    expect(encoded).not.toContain('mario.rossi@example.test')
+    expect(encoded).not.toContain('anna.bianchi@example.test')
+    expect(encoded).not.toContain('carla.verdi@example.test')
+    expect(encoded).not.toContain('dario.neri@example.test')
+  })
+})
+
+describe('namespaced keys must reach the denylist the api reaches', () => {
+  it('scrubs dotted OpenTelemetry keys', () => {
+    // The normalizer handled camelCase but never dots, so every OTel-style key
+    // missed both the set and the convention suffixes. `authorization`,
+    // `content` and `transcript` are all IN the set — the set knew, the
+    // normalizer could not reach them.
+    const scrubbed = scrubSentryEvent(
+      eventWith({
+        'auth.token': 'TOKENLEAK',
+        'user.content': 'CONTENTLEAK',
+        'request.transcript': 'TRANSCRIPTLEAK',
+        'http.request.header.authorization': 'AUTHLEAK',
+      })
+    )
+
+    expect(JSON.stringify(scrubbed.extra)).not.toContain('LEAK')
+  })
+
+  it('scrubs the AI conversation, which arrives as a JSON STRING', () => {
+    // The api's AiIntegration json_encodes the messages, so they land under one
+    // key with nothing inside for a key denylist to walk.
+    const scrubbed = scrubSentryEvent(
+      eventWith({
+        'gen_ai.input.messages': '[{"role":"user","content":"I led the migration"}]',
+        messages: '[{"content":"my answer"}]',
+      })
+    )
+
+    const encoded = JSON.stringify(scrubbed.extra)
+
+    expect(encoded).not.toContain('I led the migration')
+    expect(encoded).not.toContain('my answer')
+  })
+})
+
+describe('every confidential-content key is pinned, not just the ones with a rule', () => {
+  // Each of these normalises to ITSELF — its last segment is the whole key — so
+  // no other rule reaches it. Deleting any one line is a live leak that the
+  // whole suite would stay green through.
+  it.each([
+    ['text', 'Nel mio ultimo progetto ho gestito un conflitto'],
+    ['explanation', 'The candidate de-escalated a peer dispute'],
+    ['transcripts', 'full transcript body'],
+    ['prompts', 'Score this answer'],
+    ['answers', 'I led the migration'],
+    ['utterances', 'ho gestito un conflitto'],
+    ['contents', 'spoken content body'],
+    ['messages', '[{"content":"my answer"}]'],
+  ])('scrubs %s', (key, marker) => {
+    const scrubbed = scrubSentryEvent(eventWith({ [key]: marker }))
+
+    expect(JSON.stringify(scrubbed.extra)).not.toContain(marker)
+  })
+
+  it('scrubs a hyphenated header key and an acronym-leading one', () => {
+    // `X-Api-Key` lowercases to `x-api-key` and `_key` cannot match across a
+    // hyphen; `APIKey` has no lowercase character before the uppercase one so
+    // the camelCase split never fires. Both passes existed untested.
+    const scrubbed = scrubSentryEvent(
+      eventWith({ 'X-Api-Key': 'HEADERLEAK', APIKey: 'ACRONYMLEAK', SSOToken: 'ACRONYMLEAK2' })
+    )
+
+    const encoded = JSON.stringify(scrubbed.extra)
+
+    expect(encoded).not.toContain('HEADERLEAK')
+    expect(encoded).not.toContain('ACRONYMLEAK')
   })
 })
