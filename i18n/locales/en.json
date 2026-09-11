@@ -27,6 +27,7 @@
       "camera_error": "Camera not detected or not accessible. Please check your browser permissions.",
       "mic_error": "Microphone not detected or audio level is too low. Try speaking now.",
       "continue": "Start the interview",
+      "continue_blocked": "Enable your camera and microphone, then speak to continue",
       "camera_instruction": "Position yourself in the frame so we can check your camera.",
       "mic_instruction": "Say a few words so we can check your microphone.",
       "mic_detected": "Microphone level detected.",

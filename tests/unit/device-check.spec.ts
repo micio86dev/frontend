@@ -570,3 +570,66 @@ describe('DeviceCheck.client.vue — zero literal (non-i18n) strings', () => {
     expect(source).not.toContain('Camera not accessible')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Blocked-CTA affordance
+// ---------------------------------------------------------------------------
+
+describe('DeviceCheck.client.vue — blocked-CTA affordance', () => {
+  it('labels Continue with the blocked instruction while neither device has passed', async () => {
+    const wrapper = await mountComponent(makeDeviceCheck())
+    expect(wrapper.get('[data-testid="continue-button"]').text()).toBe(
+      'interview.device_check.continue_blocked'
+    )
+  })
+
+  it('still labels Continue with the blocked instruction when only the camera has passed', async () => {
+    const dc = makeDeviceCheck({ cameraOk: ref(true), micOk: ref(false) })
+    const wrapper = await mountComponent(dc)
+    expect(wrapper.get('[data-testid="continue-button"]').text()).toBe(
+      'interview.device_check.continue_blocked'
+    )
+  })
+
+  it('swaps to the start-interview label only once BOTH devices have passed', async () => {
+    const micOk = ref(false)
+    const dc = makeDeviceCheck({ cameraOk: ref(true), micOk })
+    const wrapper = await mountComponent(dc)
+
+    micOk.value = true
+    await nextTick()
+
+    expect(wrapper.get('[data-testid="continue-button"]').text()).toBe(
+      'interview.device_check.continue'
+    )
+  })
+
+  it('does not paint the disabled Continue at the near-opaque enabled treatment', async () => {
+    const wrapper = await mountComponent(makeDeviceCheck())
+    const classes = wrapper.get('[data-testid="continue-button"]').classes()
+
+    // opacity-90 over bg-primary is indistinguishable from the enabled CTA —
+    // the defect this block exists for.
+    expect(classes).not.toContain('disabled:opacity-90')
+    // The vendored variant default. Its absence today is tailwind-merge
+    // resolving the conflict with `disabled:opacity-100` — if a future config
+    // change broke that merge the button would render at 50%, which is the
+    // dimmed defect this block exists to kill, and every other assertion here
+    // would still pass.
+    expect(classes).not.toContain('disabled:opacity-50')
+    // A distinct inactive SURFACE, not a dimmed primary one.
+    expect(classes).toContain('disabled:bg-muted')
+    expect(classes).toContain('disabled:border-border')
+  })
+
+  it('keeps a not-allowed cursor on the disabled Continue (DESIGN.md §cursor)', async () => {
+    const wrapper = await mountComponent(makeDeviceCheck())
+    const classes = wrapper.get('[data-testid="continue-button"]').classes()
+
+    // `not-allowed` cannot render on an element that is not a pointer target,
+    // so the base variant's disabled:pointer-events-none must be lifted here.
+    // Clicks stay blocked by the native `disabled` attribute on a real <button>.
+    expect(classes).toContain('disabled:cursor-not-allowed')
+    expect(classes).toContain('disabled:pointer-events-auto')
+  })
+})
