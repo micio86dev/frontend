@@ -211,3 +211,38 @@ describe('the suffix convention has to cover the address too', () => {
     expect(encoded).not.toContain('dario.neri@example.test')
   })
 })
+
+describe('namespaced keys must reach the denylist the api reaches', () => {
+  it('scrubs dotted OpenTelemetry keys', () => {
+    // The normalizer handled camelCase but never dots, so every OTel-style key
+    // missed both the set and the convention suffixes. `authorization`,
+    // `content` and `transcript` are all IN the set — the set knew, the
+    // normalizer could not reach them.
+    const scrubbed = scrubSentryEvent(
+      eventWith({
+        'auth.token': 'TOKENLEAK',
+        'user.content': 'CONTENTLEAK',
+        'request.transcript': 'TRANSCRIPTLEAK',
+        'http.request.header.authorization': 'AUTHLEAK',
+      })
+    )
+
+    expect(JSON.stringify(scrubbed.extra)).not.toContain('LEAK')
+  })
+
+  it('scrubs the AI conversation, which arrives as a JSON STRING', () => {
+    // The api's AiIntegration json_encodes the messages, so they land under one
+    // key with nothing inside for a key denylist to walk.
+    const scrubbed = scrubSentryEvent(
+      eventWith({
+        'gen_ai.input.messages': '[{"role":"user","content":"I led the migration"}]',
+        messages: '[{"content":"my answer"}]',
+      })
+    )
+
+    const encoded = JSON.stringify(scrubbed.extra)
+
+    expect(encoded).not.toContain('I led the migration')
+    expect(encoded).not.toContain('my answer')
+  })
+})

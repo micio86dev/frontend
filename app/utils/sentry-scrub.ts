@@ -87,12 +87,28 @@ const DENIED_KEYS = new Set([
   // calling system needed to resolve it.
   'email',
   'transcript',
+  'transcripts',
   'prompt',
+  'prompts',
   'answer',
+  'answers',
   'excerpt',
   'excerpts',
   'utterance',
+  'utterances',
   'content',
+  'contents',
+  // `text` is the name this PRODUCT uses for a candidate's transcribed speech —
+  // `utterances.text` in the schema, the validated field on the api's
+  // UtteranceController, and HeygenProvider's transcript shape. The list named
+  // five synonyms and missed the one the database uses.
+  'text',
+  // The AI conversation as a JSON string — the api's AiIntegration json_encodes
+  // it, so it lands under one key with nothing inside to walk.
+  'messages',
+  // The LLM's behavioural rationale on `indicator_scores`. `payload` covers it
+  // on the webhook path; a bare `explanation` had nothing.
+  'explanation',
   'payload',
 ])
 
@@ -105,13 +121,34 @@ const REDACTED = '[redacted]'
  * lists that can drift apart.
  */
 function toSnakeKey(key: string): string {
-  return key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
+  // Hyphens and dots first: header names arrive as `X-Api-Key`, and
+  // OpenTelemetry attributes arrive dotted — `auth.token`, `user.content`,
+  // `request.transcript`. Every one of those trailing words is already denied;
+  // without this the normalizer simply cannot reach them.
+  //
+  // The second pattern is what a lone `/([a-z0-9])([A-Z])/` cannot do: `APIKey`
+  // and `SSOToken` have no lowercase character before the uppercase one.
+  return key
+    .replace(/[-.]/g, '_')
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+    .toLowerCase()
 }
 
 function isDeniedKey(key: string): boolean {
   const normalized = toSnakeKey(key)
 
   if (DENIED_KEYS.has(normalized)) {
+    return true
+  }
+
+  // The LAST SEGMENT, because a namespaced key names its field at the end:
+  // `http.request.header.authorization`, `user.content`, `request.transcript`.
+  // Each of those trailing words is already in the set; matching the whole
+  // normalised string alone could never see them.
+  const lastSegment = normalized.slice(normalized.lastIndexOf('_') + 1)
+
+  if (lastSegment !== normalized && DENIED_KEYS.has(lastSegment)) {
     return true
   }
 
@@ -128,7 +165,11 @@ function isDeniedKey(key: string): boolean {
     // pluralised in the list above. This file's own contract at the top is that
     // where a leak class exists on both sides it carries the api's EXACT
     // denylist rather than inventing a second convention.
-    normalized.includes('email')
+    normalized.includes('email') ||
+    // The AI conversation arrives as a JSON STRING under one key, so there is
+    // nothing inside for a key denylist to walk. `gen_ai.input.messages`
+    // normalises to `gen_ai_input_messages`.
+    normalized.endsWith('_messages')
   )
 }
 
