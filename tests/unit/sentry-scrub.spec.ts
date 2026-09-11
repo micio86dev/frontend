@@ -185,3 +185,29 @@ describe('redactUrl', () => {
     expect(redactUrl('')).toBe('')
   })
 })
+
+describe('the suffix convention has to cover the address too', () => {
+  it('scrubs any field ending in _email, camelCase included', () => {
+    // Same reasoning the _token/_secret/_key suffixes already carry: enumerating
+    // every future field name is impossible, a naming convention is not. An
+    // address is the one candidate identifier that resolves to a person with no
+    // calling system in the loop.
+    const scrubbed = scrubSentryEvent(
+      eventWith({
+        candidate_email: 'mario.rossi@example.test',
+        contactEmail: 'anna.bianchi@example.test',
+        // The plural and the compound, which a `_email` SUFFIX misses and the
+        // api's `str_contains` catches. The two halves must not disagree.
+        email_address: 'carla.verdi@example.test',
+        emails: ['dario.neri@example.test'],
+      })
+    )
+
+    const encoded = JSON.stringify(scrubbed.extra)
+
+    expect(encoded).not.toContain('mario.rossi@example.test')
+    expect(encoded).not.toContain('anna.bianchi@example.test')
+    expect(encoded).not.toContain('carla.verdi@example.test')
+    expect(encoded).not.toContain('dario.neri@example.test')
+  })
+})

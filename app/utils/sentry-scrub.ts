@@ -119,7 +119,16 @@ function isDeniedKey(key: string): boolean {
   // `providerApiKey`) is covered without an edit here — enumerating every
   // future field name is impossible; a naming convention is not.
   return (
-    normalized.endsWith('_token') || normalized.endsWith('_secret') || normalized.endsWith('_key')
+    normalized.endsWith('_token') ||
+    normalized.endsWith('_secret') ||
+    normalized.endsWith('_key') ||
+    // Any key NAMING an address, not merely one suffixed with it. The api half
+    // considered `endsWith('_email')` and rejected it by name: it misses
+    // `email_address`, `emails` and `emailAddress`, and `excerpts` was already
+    // pluralised in the list above. This file's own contract at the top is that
+    // where a leak class exists on both sides it carries the api's EXACT
+    // denylist rather than inventing a second convention.
+    normalized.includes('email')
   )
 }
 
