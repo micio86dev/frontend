@@ -65,6 +65,8 @@
  * frequent motion.
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { brandColorRevision } from '~/app/composables/useBrandTheme'
+import { mix } from '~/app/utils/brand-color'
 
 const props = withDefaults(
   defineProps<{
@@ -216,7 +218,7 @@ function disconnect(): void {
  * — a jsdom canvas, or a paint before styles land. A visible ribbon in slightly
  * wrong lavender beats an invisible one.
  */
-let cachedColors: { lavender: string; primaryLight: string } | null = null
+let cachedColors: { lavender: string; primaryLight: string; panel: string } | null = null
 
 /**
  * Read once, not per frame.
@@ -226,7 +228,7 @@ let cachedColors: { lavender: string; primaryLight: string } | null = null
  * change without a restyle. Cached, and dropped on resize, which is when a
  * restyle would have taken effect anyway.
  */
-function brandColors(): { lavender: string; primaryLight: string } {
+function brandColors(): { lavender: string; primaryLight: string; panel: string } {
   if (cachedColors !== null) return cachedColors
 
   cachedColors = readBrandColors()
@@ -234,7 +236,7 @@ function brandColors(): { lavender: string; primaryLight: string } {
   return cachedColors
 }
 
-function readBrandColors(): { lavender: string; primaryLight: string } {
+function readBrandColors(): { lavender: string; primaryLight: string; panel: string } {
   const styles = canvasEl.value !== null ? getComputedStyle(canvasEl.value) : null
 
   const read = (token: string, fallback: string): string =>
@@ -243,19 +245,37 @@ function readBrandColors(): { lavender: string; primaryLight: string } {
   return {
     lavender: read('--color-lavender', '#8373d2'),
     primaryLight: read('--color-primary-light', '#c222d3'),
+    // The surface everything here is composited and measured against. Read
+    // rather than restated a third time, so the resting hairline cannot end up
+    // blended against a panel colour the page no longer uses.
+    panel: read('--color-avatar-bg', '#0f172a'),
   }
 }
 
 /**
  * A canvas-safe colour with alpha applied.
  *
- * `color-mix()` rather than parsing the token into components: the value could
- * be a hex, an `oklch()`, or anything else CSS accepts, and a parser here would
- * be a second, worse implementation of the browser's. Canvas accepts any CSS
- * colour string.
+ * COMPOSITED AGAINST THE PANEL, not expressed as `color-mix()` with
+ * `transparent`. The two render identically — the panel is what sits behind
+ * this stroke — but they fail very differently, and this is the one stroke on
+ * the surface whose absence is indistinguishable from a crash.
+ *
+ * `addColorStop()` THROWS on a colour it cannot parse. `strokeStyle` does not:
+ * an unparseable assignment is silently ignored and the previous value stands,
+ * which on a fresh context is `#000000`. Black on `--color-avatar-bg` measures
+ * about 1.06:1 — an invisible resting hairline, arriving with no error
+ * anywhere, which is exactly the "not speaking looks like not working" failure
+ * this component exists to prevent.
+ *
+ * Not a live defect on the supported matrix (DESIGN.md §2: `color-mix()` in
+ * canvas is Chrome 111+ / Safari 16.2+). It is fixed anyway because it was the
+ * last unguarded use of the construct `app/utils/brand-color` was written to
+ * remove, and because under the test DOM the assignment is rejected — so no
+ * unit test could ever have observed this colour. A guard nothing can watch
+ * fail is not a guard.
  */
-function withAlpha(color: string, alpha: number): string {
-  return `color-mix(in srgb, ${color} ${Math.round(alpha * 100)}%, transparent)`
+function withAlpha(color: string, alpha: number, panel: string): string {
+  return mix(color, panel, alpha)
 }
 
 /**
@@ -276,10 +296,46 @@ function resize(): void {
   canvas.width = Math.max(1, Math.round(rect.width * ratio))
   canvas.height = Math.max(1, Math.round(rect.height * ratio))
 
-  // A resize is the one moment a restyle could have landed, so it is where the
-  // cached tokens are dropped rather than on every frame.
+  // A resize is ONE moment a restyle could have landed, so it is where the
+  // cached tokens are dropped rather than on every frame. It is not the only
+  // one — see the `brandColorRevision` watcher below, which covers the case
+  // this comment used to claim did not exist.
   cachedColors = null
 }
+
+/**
+ * Drop the cache when the organization's colour lands.
+ *
+ * The tokens are resolved into plain strings once and held for the length of
+ * an interview, which is right: they cannot change without a restyle, and
+ * re-reading `getComputedStyle` every frame would be wasteful. But branding is
+ * ASYNCHRONOUS — `useCandidateBranding` applies it after `/candidate/session`
+ * resolves, by which time this canvas has already painted and cached. With
+ * only the resize path, an organization that had configured orange got an
+ * orange page around a purple ribbon, for the whole interview, and read the
+ * feature as broken.
+ *
+ * Watching a revision counter rather than the colour itself keeps the token
+ * reading in one place: the next `brandColors()` call re-reads whatever the
+ * stylesheet now says, through the same path it always used.
+ */
+watch(brandColorRevision, () => {
+  cachedColors = null
+
+  // AND REPAINT. Dropping the cache alone only helps when a paint loop happens
+  // to be running: with `stream === null`, with `active: false`, while paused
+  // (`disconnect()` kills both `frame` and `slowTimer`), and under
+  // reduced-motion before `start()`, the next paint comes from an unrelated
+  // event — the stream arriving, a resize, a resume. Until one of those, the
+  // canvas keeps showing the colour it cached, which is the exact failure this
+  // watcher exists to end. Invalidating without repainting would have closed
+  // half the window and left the static case looking untouched.
+  //
+  // Safe unconditionally: `draw()` returns immediately when the canvas or its
+  // 2d context is absent, and it renders from `levels`, which holds the
+  // current shape whether or not a loop is feeding it.
+  draw()
+})
 
 /** Read the current peak of each column from the analyser, eased. */
 function sample(): void {
@@ -329,7 +385,7 @@ function draw(): void {
 
   context.clearRect(0, 0, width, height)
 
-  const { lavender, primaryLight } = brandColors()
+  const { lavender, primaryLight, panel } = brandColors()
 
   // Resting baseline, drawn UNDER the ribbon and always present. It is what
   // makes silence legible as "listening" rather than as a blank panel.
@@ -338,7 +394,7 @@ function draw(): void {
   // property this component exists to have: silence looked exactly like a
   // broken panel. 0.85 measures 3.64:1, a real margin over DESIGN.md §9.1's
   // 3:1 floor for graphical objects. Calculated, not eyeballed.
-  context.strokeStyle = withAlpha(lavender, 0.85)
+  context.strokeStyle = withAlpha(lavender, 0.85, panel)
   context.lineWidth = Math.max(1, window.devicePixelRatio || 1)
   context.beginPath()
   context.moveTo(0, centre)
@@ -483,9 +539,26 @@ watch(
       if (props.stream !== null) {
         connect(props.stream)
         resize()
+        start()
+      } else {
+        // NO STREAM, NO LOOP. `start()` used to run unconditionally here, and
+        // with a null stream there is no analyser — so `sample()` takes its
+        // decay branch forever while `draw()` repaints an unchanging hairline,
+        // at 60fps, or every 250ms under reduced-motion, until a pause or
+        // unmount. That is motion with no state behind it, which this file's
+        // header calls out as the one thing it must never do.
+        //
+        // Reachable, not theoretical: `AvatarPlayer.client.vue` binds
+        // `:stream="analysableStream"` (null until the provider publishes its
+        // source) and `:active="!muted"`, and promoting an incoming player
+        // flips `muted` before that publish. The mount path was already safe —
+        // the `stream` watcher's `immediate: true` null branch returns without
+        // starting — which is exactly why nothing caught this one.
+        //
+        // One paint, then still: the resting hairline must still be drawn, or
+        // "waiting for the voice" and "broken panel" look identical.
+        draw()
       }
-
-      start()
 
       return
     }
