@@ -181,4 +181,37 @@ describe('VoiceVisualizer', () => {
     expect(canvas.attributes('role')).toBe('img')
     expect(canvas.attributes('aria-label')).toBe('Interviewer voice')
   })
+
+  it('REPAINTS when the organization colour lands, not merely drops its cache', async () => {
+    // The review gate proved the first version of this fix untested by deleting
+    // the watcher and watching 22 assertions stay green — the counter's
+    // increment was asserted, the canvas's reaction never was.
+    //
+    // And invalidating alone was not enough. The tokens are resolved into
+    // JavaScript strings once and held; dropping that cache only shows up when
+    // a paint follows. Here there is no stream and no loop, which is the state
+    // a candidate is actually in while `/candidate/session` is still in flight
+    // — precisely when branding arrives. Without the `draw()` call the canvas
+    // would sit on the Quint purple until an unrelated resize or the stream
+    // finally connected.
+    const { applyBrandColor } = await import('~/app/composables/useBrandTheme')
+
+    await mountVisualizer({ stream: null, active: false })
+    await nextTick()
+
+    // Counting `getContext` calls, NOT `clearRect` on a captured context: the
+    // stub hands back a FRESH object every call, so holding the first one and
+    // watching its `clearRect` counts paints by a context nobody draws on
+    // again. `draw()` calls `getContext` exactly once per paint, which makes it
+    // the honest counter here.
+    const getContext = HTMLCanvasElement.prototype.getContext as unknown as ReturnType<typeof vi.fn>
+    const paintsBefore = getContext.mock.calls.length
+
+    applyBrandColor('#e45526')
+    await nextTick()
+
+    expect(getContext.mock.calls.length).toBeGreaterThan(paintsBefore)
+
+    applyBrandColor(null)
+  })
 })
