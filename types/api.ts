@@ -209,7 +209,9 @@ export interface paths {
          *     submit, with nothing they could do about it.
          *
          *     So this is the narrow answer rather than a widened `viewAny`: exactly
-         *     the three fields choosing a template requires. A viewer gets it too —
+         *     the four fields choosing a template requires — `id`, `name`, `provider`
+         *     and `is_active`, which is what the method below returns and what
+         *     `openapi.json` publishes. A viewer gets it too —
          *     reading a project's configuration should show which template it names,
          *     not a bare id.
          *
@@ -2894,6 +2896,17 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        error: "no_client_selected";
+                    };
+                };
+            };
             422: components["responses"]["ValidationException"];
         };
     };
@@ -4125,8 +4138,8 @@ export interface operations {
                         error: "credential_in_use";
                         /**
                          * @description A code, not a sentence: the API has no idea what language
-                         *     the operator reads, and `templates` below already names the
-                         *     ones blocking the delete.
+                         *     the operator reads, and `templates` already names the ones
+                         *     blocking the delete.
                          * @constant
                          */
                         message: "credential_in_use";
@@ -4156,7 +4169,11 @@ export interface operations {
             };
         };
         responses: {
-            /** @description `LlmCredentialResource` */
+            /**
+             * @description `LlmCredentialResource`
+             *
+             *     `LlmCredentialResource`
+             */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4164,6 +4181,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["LlmCredentialResource"];
+                    } | {
+                        data: components["schemas"]["LlmCredentialResource"];
+                        warning: string | "llm_secret_failed";
                     };
                 };
             };
