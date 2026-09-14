@@ -920,6 +920,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{organization}/logo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The organization's logo, for anyone at all
+         * @description PUBLIC AND ID-ADDRESSED, both deliberately, and both against the
+         *     doctrine the sibling endpoints in this controller follow — so the
+         *     departure is argued rather than assumed:
+         *
+         *       - Public, because the two readers that matter cannot present a token.
+         *         An email client fetches a remote image through its own proxy
+         *         (`EmailBranding`), and the candidate app paints the mark before the
+         *         candidate has exchanged their link. A logo is brand material an
+         *         organization already shows every candidate it invites; it is not
+         *         tenant data.
+         *       - Id-addressed, because `POST /organization/logo` resolves the org
+         *         from the authenticated user and there is no authenticated user here.
+         *         The id leaks nothing the response does not already publish, and a
+         *         missing organization and a missing logo both answer 404 so this
+         *         cannot be read as "does organization N exist".
+         *
+         *     A REDIRECT, not a stream: the bytes travel from the object store to the
+         *     client directly, so a logo on every candidate page and in every message
+         *     does not hold a PHP worker open for each transfer.
+         */
+        get: operations["organizations.logo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/participants": {
         parameters: {
             query?: never;
@@ -4327,6 +4365,29 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "organizations.logo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organization: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redirect to a short-lived signed URL for the stored logo. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+            404: components["responses"]["ModelNotFoundException"];
         };
     };
     "participant.index": {
