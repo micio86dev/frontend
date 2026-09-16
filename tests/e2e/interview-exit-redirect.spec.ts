@@ -110,8 +110,12 @@ async function mockInterviewRoutes(page: Page, exitRedirectUrl: string | null) {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
+      // The real endpoint returns `new ParticipantResource($participant)`,
+      // which Laravel wraps in a `data` envelope (`session.show` in
+      // `types/api.ts`) — this fixture must match, or it exercises a shape
+      // the server never sends.
       body: JSON.stringify({
-        project: { exit_redirect_url: exitRedirectUrl },
+        data: { project: { exit_redirect_url: exitRedirectUrl } },
       }),
     })
   })
