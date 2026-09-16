@@ -44,7 +44,15 @@ import { $fetch } from 'ofetch'
 import { Skeleton } from '~/components/ui/skeleton'
 import { apiUrl } from '~/app/utils/api-url'
 import { decodeJwtPayload } from '~/app/utils/jwt-decode'
+import { safeExternalRedirect } from '~/app/utils/safe-redirect'
 import { useCandidateSession, type CandidateSession } from '~/app/composables/useCandidateSession'
+import type { operations } from '~~/types/api'
+
+// Generated from openapi.json (`bun run codegen`) — never hand-maintained.
+type ExchangeResponse =
+  operations['ssoExchange.exchange']['responses'][200]['content']['application/json']
+type ExchangeForbidden =
+  operations['ssoExchange.exchange']['responses'][403]['content']['application/json']
 
 definePageMeta({ ssr: false })
 useHead({
@@ -59,6 +67,18 @@ const localePath = useLocalePath()
 
 function readErrorStatus(err: unknown): unknown {
   return (err as Record<string, unknown>)?.status ?? (err as Record<string, unknown>)?.statusCode
+}
+
+/**
+ * `SsoExchangeController`'s 403 body carries `redirect_url` — nullable,
+ * `$project->error_redirect_url` — on EVERY 403, not only the
+ * interviewability refusal (D6). `err.data` is typed against the generated
+ * 403 response shape; read defensively anyway — a runtime body that predates
+ * this field, or any unexpected error shape, must degrade to null, not throw.
+ */
+function readRedirectUrl(err: unknown): string | null {
+  const data = (err as Record<string, unknown>)?.data as Partial<ExchangeForbidden> | undefined
+  return typeof data?.redirect_url === 'string' ? data.redirect_url : null
 }
 
 /**
@@ -92,7 +112,7 @@ async function exchangeAndRedirect(): Promise<void> {
   }
 
   try {
-    const response = await $fetch<{ access_token: string }>(apiUrl('/sso/exchange'), {
+    const response = await $fetch<ExchangeResponse>(apiUrl('/sso/exchange'), {
       method: 'GET',
       params: { token },
     })
@@ -107,8 +127,22 @@ async function exchangeAndRedirect(): Promise<void> {
       return
     }
 
-    // 403 (gate/status refusal) and any other unexpected failure fall back
-    // to the existing generic terminal — no gate detail is ever disclosed.
+    if (status === 403) {
+      // Every 403 from `exchange` carries `redirect_url` uniformly (D6) — a
+      // field present on only the interviewability refusal would disclose
+      // which gate fired, defeating GENERIC_403. `safeExternalRedirect`
+      // applies the same https-only, well-formed rule `useExitRedirect`
+      // uses for `exit_redirect_url`/`error_redirect_url`; a refused or
+      // absent url falls through below unchanged.
+      const redirectUrl = readRedirectUrl(err)
+      if (safeExternalRedirect(redirectUrl, 'redirect_url')) {
+        return
+      }
+    }
+
+    // 403 with no usable redirect_url and any other unexpected failure fall
+    // back to the existing generic terminal — no gate detail is ever
+    // disclosed.
     await navigateTo(localePath('/interview/terminal?reason=403'), { replace: true })
   }
 }
