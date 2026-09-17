@@ -1714,6 +1714,30 @@ export interface paths {
         patch: operations["role.update"];
         trace?: never;
     };
+    "/catalogue/roles/{role}/competencies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * `PUT /catalogue/roles/{role}/competencies` (framework-catalogue-authoring
+         *     PR8b). Replaces the role's ENTIRE competency set in one locked write —
+         *     attach, detach and reorder are the same `sync()` call against a pivot
+         *     that already carries a `position` column, never three endpoints. Never
+         *     auto-opens a draft — see `UpdateRoleCompetenciesRequest`'s own
+         *     no-auto-open rationale, identical to `update()` above
+         */
+        put: operations["role.updateCompetencies"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/candidate/session": {
         parameters: {
             query?: never;
@@ -2253,6 +2277,7 @@ export interface components {
             responsibilities: {
                 [key: string]: string;
             };
+            competency_ids: number[];
         };
         /** CompetencyResource */
         CompetencyResource: {
@@ -3208,6 +3233,36 @@ export interface components {
          *     and FormRequest methods ensures the TenantScoped global scope is active at resolution time.
          */
         UpdateProjectRequest: Record<string, never>;
+        /**
+         * UpdateRoleCompetenciesRequest
+         * @description `PUT /api/catalogue/roles/{role}/competencies` (framework-catalogue-authoring
+         *     PR8b, `catalogue-authoring/spec.md`'s pivot CRUD requirement — PR3 shipped
+         *     role/competency/indicator CRUD with no way to change a role's competency
+         *     SET, so a newly created role could never be made usable).
+         *
+         *     ONE idempotent PUT replaces the whole set — attach, detach and reorder are
+         *     the same operation on a pivot that already carries a `position` column
+         *     (D1's `framework_role_competency` shape: PK `(revision_id, role_id,
+         *     competency_id)` + `position`), not three endpoints that could each apply
+         *     only partially and leave the set in a state no single request asked for.
+         *
+         *     Read-only draft resolution (`existingOpenDraftRevisionId()`), matching
+         *     `UpdateRoleRequest`'s own no-auto-open rationale: the role named in the
+         *     URL either already belongs to an existing open draft or it does not exist
+         *     to update at all — auto-opening a fresh clone here would copy ~450 rows
+         *     only to 404 immediately after, since a freshly-cloned role's id can never
+         *     equal the id in the URL.
+         */
+        UpdateRoleCompetenciesRequest: {
+            /**
+             * @description `present`, not `required` — an EMPTY array is a legal payload
+             *     (detach every competency from the role) and Laravel's
+             *     `required` rule treats an empty array as "absent", which
+             *     would wrongly refuse the exact "detach everything" case this
+             *     endpoint exists to support.
+             */
+            competency_ids: number[];
+        };
         /**
          * UpdateRoleRequest
          * @description `PATCH /api/catalogue/roles/{role}` (framework-catalogue-authoring PR3).
@@ -5638,7 +5693,6 @@ export interface operations {
                     display_name: string;
                     role_code?: string | null;
                     language?: string | null;
-                    status?: string | null;
                 };
             };
         };
@@ -5653,6 +5707,18 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        /** @enum {string|null} */
+                        reason: "duplicate_candidate_ref" | "duplicate_email" | null;
+                    };
+                };
+            };
             422: components["responses"]["ValidationException"];
         };
     };
@@ -6594,37 +6660,11 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        violations: string[] | [
-                            [
-                                {
-                                    /** @constant */
-                                    rule: "roles_closed_set";
-                                    subject: string;
-                                    detail: string;
-                                }
-                            ] | string[],
-                            unknown[],
-                            unknown[],
-                            unknown[],
-                            unknown[],
-                            unknown[],
-                            unknown[],
-                            unknown[],
-                            {
-                                /** @constant */
-                                rule: "cross_role_duplicate_anchor_new_to_revision";
-                                subject: string;
-                                detail: string;
-                            }[]
-                        ] | [
-                            {
-                                /** @constant */
-                                rule: "revision_already_published";
-                                subject: string;
-                                /** @constant */
-                                detail: "a concurrent publish already completed; this revision is no longer a draft";
-                            }
-                        ];
+                        violations: {
+                            rule: string;
+                            subject: string;
+                            detail: string;
+                        }[];
                     };
                 };
             };
@@ -6782,6 +6822,63 @@ export interface operations {
         requestBody?: {
             content: {
                 "application/json": components["schemas"]["UpdateRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description `CatalogueRoleResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CatalogueRoleResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            /** @description An error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string;
+                        message: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "role.updateCompetencies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                role: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRoleCompetenciesRequest"];
             };
         };
         responses: {
@@ -7384,6 +7481,17 @@ export interface operations {
                 };
             };
             422: components["responses"]["ValidationException"];
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        error: "utterance_lock_timeout";
+                    };
+                };
+            };
         };
     };
     "m2m.whoami": {
