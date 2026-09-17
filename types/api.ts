@@ -388,6 +388,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/catalogue/bars-indicators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["barsIndicator.index"];
+        put?: never;
+        post: operations["barsIndicator.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalogue/bars-indicators/{indicator}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["barsIndicator.destroy"];
+        options?: never;
+        head?: never;
+        patch: operations["barsIndicator.update"];
+        trace?: never;
+    };
+    "/catalogue/competencies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["competency.index"];
+        put?: never;
+        post: operations["competency.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalogue/competencies/{competency}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["competency.destroy"];
+        options?: never;
+        head?: never;
+        patch: operations["competency.update"];
+        trace?: never;
+    };
     "/dashboard/metrics": {
         parameters: {
             query?: never;
@@ -431,6 +495,49 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/catalogue/default-questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["defaultQuestion.index"];
+        put?: never;
+        post: operations["defaultQuestion.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalogue/default-questions/{defaultQuestion}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Pre-publish only — a default question's revision is, by definition,
+         *     always an open draft here (a published revision's content never
+         *     reaches this far: `findOrFail` scoped to the open draft 404s first)
+         */
+        delete: operations["defaultQuestion.destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * Never opens a draft (gga review finding on the sibling controllers,
+         *     applied here from the start) — the target `$defaultQuestion` either
+         *     already belongs to an existing open draft or it does not exist to
+         *     update at all
+         */
+        patch: operations["defaultQuestion.update"];
         trace?: never;
     };
     "/entry-links": {
@@ -687,6 +794,10 @@ export interface paths {
          * Create or resume a provider session for the next competency interview
          * @description Sequence (from design data flow — CRITICAL: provider call is OUTSIDE any DB txn):
          *     (1) Resolve next competency by project_competencies.position ASC.
+         *     (1b) `ProjectInterviewability` gate (framework-catalogue-authoring PR6,
+         *          D5/D6) — 422 `project_not_interviewable`, skipped when a session
+         *          already exists for THIS competency; see the gate's own inline
+         *          comment for the whole-project vs. per-competency distinction.
          *     (2) Create-or-RESUME: INSERT or catch UniqueConstraintViolationException → re-query.
          *     (3) ProviderSessionService.issue() — OUTSIDE any DB transaction.
          *     (4a) Provider success → short DB txn: UPDATE session + participant (FIX-8).
@@ -1503,6 +1614,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/catalogue/revisions/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * READ-ONLY (gga review finding, blocking): this used to auto-open a
+         *     draft on every call, which breaks HTTP safety on a GET — a prefetch,
+         *     retry, or monitoring probe from a superadmin session would clone
+         *     ~450 rows for a request nobody asked to be a write. Auto-open on
+         *     "first edit" still happens, correctly, where an edit actually
+         *     occurs — via each catalogue-write FormRequest's own
+         *     `ResolvesOpenDraftRevision::openDraftRevisionId()` (framework-
+         *     catalogue-authoring PR3b, H5; not the controller body directly, and
+         *     not called a second time there). This endpoint only reports whatever
+         *     is currently true — `null` when nothing is open yet
+         */
+        get: operations["revision.current"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalogue/revisions/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * `422` with the FULL violations list on a failing sweep — one response
+         *     naming every problem, `state` left `draft` (design D3)
+         */
+        post: operations["revision.publish"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalogue/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["role.index"];
+        put?: never;
+        /**
+         * `responsibilities` is optional on `StoreRoleRequest` — matching the
+         *     seeder's own "not yet authored" sentinel (a blank `en` value, not an
+         *     ABSENT column: `responsibilities` has no DB default and is NOT
+         *     NULL). A `create()` call that never mentions the key writes SQL
+         *     NULL, not an empty locale map, so it is defaulted here to keep the
+         *     two "not yet authored" representations in agreement
+         */
+        post: operations["role.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalogue/roles/{role}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Pre-publish only — a role's revision is, by definition, always an
+         *     open draft here (a published revision's content never reaches this
+         *     far: `findOrFail` scoped to the open draft 404s first)
+         */
+        delete: operations["role.destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * Never opens a draft (gga review finding) — the target `$role` either
+         *     already belongs to an existing open draft or it does not exist to
+         *     update at all; opening a fresh clone here would copy ~450 rows only
+         *     to 404 immediately after, since a freshly-cloned row's id can never
+         *     equal the id named in the URL
+         */
+        patch: operations["role.update"];
+        trace?: never;
+    };
     "/candidate/session": {
         parameters: {
             query?: never;
@@ -1979,6 +2190,70 @@ export interface components {
             anchor_1: string;
             translation_gap: boolean;
         };
+        /** CatalogueBarsIndicatorResource */
+        CatalogueBarsIndicatorResource: {
+            id: number;
+            revision_id: number;
+            role_id: number | null;
+            competency_id: number;
+            position: number;
+            text: {
+                [key: string]: string;
+            };
+            anchor_5: {
+                [key: string]: string;
+            };
+            anchor_3: {
+                [key: string]: string;
+            };
+            anchor_1: {
+                [key: string]: string;
+            };
+        };
+        /** CatalogueCompetencyResource */
+        CatalogueCompetencyResource: {
+            id: number;
+            code: string;
+            revision_id: number;
+            type: string;
+            name: {
+                [key: string]: string;
+            };
+            definition: {
+                [key: string]: string;
+            };
+        };
+        /** CatalogueDefaultQuestionResource */
+        CatalogueDefaultQuestionResource: {
+            id: number;
+            competency_id: number;
+            revision_id: number;
+            position: number;
+            text: {
+                [key: string]: string;
+            };
+        };
+        /** CatalogueRevisionResource */
+        CatalogueRevisionResource: {
+            id: number;
+            state: string;
+            is_baseline: boolean;
+            label: string | null;
+            published_at: string | null;
+            parent_revision_id: number | null;
+        };
+        /** CatalogueRoleResource */
+        CatalogueRoleResource: {
+            id: number;
+            code: string;
+            revision_id: number;
+            name: {
+                [key: string]: string;
+            };
+            responsibilities: {
+                [key: string]: string;
+            };
+        };
         /** CompetencyResource */
         CompetencyResource: {
             id: number;
@@ -2420,6 +2695,82 @@ export interface components {
             llm_cost_usd: number | null;
         };
         /**
+         * StoreBarsIndicatorRequest
+         * @description `POST /api/catalogue/bars-indicators` (framework-catalogue-authoring
+         *     PR3, D3). Refuses a 4th indicator for `(revision, role, competency)` —
+         *     `catalogue-authoring` spec: "Each BARS indicator write MUST enforce
+         *      * exactly 3 indicators per role×competency pair ... at the FormRequest and
+         *      * DB-constraint layer, not only at seed time."
+         */
+        StoreBarsIndicatorRequest: {
+            text: {
+                en: string;
+                it?: string;
+            };
+            anchor_5: {
+                en: string;
+                it?: string;
+            };
+            anchor_3: {
+                en: string;
+                it?: string;
+            };
+            anchor_1: {
+                en: string;
+                it?: string;
+            };
+            competency_id: number;
+            position: number;
+            /**
+             * @description Nullable: a `potential` competency's indicators MUST carry
+             *     `role_id = null` (PublishRevision's own sweep, D3) — the
+             *     FormRequest does not refuse null here, only validates the
+             *     value's shape when present.
+             */
+            role_id?: number | null;
+        };
+        /**
+         * StoreCompetencyRequest
+         * @description `POST /api/catalogue/competencies` (framework-catalogue-authoring PR3).
+         */
+        StoreCompetencyRequest: {
+            name: {
+                en: string;
+                it?: string;
+            };
+            definition: {
+                en: string;
+                it?: string;
+            };
+            code: string;
+            /** @enum {string} */
+            type: "standard" | "potential";
+        };
+        /**
+         * StoreDefaultQuestionRequest
+         * @description `POST /api/catalogue/default-questions` (framework-catalogue-authoring
+         *     PR4, catalogue-authoring spec — "Catalogue-Level Default Questions Per
+         *      * Competency").
+         *
+         *     Both `en` AND `it` are mandatory here — deliberately stricter than every
+         *     other catalogue FormRequest's `localeMapRules()` default (`en` mandatory,
+         *     `it` optional-but-non-blank-when-present, `StoreRoleRequest`/
+         *     `StoreCompetencyRequest`/`StoreBarsIndicatorRequest`'s own shape). A
+         *     default question is a TEMPLATE `ApplyCompetencySelection` (PR5) copies
+         *     verbatim into `project_questions` the moment a project first selects the
+         *     competency, in whatever language that project runs in — an operator
+         *     authoring one in `en` only would silently ship an Italian project a blank
+         *     question the day it is first selected, with no later gate to catch it.
+         */
+        StoreDefaultQuestionRequest: {
+            text: {
+                en: string;
+                it: string;
+            };
+            competency_id: number;
+            position: number;
+        };
+        /**
          * StorePlatformUserRequest
          * @description Validates POST /api/admin/platform-users (platform-user-management D2).
          *
@@ -2466,9 +2817,19 @@ export interface components {
          */
         StoreProjectQuestionRequest: {
             /**
-             * @description Scoped to the catalogue, not to the project's own competencies:
-             *     the cross-check that the competency actually belongs to this
-             *     project's type happens below, where the reason can be stated.
+             * @description Scoped to the catalogue, not to the project's own SELECTED
+             *     competencies: the cross-check that the competency actually
+             *     belongs to this project's type happens below, where the reason
+             *     can be stated. Scoped to the PROJECT'S OWN pinned revision,
+             *     though (framework-catalogue-authoring PR3b, H1) — an unscoped
+             *     `exists` would accept a competency id from an open draft's
+             *     clone of the same catalogue, letting an operator author a
+             *     question against content nobody has published yet.
+             *     `tryForProject()`, never `forProject()`: this runs inside
+             *     `rules()`, before validation — an unresolvable pin must
+             *     degrade to "match nothing" (`null` → `whereNull`), never an
+             *     uncaught 500 (gga review finding, same doctrine as
+             *     `StoreProjectRequest`/`UpdateProjectRequest`).
              */
             competency_id: number;
             text: {
@@ -2530,6 +2891,28 @@ export interface components {
             goes_live_at?: string | null;
         };
         /**
+         * StoreRoleRequest
+         * @description `POST /api/catalogue/roles` (framework-catalogue-authoring PR3, D3/D12).
+         *
+         *     The five roles are a closed set (ICO/FLL/MLL/BUL/SRX) — `catalogue-
+         *     authoring` spec: "Creating a sixth role MUST be rejected". `authorize()`
+         *     still repeats the superadmin check (`StorePlatformUserRequest`'s own
+         *     precedent): a FormRequest validates BEFORE the controller runs, so an
+         *     unauthorized caller must get 403 before 422 enumerates this endpoint's
+         *     field rules.
+         */
+        StoreRoleRequest: {
+            name: {
+                en: string;
+                it?: string;
+            };
+            responsibilities?: {
+                en?: string;
+                it?: string;
+            };
+            code: string;
+        };
+        /**
          * StoreUserRequest
          * @description StoreUserRequest (backoffice-missing-pages D4).
          *
@@ -2568,6 +2951,66 @@ export interface components {
                     ts: string | null;
                 }[];
             }[];
+        };
+        /**
+         * UpdateBarsIndicatorRequest
+         * @description `PATCH /api/catalogue/bars-indicators/{indicator}` (framework-catalogue-
+         *     authoring PR3). No 4th-indicator check here — editing text/anchors on an
+         *     EXISTING row never changes the count for its pair. Reassigning
+         *     `role_id`/`competency_id` on an existing indicator is out of scope for
+         *     this PR (D3's twin scopes the count check to creation).
+         */
+        UpdateBarsIndicatorRequest: {
+            text?: {
+                en?: string;
+                it?: string;
+            };
+            anchor_5?: {
+                en?: string;
+                it?: string;
+            };
+            anchor_3?: {
+                en?: string;
+                it?: string;
+            };
+            anchor_1?: {
+                en?: string;
+                it?: string;
+            };
+            position?: number;
+        };
+        /**
+         * UpdateCompetencyRequest
+         * @description `PATCH /api/catalogue/competencies/{competency}` (framework-catalogue-
+         *     authoring PR3).
+         */
+        UpdateCompetencyRequest: {
+            name?: {
+                en?: string;
+                it?: string;
+            };
+            definition?: {
+                en?: string;
+                it?: string;
+            };
+            code?: string;
+            /** @enum {string} */
+            type?: "standard" | "potential";
+        };
+        /**
+         * UpdateDefaultQuestionRequest
+         * @description `PATCH /api/catalogue/default-questions/{defaultQuestion}` (framework-
+         *     catalogue-authoring PR4). No `competency_id` re-scoping on PATCH — moving
+         *     an existing default to another competency is out of scope for this PR,
+         *     same doctrine as `UpdateBarsIndicatorRequest`'s own note about
+         *     reassigning `role_id`/`competency_id`.
+         */
+        UpdateDefaultQuestionRequest: {
+            text?: {
+                en?: string;
+                it?: string;
+            };
+            position?: number;
         };
         /**
          * UpdateOrganizationRequest
@@ -2765,6 +3208,23 @@ export interface components {
          *     and FormRequest methods ensures the TenantScoped global scope is active at resolution time.
          */
         UpdateProjectRequest: Record<string, never>;
+        /**
+         * UpdateRoleRequest
+         * @description `PATCH /api/catalogue/roles/{role}` (framework-catalogue-authoring PR3).
+         *     No sixth-role check here — that only applies to creating a NEW role;
+         *     renaming an existing one never changes the count.
+         */
+        UpdateRoleRequest: {
+            name?: {
+                en?: string;
+                it?: string;
+            };
+            responsibilities?: {
+                en?: string;
+                it?: string;
+            };
+            code?: string;
+        };
         /**
          * UpdateUserRequest
          * @description UpdateUserRequest (backoffice-missing-pages D4).
@@ -3156,6 +3616,9 @@ export interface operations {
                             platformSettings: {
                                 viewAny: boolean;
                             };
+                            catalogue: {
+                                manage: boolean;
+                            };
                         };
                     };
                 };
@@ -3521,6 +3984,400 @@ export interface operations {
             422: components["responses"]["ValidationException"];
         };
     };
+    "barsIndicator.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `CatalogueBarsIndicatorResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CatalogueBarsIndicatorResource"][];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description An error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+        };
+    };
+    "barsIndicator.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreBarsIndicatorRequest"];
+            };
+        };
+        responses: {
+            /** @description `CatalogueBarsIndicatorResource` */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CatalogueBarsIndicatorResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string;
+                        message: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "barsIndicator.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                indicator: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description An error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+            /** @description An error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string;
+                        message: string;
+                    };
+                };
+            };
+        };
+    };
+    "barsIndicator.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                indicator: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateBarsIndicatorRequest"];
+            };
+        };
+        responses: {
+            /** @description `CatalogueBarsIndicatorResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CatalogueBarsIndicatorResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            /** @description An error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string;
+                        message: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "competency.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `CatalogueCompetencyResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CatalogueCompetencyResource"][];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description An error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+        };
+    };
+    "competency.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreCompetencyRequest"];
+            };
+        };
+        responses: {
+            /** @description `CatalogueCompetencyResource` */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CatalogueCompetencyResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string;
+                        message: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "competency.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                competency: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description An error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+            /** @description An error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string;
+                        message: string;
+                    };
+                };
+            };
+        };
+    };
+    "competency.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                competency: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateCompetencyRequest"];
+            };
+        };
+        responses: {
+            /** @description `CatalogueCompetencyResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CatalogueCompetencyResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            /** @description An error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string;
+                        message: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
     "dashboard.metrics": {
         parameters: {
             query?: {
@@ -3582,6 +4439,203 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "defaultQuestion.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `CatalogueDefaultQuestionResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CatalogueDefaultQuestionResource"][];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description An error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+        };
+    };
+    "defaultQuestion.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreDefaultQuestionRequest"];
+            };
+        };
+        responses: {
+            /** @description `CatalogueDefaultQuestionResource` */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CatalogueDefaultQuestionResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string;
+                        message: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "defaultQuestion.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                defaultQuestion: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description An error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+            /** @description An error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string;
+                        message: string;
+                    };
+                };
+            };
+        };
+    };
+    "defaultQuestion.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                defaultQuestion: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateDefaultQuestionRequest"];
+            };
+        };
+        responses: {
+            /** @description `CatalogueDefaultQuestionResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CatalogueDefaultQuestionResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            /** @description An error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string;
+                        message: string;
+                    };
+                };
+            };
             422: components["responses"]["ValidationException"];
         };
     };
@@ -5447,6 +6501,332 @@ export interface operations {
             422: components["responses"]["ValidationException"];
         };
     };
+    "revision.current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CatalogueRevisionResource"] | null;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description An error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+        };
+    };
+    "revision.publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CatalogueRevisionResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description An error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+            /** @description An error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example no open draft revision to publish
+                         */
+                        message: string;
+                    };
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        violations: string[] | [
+                            [
+                                {
+                                    /** @constant */
+                                    rule: "roles_closed_set";
+                                    subject: string;
+                                    detail: string;
+                                }
+                            ] | string[],
+                            unknown[],
+                            unknown[],
+                            unknown[],
+                            unknown[],
+                            unknown[],
+                            unknown[],
+                            unknown[],
+                            {
+                                /** @constant */
+                                rule: "cross_role_duplicate_anchor_new_to_revision";
+                                subject: string;
+                                detail: string;
+                            }[]
+                        ] | [
+                            {
+                                /** @constant */
+                                rule: "revision_already_published";
+                                subject: string;
+                                /** @constant */
+                                detail: "a concurrent publish already completed; this revision is no longer a draft";
+                            }
+                        ];
+                    };
+                };
+            };
+        };
+    };
+    "role.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `CatalogueRoleResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CatalogueRoleResource"][];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description An error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+        };
+    };
+    "role.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description `CatalogueRoleResource` */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CatalogueRoleResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string;
+                        message: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "role.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                role: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description An error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+            /** @description An error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string;
+                        message: string;
+                    };
+                };
+            };
+        };
+    };
+    "role.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                role: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description `CatalogueRoleResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CatalogueRoleResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            /** @description An error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string;
+                        message: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
     "session.show": {
         parameters: {
             query?: never;
@@ -5598,6 +6978,7 @@ export interface operations {
                     "application/json": {
                         /** @constant */
                         message: "Access denied.";
+                        redirect_url: string | null;
                     };
                 };
             };
