@@ -1664,7 +1664,17 @@ export interface paths {
          *     `404` when no published revision exists to clone from.
          */
         post: operations["revision.openDraft"];
-        delete?: never;
+        /**
+         * Abandons the open draft entirely — every uncommitted role, competency,
+         *     BARS indicator and default question it holds. The catalogue reverts to
+         *     showing the latest PUBLISHED revision, read-only, exactly the state it
+         *     was in before `openDraft()` was ever called
+         * @description `404` when no draft is open — nothing to discard. `409` when a
+         *     concurrent write or publish raced this request for the revision lock
+         *     (`RevisionPublishedDuringWriteException`, same contract every other
+         *     catalogue write already answers with).
+         */
+        delete: operations["revision.discard"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3261,7 +3271,41 @@ export interface components {
          *     would resolve Project before the tenant scope is set). Manual findOrFail() inside controller
          *     and FormRequest methods ensures the TenantScoped global scope is active at resolution time.
          */
-        UpdateProjectRequest: Record<string, never>;
+        UpdateProjectRequest: {
+            slug?: string;
+            name?: string;
+            /** @enum {string} */
+            assessment_type?: "standard" | "potential";
+            role_code?: string | null;
+            /** @enum {string} */
+            language?: "it" | "en";
+            /**
+             * @description Approved status enum: draft|active|archived (no gone_live)
+             * @enum {string}
+             */
+            status?: "draft" | "active" | "archived";
+            competency_ids?: number[] | null;
+            pause_every_n_competencies?: number | null;
+            nudge_min_chars?: number | null;
+            /** Format: uri */
+            exit_redirect_url?: string | null;
+            /** Format: uri */
+            error_redirect_url?: string | null;
+            /** Format: uri */
+            webhook_url?: string | null;
+            /** @description `sometimes` WITHOUT `nullable`: see `avatarTemplateRule()`. */
+            avatar_template_id?: number;
+            webhook_secret?: string | null;
+            /**
+             * @description Closed event-type set (C10 D10) — not env-overridable, so Rule::in reads
+             *     the config, never a hardcoded list.
+             */
+            webhook_events?: ("progress" | "evaluation")[];
+            /** Format: date-time */
+            deadline_at?: string | null;
+            /** Format: date-time */
+            goes_live_at?: string | null;
+        };
         /**
          * UpdateRoleCompetenciesRequest
          * @description `PUT /api/catalogue/roles/{role}/competencies` (framework-catalogue-authoring
@@ -6282,9 +6326,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["UpdateProjectRequest"] & {
-                    competency_ids?: string;
-                };
+                "application/json": components["schemas"]["UpdateProjectRequest"];
             };
         };
         responses: {
@@ -6676,6 +6718,69 @@ export interface operations {
                          * @description Error overview.
                          * @example
                          */
+                        message: string;
+                    };
+                };
+            };
+        };
+    };
+    "revision.discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CatalogueRevisionResource"] | null;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description An error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+            /** @description An error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example no open draft revision to discard
+                         */
+                        message: string;
+                    };
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: string;
                         message: string;
                     };
                 };
