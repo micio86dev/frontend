@@ -4,6 +4,10 @@
  * D10: fetches GET /api/candidate/session once, caches project.exit_redirect_url,
  * and redirects only for a validated https:// URL (open-redirect / downgrade hardening).
  *
+ * `GET /api/candidate/session` returns `new ParticipantResource($participant)`, and
+ * Laravel wraps every `JsonResource` in a `data` envelope — every mock below reflects
+ * that shape. `session.show` in the generated `types/api.ts` agrees.
+ *
  * Coverage targets:
  *  - fetchSession() calls $fetch GET /candidate/session and caches exit_redirect_url
  *  - fetchSession() failure degrades to null (no throw) — static done branch fallback
@@ -14,6 +18,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import type { operations } from '~~/types/api'
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks — must be defined before any other imports using vi.hoisted
@@ -77,13 +82,59 @@ afterEach(() => {
 })
 
 // ---------------------------------------------------------------------------
+// Fixture helper — builds a response the generated `session.show` type
+// accepts, so every call site below sends the real `{ data: {...} }`
+// envelope a mock without it can never produce.
+// ---------------------------------------------------------------------------
+
+type SessionShowResponse =
+  operations['session.show']['responses'][200]['content']['application/json']
+type Participant = SessionShowResponse['data']
+type ProjectFields = NonNullable<Participant['project']>
+
+function sessionResponse(overrides: {
+  project: Partial<ProjectFields> | null
+  branding?: Participant['branding']
+}): SessionShowResponse {
+  const project: Participant['project'] = overrides.project
+    ? {
+        id: 1,
+        role_code: null,
+        language: 'en',
+        assessment_type: 'standard',
+        exit_redirect_url: null,
+        error_redirect_url: null,
+        ...overrides.project,
+      }
+    : null
+
+  return {
+    data: {
+      id: 1,
+      candidate_ref: 'candidate-ref',
+      display_name: 'Jane Doe',
+      role_code: null,
+      language: 'en',
+      status: 'in_corso',
+      started_at: null,
+      completed_at: null,
+      created_at: null,
+      branding: overrides.branding ?? { name: null, primary_color: null, logo_url: null },
+      project,
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe('useExitRedirect', () => {
   describe('fetchSession()', () => {
     it('calls candidateFetch with the /candidate/session endpoint', async () => {
-      mockCandidateFetch.mockResolvedValueOnce({ project: { exit_redirect_url: null } })
+      mockCandidateFetch.mockResolvedValueOnce(
+        sessionResponse({ project: { exit_redirect_url: null } })
+      )
 
       const { fetchSession } = useExitRedirect()
       await fetchSession()
@@ -94,9 +145,9 @@ describe('useExitRedirect', () => {
     })
 
     it('caches project.exit_redirect_url from the response', async () => {
-      mockCandidateFetch.mockResolvedValueOnce({
-        project: { exit_redirect_url: 'https://hr.acme.com/beai/done' },
-      })
+      mockCandidateFetch.mockResolvedValueOnce(
+        sessionResponse({ project: { exit_redirect_url: 'https://hr.acme.com/beai/done' } })
+      )
 
       const { fetchSession, exitRedirectUrl } = useExitRedirect()
       await fetchSession()
@@ -105,7 +156,9 @@ describe('useExitRedirect', () => {
     })
 
     it('null exit_redirect_url on the response → cached as null', async () => {
-      mockCandidateFetch.mockResolvedValueOnce({ project: { exit_redirect_url: null } })
+      mockCandidateFetch.mockResolvedValueOnce(
+        sessionResponse({ project: { exit_redirect_url: null } })
+      )
 
       const { fetchSession, exitRedirectUrl } = useExitRedirect()
       await fetchSession()
@@ -123,12 +176,36 @@ describe('useExitRedirect', () => {
     })
 
     it('a null project on the response → cached as null (no crash)', async () => {
-      mockCandidateFetch.mockResolvedValueOnce({ project: null })
+      mockCandidateFetch.mockResolvedValueOnce(sessionResponse({ project: null }))
 
       const { fetchSession, exitRedirectUrl } = useExitRedirect()
       await fetchSession()
 
       expect(exitRedirectUrl.value).toBeNull()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Contract guard — a mock built from the generated `session.show` type
+  // fails `bun run typecheck` the moment somebody drops the `data` envelope,
+  // catching the exact regression this file exists to prevent before any
+  // test even runs.
+  // ---------------------------------------------------------------------------
+
+  describe('session.show contract guard', () => {
+    it('accepts the real wrapped envelope the generated type describes', async () => {
+      const wrapped: SessionShowResponse = sessionResponse({
+        project: { exit_redirect_url: 'https://hr.acme.com/beai/done' },
+      })
+      // Structural proof the fixture IS the generated response shape, not a
+      // hand-rolled lookalike — this assignment is the compile-time guard.
+      const typed: SessionShowResponse = wrapped
+      mockCandidateFetch.mockResolvedValueOnce(typed)
+
+      const { fetchSession, exitRedirectUrl } = useExitRedirect()
+      await fetchSession()
+
+      expect(exitRedirectUrl.value).toBe('https://hr.acme.com/beai/done')
     })
   })
 
@@ -146,7 +223,9 @@ describe('useExitRedirect', () => {
     })
 
     it('a successful fetch leaves sessionFetchFailed null', async () => {
-      mockCandidateFetch.mockResolvedValueOnce({ project: { exit_redirect_url: null } })
+      mockCandidateFetch.mockResolvedValueOnce(
+        sessionResponse({ project: { exit_redirect_url: null } })
+      )
 
       const { fetchSession, sessionFetchFailed } = useExitRedirect()
       await fetchSession()
@@ -176,7 +255,9 @@ describe('useExitRedirect', () => {
       // candidateFetch owns the Authorization header (D-B); this call site
       // never builds its own headers. Covered directly in candidate-api.spec.ts;
       // asserted here as the integration point.
-      mockCandidateFetch.mockResolvedValueOnce({ project: { exit_redirect_url: null } })
+      mockCandidateFetch.mockResolvedValueOnce(
+        sessionResponse({ project: { exit_redirect_url: null } })
+      )
 
       const { fetchSession } = useExitRedirect()
       await fetchSession()
@@ -205,7 +286,9 @@ describe('useExitRedirect', () => {
 
   describe('redirect()', () => {
     it('null exit_redirect_url → no navigation, returns false', async () => {
-      mockCandidateFetch.mockResolvedValueOnce({ project: { exit_redirect_url: null } })
+      mockCandidateFetch.mockResolvedValueOnce(
+        sessionResponse({ project: { exit_redirect_url: null } })
+      )
 
       const { fetchSession, redirect } = useExitRedirect()
       await fetchSession()
@@ -217,7 +300,9 @@ describe('useExitRedirect', () => {
     })
 
     it('empty-string exit_redirect_url → no navigation, returns false', async () => {
-      mockCandidateFetch.mockResolvedValueOnce({ project: { exit_redirect_url: '' } })
+      mockCandidateFetch.mockResolvedValueOnce(
+        sessionResponse({ project: { exit_redirect_url: '' } })
+      )
 
       const { fetchSession, redirect } = useExitRedirect()
       await fetchSession()
@@ -229,9 +314,11 @@ describe('useExitRedirect', () => {
     })
 
     it('https:// URL → navigateTo(url, { external: true, replace: true }), returns true', async () => {
-      mockCandidateFetch.mockResolvedValueOnce({
-        project: { exit_redirect_url: 'https://hr.acme.com/beai/done?ref=acme-672' },
-      })
+      mockCandidateFetch.mockResolvedValueOnce(
+        sessionResponse({
+          project: { exit_redirect_url: 'https://hr.acme.com/beai/done?ref=acme-672' },
+        })
+      )
 
       const { fetchSession, redirect } = useExitRedirect()
       await fetchSession()
@@ -246,9 +333,9 @@ describe('useExitRedirect', () => {
     })
 
     it('Verification Finding #1 — https:// URL redirect() clears the candidate session before navigating', async () => {
-      mockCandidateFetch.mockResolvedValueOnce({
-        project: { exit_redirect_url: 'https://hr.acme.com/beai/done' },
-      })
+      mockCandidateFetch.mockResolvedValueOnce(
+        sessionResponse({ project: { exit_redirect_url: 'https://hr.acme.com/beai/done' } })
+      )
 
       const { fetchSession, redirect } = useExitRedirect()
       await fetchSession()
@@ -259,9 +346,9 @@ describe('useExitRedirect', () => {
 
     it('http:// URL → refused, no navigateTo call, console.warn logged', async () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      mockCandidateFetch.mockResolvedValueOnce({
-        project: { exit_redirect_url: 'http://insecure.example.com/done' },
-      })
+      mockCandidateFetch.mockResolvedValueOnce(
+        sessionResponse({ project: { exit_redirect_url: 'http://insecure.example.com/done' } })
+      )
 
       const { fetchSession, redirect } = useExitRedirect()
       await fetchSession()
@@ -282,9 +369,9 @@ describe('useExitRedirect', () => {
 
     it('malformed URL → refused, no navigateTo call, console.warn logged', async () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      mockCandidateFetch.mockResolvedValueOnce({
-        project: { exit_redirect_url: 'not-a-url' },
-      })
+      mockCandidateFetch.mockResolvedValueOnce(
+        sessionResponse({ project: { exit_redirect_url: 'not-a-url' } })
+      )
 
       const { fetchSession, redirect } = useExitRedirect()
       await fetchSession()
@@ -310,12 +397,14 @@ describe('useExitRedirect', () => {
 
 describe('useExitRedirect — error destination', () => {
   it('caches error_redirect_url from the same session fetch', async () => {
-    mockCandidateFetch.mockResolvedValueOnce({
-      project: {
-        exit_redirect_url: 'https://hr.test/done',
-        error_redirect_url: 'https://hr.test/failed',
-      },
-    })
+    mockCandidateFetch.mockResolvedValueOnce(
+      sessionResponse({
+        project: {
+          exit_redirect_url: 'https://hr.test/done',
+          error_redirect_url: 'https://hr.test/failed',
+        },
+      })
+    )
 
     const r = useExitRedirect()
     await r.fetchSession()
@@ -331,9 +420,9 @@ describe('useExitRedirect — error destination', () => {
     // The api may not expose the field yet — the committed OpenAPI snapshot
     // lags a backend release. Forward-compatibility here is what lets the two
     // repos merge in either order.
-    mockCandidateFetch.mockResolvedValueOnce({
-      project: { exit_redirect_url: 'https://hr.test/done' },
-    })
+    mockCandidateFetch.mockResolvedValueOnce(
+      sessionResponse({ project: { exit_redirect_url: 'https://hr.test/done' } })
+    )
 
     const r = useExitRedirect()
     await r.fetchSession()
@@ -343,9 +432,11 @@ describe('useExitRedirect — error destination', () => {
   })
 
   it('redirects to a validated https error url', async () => {
-    mockCandidateFetch.mockResolvedValueOnce({
-      project: { exit_redirect_url: null, error_redirect_url: 'https://hr.test/failed' },
-    })
+    mockCandidateFetch.mockResolvedValueOnce(
+      sessionResponse({
+        project: { exit_redirect_url: null, error_redirect_url: 'https://hr.test/failed' },
+      })
+    )
 
     const r = useExitRedirect()
     await r.fetchSession()
@@ -358,9 +449,11 @@ describe('useExitRedirect — error destination', () => {
   })
 
   it('Verification Finding #1 — redirectToError() clears the candidate session before navigating', async () => {
-    mockCandidateFetch.mockResolvedValueOnce({
-      project: { exit_redirect_url: null, error_redirect_url: 'https://hr.test/failed' },
-    })
+    mockCandidateFetch.mockResolvedValueOnce(
+      sessionResponse({
+        project: { exit_redirect_url: null, error_redirect_url: 'https://hr.test/failed' },
+      })
+    )
 
     const r = useExitRedirect()
     await r.fetchSession()
@@ -372,9 +465,11 @@ describe('useExitRedirect — error destination', () => {
   it('refuses an http error url', async () => {
     // A downgrade mid-failure is exactly when a candidate is least likely to
     // notice the address bar.
-    mockCandidateFetch.mockResolvedValueOnce({
-      project: { exit_redirect_url: null, error_redirect_url: 'http://hr.test/failed' },
-    })
+    mockCandidateFetch.mockResolvedValueOnce(
+      sessionResponse({
+        project: { exit_redirect_url: null, error_redirect_url: 'http://hr.test/failed' },
+      })
+    )
 
     const r = useExitRedirect()
     await r.fetchSession()
@@ -384,9 +479,11 @@ describe('useExitRedirect — error destination', () => {
   })
 
   it('refuses a malformed error url', async () => {
-    mockCandidateFetch.mockResolvedValueOnce({
-      project: { exit_redirect_url: null, error_redirect_url: 'not a url' },
-    })
+    mockCandidateFetch.mockResolvedValueOnce(
+      sessionResponse({
+        project: { exit_redirect_url: null, error_redirect_url: 'not a url' },
+      })
+    )
 
     const r = useExitRedirect()
     await r.fetchSession()

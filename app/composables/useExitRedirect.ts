@@ -6,6 +6,12 @@
  * the `done` state itself — a network failure at the very end must not strand the
  * candidate on a blank screen) and caches `project.exit_redirect_url`.
  *
+ * The endpoint returns `new ParticipantResource($participant)`, so the body is
+ * `{ data: { project, branding, ... } }` — Laravel wraps every `JsonResource`
+ * response. This composable reads `response.data`; reading the fields
+ * unwrapped silently resolved to `undefined` on every field in production
+ * (branding and both redirect URLs), the bug this file was fixed for.
+ *
  * `redirect()` navigates only for a validated `https://` URL (open-redirect /
  * downgrade hardening — `StoreProjectRequest.php:74` accepts `http://`, so the
  * client refuses it here). A null/empty/invalid/non-https URL is a no-op: the
@@ -25,6 +31,16 @@ import { ref } from 'vue'
 import { candidateFetch, CandidateUnauthorizedError } from '~/app/utils/candidate-api'
 import { useCandidateBranding } from '~/app/composables/useCandidateBranding'
 import { useCandidateSession } from '~/app/composables/useCandidateSession'
+import type { operations } from '~~/types/api'
+
+/**
+ * `GET /api/candidate/session` returns `new ParticipantResource($participant)`,
+ * and Laravel wraps every `JsonResource` in a `data` envelope — derived here
+ * from the generated client rather than hand-written, so a spec change on the
+ * backend (`session.show`) surfaces as a `bun run codegen:check` diff instead
+ * of a silent drift.
+ */
+type SessionResponse = operations['session.show']['responses'][200]['content']['application/json']
 
 export type SessionFetchFailure = 'unauthenticated' | 'unavailable'
 
@@ -69,23 +85,20 @@ export function useExitRedirect(): UseExitRedirectReturn {
 
   async function fetchSession(): Promise<void> {
     try {
-      const response = await candidateFetch<{
-        project: {
-          exit_redirect_url: string | null
-          error_redirect_url?: string | null
-        } | null
-        branding?: { primary_color: string | null; logo_url: string | null }
-      }>('/candidate/session', { method: 'GET' })
+      const response = await candidateFetch<SessionResponse>('/candidate/session', {
+        method: 'GET',
+      })
+      const session = response.data
 
       sessionFetchFailed.value = null
-      exitRedirectUrl.value = response.project?.exit_redirect_url ?? null
-      errorRedirectUrl.value = response.project?.error_redirect_url ?? null
+      exitRedirectUrl.value = session.project?.exit_redirect_url ?? null
+      errorRedirectUrl.value = session.project?.error_redirect_url ?? null
 
       // The same response carries the organization's logo and colour, so the
       // branding store is handed them here rather than fetching the identical
       // endpoint a second time. Applying it is `useCandidateBranding`'s job —
       // this composable does not write to the stylesheet.
-      useCandidateBranding().prime(response.branding)
+      useCandidateBranding().prime(session.branding)
     } catch (err) {
       // The failure degrades to the inline screens — fetchSession() never
       // throws — but the consequence is named, not hidden behind "non-fatal":

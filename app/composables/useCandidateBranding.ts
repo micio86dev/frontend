@@ -6,6 +6,11 @@
  * along on `GET /api/candidate/session`, the bootstrap this app already makes,
  * and this module is where it is held and applied.
  *
+ * The endpoint returns `new ParticipantResource($participant)`, so the body
+ * is `{ data: { branding, ... } }` — `ensureLoaded()` reads `response.data.branding`,
+ * not `response.branding`; the unwrapped read resolved to `undefined` on
+ * every production response and silently primed with no branding at all.
+ *
  * ONE FETCH, NOT TWO. `useExitRedirect` reads the same endpoint on page mount
  * and calls `prime()` with what it received, so the common path costs nothing
  * extra. `ensureLoaded()` exists for the surfaces that need branding WITHOUT
@@ -23,19 +28,22 @@
 import { readonly, ref } from 'vue'
 import { applyBrandColor } from '~/app/composables/useBrandTheme'
 import { candidateFetch } from '~/app/utils/candidate-api'
+import type { operations } from '~~/types/api'
 
-export interface CandidateBranding {
-  primary_color: string | null
-  logo_url: string | null
-  /**
-   * WHOSE assessment this is.
-   *
-   * Optional in the TYPE only so a stored response predating the field does
-   * not have to be migrated; the API always sends the key. Absent renders as
-   * absent — never as an empty line where a name should be.
-   */
-  name?: string | null
-}
+/**
+ * `GET /api/candidate/session` returns `new ParticipantResource($participant)`,
+ * and Laravel wraps every `JsonResource` in a `data` envelope — derived here
+ * from the generated client rather than hand-written.
+ */
+type SessionResponse = operations['session.show']['responses'][200]['content']['application/json']
+
+/**
+ * Derived from `SessionResponse` rather than hand-written — the API's
+ * `branding` object (`ParticipantResource.php`) is the single source of
+ * truth, and a hand-rolled copy here already drifted once (`name` typed
+ * optional while the API always sends the key) with nothing to catch it.
+ */
+export type CandidateBranding = SessionResponse['data']['branding']
 
 // Module-scoped, like the candidate session itself: every surface shares one
 // answer and one in-flight request.
@@ -72,10 +80,10 @@ export function useCandidateBranding() {
     if (primed) return
     if (inFlight !== null) return inFlight
 
-    inFlight = candidateFetch<{ branding?: CandidateBranding }>('/candidate/session', {
+    inFlight = candidateFetch<SessionResponse>('/candidate/session', {
       method: 'GET',
     })
-      .then((response) => prime(response.branding))
+      .then((response) => prime(response.data.branding))
       .catch(() => {
         // Primed either way: a failed read is a settled answer ("we have no
         // branding for this candidate"), and retrying it on every component

@@ -108,7 +108,11 @@ describe("NoticeShell — the organization's mark, or ours, but never nothing", 
 
   it('renders the organization logo INSTEAD of the wordmark once one exists', async () => {
     const { useCandidateBranding } = await import('../../app/composables/useCandidateBranding')
-    useCandidateBranding().prime({ primary_color: null, logo_url: 'https://cdn.test/acme.png' })
+    useCandidateBranding().prime({
+      primary_color: null,
+      logo_url: 'https://cdn.test/acme.png',
+      name: null,
+    })
 
     const wrapper = mountShell()
     await flushPromises()

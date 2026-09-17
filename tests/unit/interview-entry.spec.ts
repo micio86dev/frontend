@@ -16,6 +16,19 @@
  *    /interview/session
  *  - exchange 401 (spent link) → terminal, reason=spent_link, no retry
  *  - exchange 403 (gate/status refusal) → terminal, reason=403 (generic)
+ *
+ * PR 11 (D6) extends the 403 branch: `SsoExchangeController` now returns
+ * `redirect_url` on EVERY 403, not only the interviewability refusal — so
+ * the frontend cannot special-case which gate fired without itself
+ * disclosing that detail. Coverage added here:
+ *  - 403 with a validated https `redirect_url` → navigates there via
+ *    `safeExternalRedirect`, the same https-only safety rule
+ *    `useExitRedirect` applies to `exit_redirect_url`/`error_redirect_url`
+ *  - 403 with `redirect_url: null` → falls through to
+ *    `/interview/terminal?reason=403` (today's shipped behavior becomes the
+ *    null case, not a replacement)
+ *  - 403 with an unsafe `redirect_url` (`javascript:` or relative) → never
+ *    reaches navigation, falls through to the generic terminal instead
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -193,7 +206,28 @@ describe('interview/[token].vue — entry route (D-A, D1)', () => {
     expect(useCandidateSession().read()).toBeNull()
   })
 
-  it('exchange 403 (gate/status refusal) → terminal with reason=403 (generic, no detail disclosed)', async () => {
+  it('exchange 403 with redirect_url: null → terminal with reason=403 (generic, no detail disclosed)', async () => {
+    // The shipped-today behavior: `redirect_url` is nullable, and null is the
+    // normal answer for a project with no error_redirect_url configured (D6).
+    const ssoToken = makeSsoLinkToken()
+    const err = new Error('Access denied.') as Error & {
+      status: number
+      data: { message: string; redirect_url: string | null }
+    }
+    err.status = 403
+    err.data = { message: 'Access denied.', redirect_url: null }
+    mockFetchImpl.mockRejectedValueOnce(err)
+
+    await mountEntryPage(ssoToken)
+
+    expect(mockNavigateTo).toHaveBeenCalledWith(`${LOCALE_MARKER}/interview/terminal?reason=403`, {
+      replace: true,
+    })
+  })
+
+  it('exchange 403 with redirect_url: undefined (no field at all) → terminal with reason=403', async () => {
+    // Defensive coverage for a response that predates this field entirely —
+    // must degrade exactly like the explicit-null case, never throw.
     const ssoToken = makeSsoLinkToken()
     const err = new Error('Access denied.') as Error & { status: number }
     err.status = 403
@@ -205,4 +239,50 @@ describe('interview/[token].vue — entry route (D-A, D1)', () => {
       replace: true,
     })
   })
+
+  it('exchange 403 with a validated https redirect_url → navigates there, never to the generic terminal', async () => {
+    const ssoToken = makeSsoLinkToken()
+    const err = new Error('Access denied.') as Error & {
+      status: number
+      data: { message: string; redirect_url: string | null }
+    }
+    err.status = 403
+    err.data = { message: 'Access denied.', redirect_url: 'https://hr.acme.com/beai/not-ready' }
+    mockFetchImpl.mockRejectedValueOnce(err)
+
+    await mountEntryPage(ssoToken)
+
+    // safeExternalRedirect() calls navigateTo directly — a Nuxt auto-import
+    // resolved via vi.stubGlobal, so the page and the util see the same stub.
+    expect(mockNavigateTo).toHaveBeenCalledWith('https://hr.acme.com/beai/not-ready', {
+      external: true,
+      replace: true,
+    })
+    expect(mockNavigateTo).not.toHaveBeenCalledWith(
+      `${LOCALE_MARKER}/interview/terminal?reason=403`,
+      { replace: true }
+    )
+  })
+
+  it.each(['javascript:alert(1)', '/relative/path', 'http://insecure.example.com/not-ready'])(
+    'exchange 403 with an unsafe redirect_url (%s) never reaches navigation — falls through to the generic terminal',
+    async (unsafeUrl) => {
+      const ssoToken = makeSsoLinkToken()
+      const err = new Error('Access denied.') as Error & {
+        status: number
+        data: { message: string; redirect_url: string | null }
+      }
+      err.status = 403
+      err.data = { message: 'Access denied.', redirect_url: unsafeUrl }
+      mockFetchImpl.mockRejectedValueOnce(err)
+
+      await mountEntryPage(ssoToken)
+
+      expect(mockNavigateTo).not.toHaveBeenCalledWith(unsafeUrl, expect.anything())
+      expect(mockNavigateTo).toHaveBeenCalledWith(
+        `${LOCALE_MARKER}/interview/terminal?reason=403`,
+        { replace: true }
+      )
+    }
+  )
 })
