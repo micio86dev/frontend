@@ -806,6 +806,10 @@ export interface paths {
          *     (4d) DB failure after provider success → teardown(in-memory token) + 500.
          *
          *     RESUME in_corso:
+         *       - Harvest the outgoing transcript, then compose: the opening re-asks the
+         *         pending primary verbatim. A composition failure answers 422, as on a
+         *         fresh start, and ends the outgoing provider session on its way out —
+         *         nothing else would, and it bills until the provider's own ceiling.
          *       - issue() FRESH token.
          *       - Teardown OLD session via ProviderToken::fromRef($session->provider, $session->provider_session_ref).
          *       - Persist new ref.
@@ -855,17 +859,17 @@ export interface paths {
          *
          *     WHY THAT IS CHEAP RATHER THAN DRASTIC
          *     -------------------------------------
-         *     This is the FIRST HALF of `handleResumeInCorso()`, which already exists
-         *     and is already relied upon: harvest the outgoing transcript while it is
-         *     still readable, close the live-clock stretch, tear the provider session
-         *     down. The second half — issuing a fresh token — is what `/start` does,
-         *     and `OpeningTextComposer` already carries a `resume` variant written for
-         *     exactly this.
+         *     This is the FIRST HALF of the resume path `/start` already runs:
+         *     harvest the outgoing transcript while it is still readable, close the
+         *     live-clock stretch, tear the provider session down. The second half —
+         *     issuing a fresh token whose opening re-asks the pending primary — is
+         *     what `/start` does.
          *
          *     So resume needs no new endpoint. Suspend leaves the session `in_corso`
          *     with a NULL ref, which is precisely the state `/start` already resumes:
-         *     `handleResumeInCorso()` guards its harvest and teardown with
-         *     `$oldRef !== null`, so it skips straight to issuing.
+         *     both the harvest in `start()` and the teardown in
+         *     `handleResumeInCorso()` are guarded by a non-null ref, so it skips
+         *     straight to issuing.
          *
          *     WHAT IT DELIBERATELY DOES NOT TOUCH
          *     -----------------------------------
@@ -1622,20 +1626,44 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * READ-ONLY (gga review finding, blocking): this used to auto-open a
-         *     draft on every call, which breaks HTTP safety on a GET — a prefetch,
-         *     retry, or monitoring probe from a superadmin session would clone
-         *     ~450 rows for a request nobody asked to be a write. Auto-open on
-         *     "first edit" still happens, correctly, where an edit actually
-         *     occurs — via each catalogue-write FormRequest's own
-         *     `ResolvesOpenDraftRevision::openDraftRevisionId()` (framework-
-         *     catalogue-authoring PR3b, H5; not the controller body directly, and
-         *     not called a second time there). This endpoint only reports whatever
-         *     is currently true — `null` when nothing is open yet
+         * READ-ONLY: a GET never opens a draft — a prefetch, retry, or
+         *     monitoring probe must not clone ~450 rows. Reports the revision the
+         *     catalogue lists currently return (`FrameworkCatalogRevision::
+         *     viewable()`): the open draft (`editable: true`), otherwise the latest
+         *     published revision (`editable: false`). `null` only before anything
+         *     has been published
          */
         get: operations["revision.current"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalogue/revisions/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Opens the draft a superadmin edits, cloned from the latest published
+         *     revision, or returns the one already open — idempotent, `201` when
+         *     this call created it and `200` when it continued an existing one.
+         *     After it, every catalogue list returns the draft's own row ids, which
+         *     are the only ids the write endpoints accept
+         * @description Audited only when a draft was actually created, inside the same
+         *     transaction as the clone: returning an existing draft changes nothing,
+         *     and a clone whose audit row fails to write rolls back with it rather
+         *     than leaving an unaudited platform mutation behind.
+         *     `404` when no published revision exists to clone from.
+         */
+        post: operations["revision.openDraft"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2265,6 +2293,7 @@ export interface components {
             label: string | null;
             published_at: string | null;
             parent_revision_id: number | null;
+            editable: boolean;
         };
         /** CatalogueRoleResource */
         CatalogueRoleResource: {
@@ -6583,6 +6612,55 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["CatalogueRevisionResource"] | null;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description An error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+        };
+    };
+    "revision.openDraft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `CatalogueRevisionResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CatalogueRevisionResource"];
+                    };
+                };
+            };
+            /** @description `CatalogueRevisionResource` */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CatalogueRevisionResource"];
                     };
                 };
             };
