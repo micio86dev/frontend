@@ -45,7 +45,8 @@
       "pause": "Pausa",
       "voice_visualizer_label": "Voce dell’intervistatore",
       "avatar_label": "Intervistatore",
-      "region_label": "Colloquio in corso"
+      "region_label": "Colloquio in corso",
+      "question_label": "D{n}"
     },
     "end_of_question": {
       "title": "Domanda completata",
