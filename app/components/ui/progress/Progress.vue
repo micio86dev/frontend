@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 
 const props = withDefaults(defineProps<ProgressRootProps & { class?: HTMLAttributes['class'] }>(), {
   modelValue: 0,
+  class: undefined,
 })
 
 const delegatedProps = reactiveOmit(props, 'class')

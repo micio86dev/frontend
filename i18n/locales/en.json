@@ -1,4 +1,7 @@
 {
+  "common": {
+    "close": "Close"
+  },
   "shell": {
     "tagline": "Soft-skill assessment through a structured interview."
   },
@@ -45,7 +48,8 @@
       "pause": "Pause",
       "voice_visualizer_label": "Interviewer voice",
       "avatar_label": "Interviewer",
-      "region_label": "Live interview"
+      "region_label": "Live interview",
+      "question_label": "Q{n}"
     },
     "end_of_question": {
       "title": "Question Completed",

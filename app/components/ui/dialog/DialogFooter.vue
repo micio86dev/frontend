@@ -11,6 +11,7 @@ const props = withDefaults(
   }>(),
   {
     showCloseButton: false,
+    class: undefined,
   }
 )
 </script>
@@ -27,7 +28,7 @@ const props = withDefaults(
   >
     <slot />
     <DialogClose v-if="showCloseButton" as-child>
-      <Button variant="outline"> Close </Button>
+      <Button variant="outline">{{ $t('common.close') }}</Button>
     </DialogClose>
   </div>
 </template>

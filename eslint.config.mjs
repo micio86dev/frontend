@@ -67,6 +67,19 @@ export default createConfigForNuxt({
       'vuejs-accessibility/form-control-has-label': 'off',
     },
   })
+  // `stylistic: false` above hands ALL formatting to Prettier, but
+  // `vue/html-self-closing` survives that flag (it ships through
+  // `flat/recommended`, not the Nuxt stylistic bundle) and disagrees with
+  // Prettier's own choice for void elements: Prettier writes `<img>`,
+  // self-closing is what the eslint rule wants — so every `lint-staged` run
+  // (eslint --fix, then prettier --write) re-introduces the exact warning
+  // the fix step just cleared. Off, per the same "Prettier handles
+  // formatting" intent already stated above.
+  .append({
+    rules: {
+      'vue/html-self-closing': 'off',
+    },
+  })
   // GENERATED FILES ARE NOT SOURCE.
   //
   // `types/api.ts` is produced by `openapi-typescript` from `openapi.json`, and

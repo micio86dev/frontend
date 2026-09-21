@@ -39,7 +39,7 @@
             :muted="p.muted"
             :audio-only="p.audioOnly"
             :overlay="p.role !== 'live'"
-            @state="onProviderState"
+            @state="onProviderState(p.role, $event)"
             @transcript="onTranscriptFromPlayer(p.role, $event)"
             @error="onProviderError"
             @painted="session.notifyPainted(p.key)"
@@ -175,11 +175,20 @@
         <InterviewCaption :text="currentCaption" />
 
         <div class="flex items-center justify-between">
-          <InterviewTimer
-            :seconds="questionRemaining"
-            @tick="questionRemaining = $event"
-            @expired="onTimerExpired"
-          />
+          <div class="flex items-center gap-2">
+            <!-- Beta testing aid (no product/UX polish intended): labels the
+                 current avatar turn as "N" for the competency's primary
+                 question or "N.k" for its k-th adaptive follow-up. HEURISTIC,
+                 not ground truth — see questionLabel's docblock. -->
+            <span class="text-muted-foreground text-xs" data-testid="question-label">
+              {{ $t('interview.live.question_label', { n: questionLabel }) }}
+            </span>
+            <InterviewTimer
+              :seconds="questionRemaining"
+              @tick="questionRemaining = $event"
+              @expired="onTimerExpired"
+            />
+          </div>
           <!-- No Skip control: a competency must not be skippable. The timer is
                the only client-side early end, so a question cannot hang the
                session while the candidate cannot opt out of one.
@@ -382,6 +391,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useInterviewSession } from '~/composables/useInterviewSession'
 import type { HandoverRole } from '~/composables/useInterviewSession'
+import type { ProviderState } from '~/types/interview-provider'
 import { useExitRedirect } from '~/composables/useExitRedirect'
 import { Button } from '~/components/ui/button'
 import { Alert, AlertTitle } from '~/components/ui/alert'
@@ -577,6 +587,51 @@ const QUESTION_TIME_LIMIT = 300 // 5 minutes default
  */
 const questionRemaining = ref(QUESTION_TIME_LIMIT)
 
+/**
+ * Count of avatar speaking turns in the CURRENT competency session — a beta
+ * testing aid (no ground-truth signal distinguishes a primary question from
+ * an adaptive follow-up; see SystemPromptComposer / STAR protocol on the
+ * api side). The FIRST avatar turn of a session is the primary question; any
+ * turn after that is a live-generated follow-up. HEURISTIC: a barge-in that
+ * interrupts the avatar mid-sentence and lets it resume could double-count
+ * one logical question as two 'speaking' turns — acceptable for a QA label,
+ * not for anything that must be exact.
+ */
+const avatarTurnCount = ref(0)
+
+/**
+ * The session id `avatarTurnCount` was last counted for.
+ *
+ * The counter used to reset from a `watch` on `sessionId`, racing its own
+ * increment: both are driven by independent async signals (the DB session
+ * id from `/start`, a 'speaking' event from the avatar provider), with no
+ * ordering between them. A 'speaking' event for the NEW session could arrive
+ * before the watcher flushed and be erased by the reset, or a trailing event
+ * from the OLD session could land after the reset and be miscounted as the
+ * new session's first turn. Resetting inline inside `onProviderState`
+ * instead — the same handler that increments — makes the check and the
+ * increment one synchronous read-modify-write, with no scheduler in between
+ * and therefore nothing left to race.
+ */
+const countedSessionId = ref<number | null>(null)
+
+/**
+ * "N" for the primary question, "N.k" for the k-th follow-up.
+ *
+ * `competencyOrdinal` (from `endedCompetencies`) and `avatarTurnCount` (from
+ * `sessionId` via `countedSessionId`, see above) are two independent signals
+ * with no shared source — the label they combine is a heuristic display aid,
+ * never ground truth, and the two can theoretically skew during the brief
+ * window between one competency ending and the next session id arriving.
+ */
+const questionLabel = computed(() => {
+  const competencyOrdinal = (session.endedCompetencies.value ?? 0) + 1
+
+  return avatarTurnCount.value <= 1
+    ? String(competencyOrdinal)
+    : `${competencyOrdinal}.${avatarTurnCount.value - 1}`
+})
+
 // A new competency gets a full clock — the pause exemption above must not leak
 // across questions. Keyed on the DB session id, which /start reissues per
 // competency, rather than on the `live` transition, which a resume also makes.
@@ -587,8 +642,23 @@ watch(
   }
 )
 
-// AvatarPlayer state changes are handled internally by the session machine
-function onProviderState(): void {}
+/** Only the LIVE role's turns count — a hidden handover player's own 'speaking' is not this competency's question. */
+function onProviderState(role: HandoverRole, state: ProviderState): void {
+  if (role !== 'live' || state !== 'speaking') {
+    return
+  }
+
+  if (session.sessionId.value !== countedSessionId.value) {
+    avatarTurnCount.value = 0
+    // `?? null`: `UseInterviewSessionReturn['sessionId']`'s `ReturnType<typeof
+    // ref<number | null>>` resolves through `ref`'s no-argument overload,
+    // widening to `number | null | undefined` — a type artifact only, since
+    // the domain value is never actually `undefined`.
+    countedSessionId.value = session.sessionId.value ?? null
+  }
+
+  avatarTurnCount.value += 1
+}
 
 function onTranscript(entry: { text: string }): void {
   currentCaption.value = entry.text

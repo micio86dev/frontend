@@ -202,10 +202,16 @@ function globalConfig() {
   }
 }
 
-async function mountPage(session: ReturnType<typeof makeSession>) {
+async function mountPage(
+  session: ReturnType<typeof makeSession>,
+  mocksOverride?: Record<string, unknown>
+) {
   mockUseInterviewSession.mockReturnValue(session)
   const { default: Page } = await import('~/app/pages/interview/session.vue')
-  const wrapper = mount(Page, { global: globalConfig() })
+  const config = globalConfig()
+  const wrapper = mount(Page, {
+    global: { ...config, mocks: { ...config.mocks, ...mocksOverride } },
+  })
   // `flushPromises`, not a single `nextTick`. This file already documents (at
   // its declaration below) that one tick is not enough to observe an async
   // watcher body; mount is the same shape — the page has async work on mount,
@@ -809,5 +815,102 @@ describe('interview/session.vue — expired-session variant (D-D)', () => {
 
     expect(wrapper.text()).toContain('interview.terminal.generic.title')
     expect(wrapper.text()).not.toContain('interview.terminal.absent_phrase.title')
+  })
+})
+
+// R3-no-label-tests / R3-turn-reset-ordering (review-538677f49f73b5e6) —
+// `questionLabel`'s reset used to run from a `watch` on `sessionId`, racing
+// its own increment. These tests exercise the counting rules directly and
+// prove the reset-inside-`onProviderState` fix is race-free regardless of
+// which signal a real provider happens to deliver first.
+describe('interview/session.vue — question label', () => {
+  const paramsAwareT = (key: string, params?: Record<string, unknown>) =>
+    params ? `${key}|n=${params.n}` : key
+
+  function findLabel(wrapper: Awaited<ReturnType<typeof mountPage>>) {
+    return wrapper.find('[data-testid="question-label"]').text()
+  }
+
+  it('labels the primary question "N" on the first live speaking turn', async () => {
+    const session = makeSession({ state: 'live' })
+    const wrapper = await mountPage(session, { $t: paramsAwareT })
+
+    const player = wrapper.findComponent(AvatarPlayerStub)
+    player.vm.$emit('state', 'speaking')
+    await nextTick()
+
+    expect(findLabel(wrapper)).toBe('interview.live.question_label|n=1')
+  })
+
+  it('labels a follow-up "N.k" on later live speaking turns in the SAME session', async () => {
+    const session = makeSession({ state: 'live' })
+    const wrapper = await mountPage(session, { $t: paramsAwareT })
+
+    const player = wrapper.findComponent(AvatarPlayerStub)
+    player.vm.$emit('state', 'speaking')
+    player.vm.$emit('state', 'speaking')
+    player.vm.$emit('state', 'speaking')
+    await nextTick()
+
+    expect(findLabel(wrapper)).toBe('interview.live.question_label|n=1.2')
+  })
+
+  it("does NOT count a non-live role speaking — a hidden handover player is not this competency's question", async () => {
+    const incomingProvider = makeProvider()
+    const session = makeSession({
+      state: 'live',
+      incoming: { dbSessionId: 99, provider: incomingProvider, config: CONFIG },
+    })
+    const wrapper = await mountPage(session, { $t: paramsAwareT })
+
+    const players = wrapper.findAllComponents(AvatarPlayerStub)
+    const incoming = players[1]!
+    expect(incoming.props('overlay')).toBe(true) // the hidden incoming player
+
+    incoming.vm.$emit('state', 'speaking')
+    await nextTick()
+
+    // No live turn was ever counted, so the label still reads the primary question.
+    expect(findLabel(wrapper)).toBe('interview.live.question_label|n=1')
+  })
+
+  it('resets the count for a NEW session id even when the first speaking event for it arrives before any watcher would flush', async () => {
+    const session = makeSession({ state: 'live' })
+    const wrapper = await mountPage(session, { $t: paramsAwareT })
+
+    const player = wrapper.findComponent(AvatarPlayerStub)
+    player.vm.$emit('state', 'speaking')
+    player.vm.$emit('state', 'speaking')
+    await nextTick()
+    expect(findLabel(wrapper)).toBe('interview.live.question_label|n=1.1')
+
+    // A new competency issues a new DB session id AND its first 'speaking'
+    // event lands in the same synchronous tick, with no intervening
+    // `nextTick()` — exactly the ordering the fixed reset no longer depends on.
+    session.endedCompetencies.value = 1
+    session.sessionId.value = 99
+    player.vm.$emit('state', 'speaking')
+    await nextTick()
+
+    expect(findLabel(wrapper)).toBe('interview.live.question_label|n=2')
+  })
+
+  it("a trailing speaking event from the OLD session after a session id change is not miscounted as the new session's turn", async () => {
+    const session = makeSession({ state: 'live' })
+    const wrapper = await mountPage(session, { $t: paramsAwareT })
+
+    const player = wrapper.findComponent(AvatarPlayerStub)
+    player.vm.$emit('state', 'speaking')
+    await nextTick()
+
+    session.endedCompetencies.value = 1
+    session.sessionId.value = 99
+    await nextTick()
+
+    // The new session's own first turn.
+    player.vm.$emit('state', 'speaking')
+    await nextTick()
+
+    expect(findLabel(wrapper)).toBe('interview.live.question_label|n=2')
   })
 })
