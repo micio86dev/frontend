@@ -1,4 +1,7 @@
 {
+  "common": {
+    "close": "Chiudi"
+  },
   "shell": {
     "tagline": "Valutazione delle soft skill attraverso un colloquio strutturato."
   },
