@@ -30,6 +30,9 @@ interface Props extends PrimitiveProps {
 
 const props = withDefaults(defineProps<Props>(), {
   as: 'button',
+  variant: 'default',
+  size: 'default',
+  class: undefined,
 })
 
 const isDisabled = computed(() => props.disabled === true || props.loading === true)

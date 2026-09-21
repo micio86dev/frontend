@@ -1,4 +1,7 @@
 {
+  "common": {
+    "close": "Close"
+  },
   "shell": {
     "tagline": "Soft-skill assessment through a structured interview."
   },
