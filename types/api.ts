@@ -253,6 +253,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/avatar-templates/catalogue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A provider's real inventory for one resource type — the picker's data
+         *     source (avatar-template-catalogue PR1, design D1/D3/D4)
+         * @description Gated by the SAME `viewAny` ability as `fieldSpecs()` above: this
+         *     endpoint proxies a platform-level provider account (no tenant data of
+         *     its own), but it carries provider-side identifiers the picker will let
+         *     an admin select — the same "closer to credentials than to settings"
+         *     reasoning `AvatarTemplatePolicy` already applies to `config`.
+         *
+         *     Never a 500: `AvatarProviderCatalogue::fetch()` degrades a provider
+         *     failure to `{status: 'unavailable', items: []}` on its own (D3); this
+         *     action's only failure mode is a 422 for an unrecognized
+         *     `provider`/`resource` pair, checked BEFORE ever calling the provider.
+         */
+        get: operations["avatarTemplate.catalogue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/avatar-templates/{id}/activate": {
         parameters: {
             query?: never;
@@ -3897,6 +3927,48 @@ export interface operations {
             403: components["responses"]["AuthorizationException"];
         };
     };
+    "avatarTemplate.catalogue": {
+        parameters: {
+            query: {
+                /**
+                 * @description Literal 'in:' list, not 'in:'.implode(',', self::PROVIDERS) — Scramble's
+                 *     static analyzer cannot evaluate implode() over a class constant and was
+                 *     emitting an empty-string-only enum for `provider` in openapi.json, making
+                 *     the documented endpoint unreachable and poisoning the generated TS client
+                 *     with `provider: ""` (avatar-template-catalogue, caught by native review).
+                 */
+                provider: "heygen" | "tavus";
+                resource: "voice" | "avatar" | "replica";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** @constant */
+                            status: "unavailable";
+                            items: string[];
+                        } | {
+                            /** @constant */
+                            status: "ok";
+                            items: unknown[];
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
     "avatarTemplate.activate": {
         parameters: {
             query?: never;
@@ -3985,8 +4057,11 @@ export interface operations {
                 "application/json": {
                     name: string;
                     description?: string | null;
-                    /** @enum {string} */
-                    provider: "";
+                    /**
+                     * @description Literal list — see catalogue()'s validation for why implode(self::PROVIDERS) is not used.
+                     * @enum {string}
+                     */
+                    provider: "heygen" | "tavus";
                     config: string[];
                     /**
                      * @description Both-or-neither is enforced by the DB CHECK (I1) and by
