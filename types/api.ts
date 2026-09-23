@@ -3930,7 +3930,14 @@ export interface operations {
     "avatarTemplate.catalogue": {
         parameters: {
             query: {
-                provider: "";
+                /**
+                 * @description Literal 'in:' list, not 'in:'.implode(',', self::PROVIDERS) — Scramble's
+                 *     static analyzer cannot evaluate implode() over a class constant and was
+                 *     emitting an empty-string-only enum for `provider` in openapi.json, making
+                 *     the documented endpoint unreachable and poisoning the generated TS client
+                 *     with `provider: ""` (avatar-template-catalogue, caught by native review).
+                 */
+                provider: "heygen" | "tavus";
                 resource: "voice" | "avatar" | "replica";
             };
             header?: never;
@@ -4050,8 +4057,11 @@ export interface operations {
                 "application/json": {
                     name: string;
                     description?: string | null;
-                    /** @enum {string} */
-                    provider: "";
+                    /**
+                     * @description Literal list — see catalogue()'s validation for why implode(self::PROVIDERS) is not used.
+                     * @enum {string}
+                     */
+                    provider: "heygen" | "tavus";
                     config: string[];
                     /**
                      * @description Both-or-neither is enforced by the DB CHECK (I1) and by
