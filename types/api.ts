@@ -253,6 +253,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/avatar-templates/catalogue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A provider's real inventory for one resource type — the picker's data
+         *     source (avatar-template-catalogue PR1, design D1/D3/D4)
+         * @description Gated by the SAME `viewAny` ability as `fieldSpecs()` above: this
+         *     endpoint proxies a platform-level provider account (no tenant data of
+         *     its own), but it carries provider-side identifiers the picker will let
+         *     an admin select — the same "closer to credentials than to settings"
+         *     reasoning `AvatarTemplatePolicy` already applies to `config`.
+         *
+         *     Never a 500: `AvatarProviderCatalogue::fetch()` degrades a provider
+         *     failure to `{status: 'unavailable', items: []}` on its own (D3); this
+         *     action's only failure mode is a 422 for an unrecognized
+         *     `provider`/`resource` pair, checked BEFORE ever calling the provider.
+         */
+        get: operations["avatarTemplate.catalogue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/avatar-templates/{id}/activate": {
         parameters: {
             query?: never;
@@ -3895,6 +3925,41 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "avatarTemplate.catalogue": {
+        parameters: {
+            query: {
+                provider: "";
+                resource: "voice" | "avatar" | "replica";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** @constant */
+                            status: "unavailable";
+                            items: string[];
+                        } | {
+                            /** @constant */
+                            status: "ok";
+                            items: unknown[];
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
         };
     };
     "avatarTemplate.activate": {
