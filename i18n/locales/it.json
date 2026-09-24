@@ -88,6 +88,14 @@
         "title": "Questo invito è già stato utilizzato",
         "body": "Questo invito è già stato utilizzato e non può essere riutilizzato. Se non hai ancora completato il colloquio, contatta chi ti ha invitato."
       },
+      "link_used": {
+        "title": "Questo link è già stato utilizzato",
+        "body": "Questo link per il colloquio è già stato utilizzato o è stato sostituito da uno più recente. Chiedi un nuovo link a chi te lo ha inviato."
+      },
+      "link_invalid": {
+        "title": "Questo link non è più valido",
+        "body": "Questo link per il colloquio è scaduto o non è valido. Chiedi un nuovo link a chi te lo ha inviato."
+      },
       "malformed_response": {
         "title": "Risposta imprevista dal servizio di intervista",
         "body": "Il servizio di intervista ha restituito una risposta che non siamo riusciti a interpretare, quindi la sessione non può proseguire. Il problema è dalla nostra parte, non dipende da qualcosa che hai fatto. Contatta l'assistenza.",

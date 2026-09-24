@@ -648,6 +648,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/embed/exchange": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `?token=` documented as REQUIRED (step 5 review follow-up, Part B
+         *     item 5) — Scramble's own inference read
+         *     `$request->query('token', '')`'s literal default and rendered the
+         *     parameter as optional with a `""` default, which is accurate about
+         *     this METHOD'S defensive handling of a missing value (never a 500)
+         *     but not about the CONTRACT: SPEC.md §3.5 names `token` as the one
+         *     parameter this operation accepts, and a caller who omits it always
+         *     gets `401 token_invalid`, never a meaningful 200 — the same
+         *     "required in the contract, defended in code" distinction
+         *     `CreateInterviewRequest`'s own required fields already draw
+         * @description `#[Response(200, type: 'array{access_token: string}')]` (step 6
+         *     review follow-up, Part A item 5) — `$accessToken` starts its life
+         *     assigned a literal `null` below (so it has a value for the
+         *     `$raceLost` early-return branch, which never reads it), and is only
+         *     ever reassigned inside the `DB::transaction()` closure it is passed
+         *     into BY REFERENCE. Scramble's static inference does not follow a
+         *     by-reference mutation through a closure call boundary, so without
+         *     this attribute it read only the INITIAL `null` assignment and
+         *     exported this operation's `200` body as `{access_token: null}` —
+         *     true about the variable's DECLARED starting value, never about what
+         *     a real response actually contains: every code path that reaches
+         *     `response()->json(['access_token' => $accessToken], 200)` below has
+         *     already returned early (`$this->invalid()`/`$this->consumed()`) for
+         *     every case where a candidate JWT was NOT minted, so `$accessToken`
+         *     is always the `string` `CandidateTokenFactory::mintCandidateToken()`
+         *     returns by the time this line runs.
+         */
+        get: operations["exchange.exchange"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/forgot-password": {
         parameters: {
             query?: never;
@@ -805,6 +849,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return the literal, non-localized `{"status":"ok"}` body the contract requires
+         * @description Machine-readable status payloads are exempt from the i18n mandate (D31,
+         *     wrapper CLAUDE.md "Machine-facing responses are not localized").
+         */
+        get: operations["public-api.health"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/candidate/interview/integrity": {
         parameters: {
             query?: never;
@@ -821,6 +886,173 @@ export interface paths {
          *     a single unknown kind causes the entire batch to be rejected (422) with NO rows inserted.
          */
         post: operations["integrity.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/interviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `data[]` documented as a list of `PublicInterview` objects, and
+         *     `next_cursor` as the nullable string it genuinely is (step 5 review
+         *     follow-up, Part B item 2) — `CursorPage::paginate()`'s own
+         *     `next_cursor: string|null` PHPDoc did not survive being returned
+         *     through `response()->json($rawPage)`, so the exported spec
+         *     previously typed it as a non-nullable `string` and `data[]`'s items
+         *     as untyped. `#[IgnoreResponse]`/`#[Response(400, ...)]` (Part B item
+         *     6) replace the incorrect auto-inferred `422 {message, errors}` this
+         *     method's own `QueryValidationException` throw produced — see
+         *     `Problem::PROBLEM_SHAPE`'s own docblock (step 6 review follow-up,
+         *     Part A item 6: now shared from `App\Support\PublicApi\Problem`
+         *     rather than a copy of the constant declared on this class)
+         * @description `created_after`/`created_before` documented explicitly (step 6 review
+         *     follow-up, Part A item 8) — without a `#[QueryParameter]` override,
+         *     Scramble's own inference picked up the nearest preceding CODE COMMENT
+         *     above `$request->query('created_after')` below as this parameter's
+         *     description (an internal implementation note about
+         *     `validateFilterFormats()`/`Validator::validated()`, meaningless to an
+         *     API consumer, and `created_before` got no description at all). These
+         *     two attributes describe the accepted FORMAT and the `400` a caller
+         *     actually gets on a malformed value, the same contract
+         *     `App\Rules\PublicApi\Iso8601DateTime` enforces.
+         */
+        get: operations["public-api.interviews.index"];
+        put?: never;
+        /**
+         * `interview` documented as the `PublicInterview` object it always is
+         *     (step 5 review follow-up, Part B item 1) — `response()->json([...])`'s
+         *     own inferred type only ever saw `InterviewResource::resolve()`'s
+         *     loose `array<string, mixed>` return type, so the exported spec
+         *     previously carried an untyped array here instead of a `$ref`.
+         *     `#[Response(201, ...)]` (not a bare `@response` PHPDoc tag) — the
+         *     PHPDoc form replaces Scramble's ENTIRE inferred response, collapsing
+         *     the real `201` this method actually returns down to a default `200`;
+         *     the attribute form names the status explicitly and overlays onto
+         *     the response Scramble already inferred at it, leaving the other
+         *     auto-inferred statuses (`404`, `409`, `422`) untouched. `metadata`'s
+         *     accepted shape (Part B item 3) is corrected at its source —
+         *     `App\Rules\PublicApi\Metadata::docs()` — rather than here, so
+         *     `CreateInterviewRequest`'s own named schema carries the fix
+         *     directly instead of an `allOf` overlay fighting the same property's
+         *     wrong type inside it
+         */
+        post: operations["public-api.interviews.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/interviews/{interview}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["public-api.interviews.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/interviews/{interview}/transcript": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `GET /v1/interviews/{id}/transcript` — SPEC.md §3.3, gate: status
+         *     `under_evaluation` or `completed`, else `409 transcript_not_ready`
+         *     (`error` included — G-15)
+         */
+        get: operations["public-api.interviews.transcript"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/interviews/{interview}/answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `GET /v1/interviews/{id}/answers` — SPEC.md §3.3, same read gate as
+         *     the transcript
+         */
+        get: operations["public-api.interviews.answers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/interviews/{interview}/scoring": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `GET /v1/interviews/{id}/scoring` — SPEC.md §3.3, gate: status
+         *     `completed` only, else `409 scoring_not_ready`
+         */
+        get: operations["public-api.interviews.scoring"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/interviews/{interview}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `GET /v1/interviews/{id}/events` — SPEC.md §3.3, `App\Support\
+         *     PublicApi\CursorPage` in its ASCENDING form (G-12: the one documented
+         *     exception to `created_at desc`). `InterviewEvent.public_id` (`evt_`)
+         *     is what every real row already carries — see that model's own
+         *     docblock; no participant special-cases its absence
+         * @description `cursor`/`limit` documented explicitly (step 6 review follow-up,
+         *     finding 14) — `CursorPage::paginateAscending()` reads both directly
+         *     off `$request` from INSIDE `App\Support\PublicApi\CursorPage`, one
+         *     call frame away from this method's own body, which is why
+         *     Scramble's own static-analysis auto-detection (which scans a
+         *     controller method's own body for `$request->query()`/`$request->
+         *     integer()` calls) never picked them up — the exported spec
+         *     previously documented only the `interview` path parameter for this
+         *     operation.
+         */
+        get: operations["public-api.interviews.events"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1028,6 +1260,22 @@ export interface paths {
         };
         /** GET /api/llm-models */
         get: operations["llmModel.index"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/organization": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["public-api.organization.show"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1536,6 +1784,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * SPEC.md §3.2 "Filtering on list endpoints: `status`, ...". `role_code`
+         *     and `assessment_type` are Public-API-specific additions this
+         *     operation's own contract entry lists (`openapi.yaml` `listProjects`
+         *     parameters). An unrecognised value for any of the three answers `400
+         *     validation_failed` via `QueryValidationException` (G-28) — a
+         *     malformed QUERY PARAMETER, never `422`
+         * @description `data[]` documented as a list of `PublicProject` objects and
+         *     `next_cursor` as nullable (step 5 review follow-up, Part B item 2) —
+         *     same fix, same reasoning, as `InterviewController::index()`'s own
+         *     docblock. `#[IgnoreResponse]`/`#[Response(400, ...)]` (Part B item 6)
+         *     replace the incorrect auto-inferred `422` this method's own
+         *     `QueryValidationException` throw produced — the shape now shared
+         *     from `Problem::PROBLEM_SHAPE` (step 6 review follow-up, Part A item
+         *     6) rather than a copy of the constant this class used to declare.
+         */
+        get: operations["public-api.projects.index"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `$project` is the RAW path segment (`prj_...`), resolved manually
+         *     rather than through implicit Eloquent route-model binding: the
+         *     existing admin `Route::apiResource('projects', ProjectController::class)`
+         *     already binds the SAME `{project}` route parameter name to an
+         *     integer id, and a second, public-id-based binding registered on the
+         *     same parameter name would either collide with it or require touching
+         *     `App\Models\Project::resolveRouteBinding()` globally — which the
+         *     admin surface must never see (it keeps using integer ids). Resolving
+         *     by hand here keeps the two surfaces fully independent, and
+         *     `PublicId::decode()` returning `null` on ANY malformed/mismatched-
+         *     prefix input, funnelled into the exact same "no row" 404 branch as a
+         *     syntactically valid but unknown id, is what guarantees a mismatched
+         *     prefix answers `404 not_found`, never `400` (SPEC.md §3.2)
+         */
+        get: operations["public-api.projects.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects": {
         parameters: {
             query?: never;
@@ -1697,6 +2008,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["queueHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/interviews/{interview}/recording": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["public-api.interviews.recording"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1934,6 +2261,22 @@ export interface paths {
         get: operations["sessionReview.show"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/interviews/{interview}/session-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["public-api.interviews.session-tokens.store"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2259,6 +2602,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/webhooks/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** `GET /v1/webhooks/deliveries` — SPEC.md §3.6 "Delivery log" */
+        get: operations["public-api.webhooks.deliveries.index"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/webhooks/deliveries/{id}/redeliver": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * `POST /v1/webhooks/deliveries/{id}/redeliver` — re-queues one
+         *     delivery for immediate re-send. Allowed only from a terminal
+         *     `delivered`/`failed_permanent`/`dead` state
+         */
+        post: operations["public-api.webhooks.deliveries.redeliver"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/m2m/whoami": {
         parameters: {
             query?: never;
@@ -2287,6 +2668,9 @@ export interface components {
         ApiClientResource: {
             id: number;
             name: string;
+            key_prefix: string | null;
+            /** @enum {string} */
+            mode: "live" | "test";
             abilities: string[];
             is_active: boolean;
             /** @enum {string} */
@@ -2295,6 +2679,12 @@ export interface components {
             last_used_at: string | null;
             created_at: string | null;
         };
+        /**
+         * ApiKeyMode
+         * @description `live`/`test` mode of a BEAI M2M / public-API key (C5, public-api step 2 — SPEC.md §3.7 "Test mode"). Review follow-up on step 2: the marker string (`beai_live_`/`beai_test_`), the DB column value (`live`/`test`) and the mode literal used across `App\Services\ApiKeyGenerator`, `App\Support\PublicApi\ApiMode`, `App\Http\Middleware\PublicApi\AuthenticatePublicApi`, `App\Http\Controllers\M2m\ApiClientController` and `App\Models\ApiClient` used to be five independent string literals that happened to agree. This enum is the single source of truth all of them now read from.
+         * @enum {string}
+         */
+        ApiKeyMode: "live" | "test";
         /** App.Http.Resources.ParticipantResource */
         "App.Http.Resources.ParticipantResource": {
             id: number;
@@ -2432,6 +2822,63 @@ export interface components {
             definition: string;
             type: string;
             bars_available: boolean;
+        };
+        /**
+         * CreateInterviewRequest
+         * @description `POST /v1/interviews` request validation (public-api step 5, SPEC.md §3.3
+         *     "Create interview — request", `CreateInterviewRequest` schema).
+         *
+         *     FORMAT only — `project_id`'s prefix/existence/tenancy, the project-active
+         *     gate, the `exit_redirect_url` allowed-domain check and the duplicate-
+         *     enrolment check all need the resolved `Project`/`Organization` and live
+         *     in `App\Http\Controllers\PublicApi\InterviewController::store()` and
+         *     `App\Actions\PublicApi\EnrolCandidate` — mirroring
+         *     `App\Http\Controllers\PublicApi\ProjectController::show()`'s own "decode,
+         *      * never bind" discipline for a public-id path/body field (G-36).
+         *
+         *     `authorize()` returns `true` unconditionally: scope enforcement is
+         *     `App\Http\Middleware\PublicApi\RequireScope`'s job, applied per-route in
+         *     `routes/api.php` (`scope:interviews:write`) — the SAME division of labour
+         *     every other `/v1` write endpoint follows.
+         */
+        CreateInterviewRequest: {
+            project_id: string;
+            candidate: {
+                candidate_ref: string;
+                /**
+                 * Format: email
+                 * @description max:255 (gga round 3 finding 2) — matches participants.email's
+                 *     own column width; without it a caller-supplied value long
+                 *     enough to overflow that column reaches the database as a
+                 *     truncation error (500) instead of the intended 422 here.
+                 */
+                email: string;
+                display_name: string;
+                /**
+                 * @description ISO 639-1, matching `openapi.yaml`'s `Language` schema pattern
+                 *     exactly (`^[a-z]{2}$`) — no further allow-list check: the
+                 *     contract does not restrict `candidate.language` to a
+                 *     per-project or per-platform locale set, and this endpoint has
+                 *     no such catalogue to validate against (unlike
+                 *     `config/translatable.php`'s `supported_locales`, which is a
+                 *     BACKOFFICE UI concept).
+                 */
+                language?: string | null;
+            };
+            /** @description Free-form key/value pairs (≤ 20 keys, key ≤ 40 chars, value ≤ 500 chars). */
+            metadata?: {
+                [key: string]: string;
+            } | null;
+            /**
+             * Format: uri
+             * @description https-only (SPEC.md §3.3 "It must be https") — `url` alone
+             *     accepts http too, so the scheme is checked separately.
+             *     max:2048 (gga round 3 finding 2) — matches the migration's own
+             *     `varchar(2048)` column width for this field, and the admin
+             *     `StoreProjectRequest`/`UpdateProjectRequest` validation rule
+             *     for the same-shaped `exit_redirect_url` field.
+             */
+            exit_redirect_url?: string | null;
         };
         /** DashboardActivityResource */
         DashboardActivityResource: {
@@ -2728,6 +3175,133 @@ export interface components {
                 update: boolean;
                 delete: boolean;
             };
+        };
+        /** PublicInterview */
+        PublicInterview: {
+            id: string;
+            project_id: string;
+            candidate_ref: string;
+            email: string;
+            display_name: string;
+            role_code: string | null;
+            language: string;
+            status: string;
+            livemode: boolean;
+            metadata: unknown[];
+            exit_redirect_url: string | null;
+            /**
+             * @description ALWAYS null here — a plain read never has a fresh session
+             *     token to embed one for. Exported as `string|null` (not the
+             *     literal `null` this line alone would infer) by
+             *     `App\Support\Scramble\InterviewHostedUrlNullableExtension` —
+             *     see that class's own docblock; step 6 review follow-up, Part
+             *     A item 4 removed the runtime config hack this used to
+             *     route through.
+             */
+            hosted_url: string | null;
+            progress: string | {
+                competency_code: string;
+                answers: {
+                    question_index: number;
+                    answered_at: string;
+                }[];
+            }[];
+            started_at: string | null;
+            completed_at: string | null;
+            transcript_ready: boolean;
+            scoring_ready: boolean;
+            /**
+             * @description G-01: true iff an `interview_recordings` row exists for this
+             *     participant (audio only — video is never exposed, see
+             *     `App\Http\Controllers\PublicApi\RecordingController`'s own
+             *     docblock). gga review, step 6 follow-up, finding 5: this used
+             *     to be a hardcoded `false` left over from before step 6 built
+             *     the recording pipeline.
+             *     (bool) cast — `self::recordingReady()`'s return flows through
+             *     a loop-populated array (`recordingReadyForMany()`'s own
+             *     `$result[...] = true;`), which Scramble's export could not
+             *     narrow precisely and rendered as `anyOf: [string, boolean]`
+             *     without this cast, despite the method's own native `: bool`
+             *     return type. Caught via the `scramble:export` diff, not a
+             *     test — same class of fix as
+             *     `App\Support\Scramble\InterviewHostedUrlNullableExtension`.
+             */
+            recording_ready: boolean;
+            created_at: string;
+            updated_at: string;
+            project: {
+                id: string;
+                name: string;
+                slug: string;
+                role_code: string | null;
+                assessment_type: string;
+                language: string;
+                status: string;
+                framework_version: {
+                    /**
+                     * @description `framework_version_id` is NOT NULL, but the relation
+                     *     accessor's static type is still nullable (an unloaded
+                     *     relation renders null rather than fatal, the same
+                     *     discipline `Project::avatarTemplate()`'s own docblock
+                     *     documents) — an empty string/null pair is the honest
+                     *     answer when the caller forgot to eager-load it, never a
+                     *     fatal error on a read-only endpoint.
+                     */
+                    version: string;
+                    label: string | null;
+                };
+                competencies: unknown[];
+                pause_every_n_competencies: number | null;
+                nudge_min_chars: number | null;
+                exit_redirect_url: string | null;
+                avatar_display_name: string;
+                created_at: string;
+                updated_at: string;
+            };
+        };
+        /** PublicOrganization */
+        PublicOrganization: {
+            id: string;
+            name: string;
+            /**
+             * @description "mode (of the key)" — SPEC.md §3.3 — the AUTHENTICATED KEY's
+             *     mode, never an organization column (there isn't one): the
+             *     same organization answers `live` through a live key and
+             *     `test` through a test key.
+             */
+            mode: string;
+            allowed_domains: unknown[];
+            created_at: string;
+        };
+        /** PublicProject */
+        PublicProject: {
+            id: string;
+            name: string;
+            slug: string;
+            role_code: string | null;
+            assessment_type: string;
+            language: string;
+            status: string;
+            framework_version: {
+                /**
+                 * @description `framework_version_id` is NOT NULL, but the relation
+                 *     accessor's static type is still nullable (an unloaded
+                 *     relation renders null rather than fatal, the same
+                 *     discipline `Project::avatarTemplate()`'s own docblock
+                 *     documents) — an empty string/null pair is the honest
+                 *     answer when the caller forgot to eager-load it, never a
+                 *     fatal error on a read-only endpoint.
+                 */
+                version: string;
+                label: string | null;
+            };
+            competencies: unknown[];
+            pause_every_n_competencies: number | null;
+            nudge_min_chars: number | null;
+            exit_redirect_url: string | null;
+            avatar_display_name: string;
+            created_at: string;
+            updated_at: string;
         };
         /**
          * ResetPasswordRequest
@@ -3207,6 +3781,11 @@ export interface components {
          *     a tenancy identifier, never editable, and the controller only ever writes
          *     `$request->safe()->only([...])`, so a `slug` key in the body is silently
          *     dropped rather than validated-then-rejected.
+         *
+         *     `allowed_domains` (public-api step 4) is likewise absent here on purpose
+         *     — step 11 adds its backoffice editor; until then it is read-only,
+         *     exposed on `GET /v1/organization` but writable through no endpoint at
+         *     all.
          */
         UpdateOrganizationRequest: {
             name?: string;
@@ -3506,6 +4085,18 @@ export interface components {
         };
     };
     responses: {
+        /** @description Not found */
+        ModelNotFoundException: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @description Error overview. */
+                    message: string;
+                };
+            };
+        };
         /** @description Validation error */
         ValidationException: {
             headers: {
@@ -3536,18 +4127,6 @@ export interface components {
         };
         /** @description Authorization error */
         AuthorizationException: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": {
-                    /** @description Error overview. */
-                    message: string;
-                };
-            };
-        };
-        /** @description Not found */
-        ModelNotFoundException: {
             headers: {
                 [name: string]: unknown;
             };
@@ -3627,6 +4206,7 @@ export interface operations {
                     abilities: string[];
                     /** Format: date-time */
                     expires_at?: string | null;
+                    mode?: components["schemas"]["ApiKeyMode"] | null;
                 };
             };
         };
@@ -5158,6 +5738,69 @@ export interface operations {
             422: components["responses"]["ValidationException"];
         };
     };
+    "exchange.exchange": {
+        parameters: {
+            query: {
+                /** @description The session token from POST /v1/interviews or POST /v1/interviews/{id}/session-tokens. */
+                token: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No `Set-Cookie` — G-32/T-TOK-008. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        access_token: string;
+                    };
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        type: string;
+                        /** @constant */
+                        title: "Invalid session token";
+                        /** @constant */
+                        status: 401;
+                        /** @constant */
+                        code: "token_invalid";
+                        request_id: string;
+                        detail: null;
+                        errors: null;
+                    };
+                };
+            };
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        type: string;
+                        /** @constant */
+                        title: "Session token already consumed";
+                        /** @constant */
+                        status: 410;
+                        /** @constant */
+                        code: "token_consumed";
+                        request_id: string;
+                        detail: null;
+                        errors: null;
+                    };
+                };
+            };
+        };
+    };
     "auth.forgotPassword": {
         parameters: {
             query?: never;
@@ -5351,6 +5994,28 @@ export interface operations {
             };
         };
     };
+    "public-api.health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        status: "ok";
+                    };
+                };
+            };
+        };
+    };
     "integrity.store": {
         parameters: {
             query?: never;
@@ -5380,6 +6045,378 @@ export interface operations {
             401: components["responses"]["AuthenticationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: components["responses"]["ValidationException"];
+        };
+    };
+    "public-api.interviews.index": {
+        parameters: {
+            query?: {
+                status?: string;
+                project_id?: string;
+                email?: string;
+                candidate_ref?: string;
+                metadata?: string;
+                /** @description Inclusive lower bound on created_at. Strict ISO 8601 date-time, UTC (Z) or a numeric offset, e.g. 2026-01-01T00:00:00Z. An invalid or non-ISO-8601 value answers 400 validation_failed. */
+                created_after?: string;
+                /** @description Exclusive upper bound on created_at. Strict ISO 8601 date-time, UTC (Z) or a numeric offset, e.g. 2026-01-01T00:00:00Z. An invalid or non-ISO-8601 value answers 400 validation_failed. */
+                created_before?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PublicInterview"][];
+                        next_cursor: string | null;
+                        has_more: boolean;
+                    };
+                };
+            };
+            /** @description Malformed query parameter. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        type: string;
+                        title: string;
+                        status: number;
+                        code: string;
+                        request_id: string;
+                        detail?: string;
+                        errors?: {
+                            field: string;
+                            code: string;
+                            message?: string;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    "public-api.interviews.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateInterviewRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        interview: components["schemas"]["PublicInterview"];
+                        session_token: string;
+                        expires_at: string;
+                        hosted_url: string;
+                    };
+                };
+            };
+            404: components["responses"]["ModelNotFoundException"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        type: string;
+                        /** @constant */
+                        title: "Duplicate enrolment";
+                        /** @constant */
+                        status: 409;
+                        /** @constant */
+                        code: "duplicate_enrolment";
+                        request_id: string;
+                        /** @constant */
+                        detail: "candidate.email is already enrolled in this project.";
+                        errors: null;
+                    } | {
+                        type: string;
+                        /** @constant */
+                        title: "Duplicate enrolment";
+                        /** @constant */
+                        status: 409;
+                        /** @constant */
+                        code: "duplicate_enrolment";
+                        request_id: string;
+                        /** @constant */
+                        detail: "candidate.candidate_ref is already enrolled in this project.";
+                        errors: null;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "public-api.interviews.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interview: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `PublicInterview` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicInterview"];
+                };
+            };
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
+    "public-api.interviews.transcript": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interview: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The full transcript, turn by turn, in chronological order. Each turn carries its own derived question_index. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        interview_id: string;
+                        language: string;
+                        turns: {
+                            index: number;
+                            speaker: string;
+                            text: string;
+                            competency_code: string;
+                            question_index: number;
+                            ts: string;
+                        }[];
+                    };
+                };
+            };
+            404: components["responses"]["ModelNotFoundException"];
+            /** @description Transcript not ready. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        type: string;
+                        title: string;
+                        status: number;
+                        code: string;
+                        request_id: string;
+                        detail?: string;
+                        errors?: {
+                            field: string;
+                            code: string;
+                            message?: string;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    "public-api.interviews.answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interview: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The transcript grouped into one entry per question: question and answer text, and timing derived from turn timestamps. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        interview_id: string;
+                        answers: {
+                            competency_code: string;
+                            question_index: number;
+                            question_text: string;
+                            answer_text: string;
+                            started_at_seconds: number | null;
+                            answer_duration_seconds: number | null;
+                        }[];
+                    };
+                };
+            };
+            404: components["responses"]["ModelNotFoundException"];
+            /** @description Answers not ready. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        type: string;
+                        title: string;
+                        status: number;
+                        code: string;
+                        request_id: string;
+                        detail?: string;
+                        errors?: {
+                            field: string;
+                            code: string;
+                            message?: string;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    "public-api.interviews.scoring": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interview: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The BARS competency scoring: per-competency score and reliability, the three anchor-scored behaviors, and the scoring run's framework/model/prompt version triplet. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        interview_id: string;
+                        status: string;
+                        competencies: {
+                            [key: string]: {
+                                score: number | null;
+                                reliability: number;
+                                behaviors: {
+                                    indicator: string;
+                                    score: number;
+                                    explanation: string;
+                                    excerpts: string[];
+                                    unassessable_reason: string | null;
+                                }[];
+                                unscorable_reason: string | null;
+                            };
+                        };
+                        framework_version: string;
+                        model_version: string;
+                        prompt_version: string;
+                        evaluated_at: string;
+                    };
+                };
+            };
+            404: components["responses"]["ModelNotFoundException"];
+            /** @description Scoring not ready. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        type: string;
+                        title: string;
+                        status: number;
+                        code: string;
+                        request_id: string;
+                        detail?: string;
+                        errors?: {
+                            field: string;
+                            code: string;
+                            message?: string;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    "public-api.interviews.events": {
+        parameters: {
+            query?: {
+                /** @description Opaque pagination cursor from a previous page's next_cursor. Omit for the first page. A present but malformed value answers 400 invalid_cursor. */
+                cursor?: string;
+                /** @description Page size, 1-100 (default 25). Out of range answers 400 validation_failed. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                interview: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            id: string;
+                            type: string;
+                            occurred_at: string;
+                            data: {
+                                [key: string]: unknown;
+                            } | null;
+                        }[];
+                        next_cursor: string | null;
+                        has_more: boolean;
+                    };
+                };
+            };
+            /** @description Malformed query parameter. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        type: string;
+                        title: string;
+                        status: number;
+                        code: string;
+                        request_id: string;
+                        detail?: string;
+                        errors?: {
+                            field: string;
+                            code: string;
+                            message?: string;
+                        }[];
+                    };
+                };
+            };
+            404: components["responses"]["ModelNotFoundException"];
         };
     };
     "interview.start": {
@@ -5670,6 +6707,27 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "public-api.organization.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `PublicOrganization` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicOrganization"];
+                };
+            };
+            404: components["responses"]["ModelNotFoundException"];
         };
     };
     "organization.show": {
@@ -6596,6 +7654,73 @@ export interface operations {
             404: components["responses"]["ModelNotFoundException"];
         };
     };
+    "public-api.projects.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PublicProject"][];
+                        next_cursor: string | null;
+                        has_more: boolean;
+                    };
+                };
+            };
+            /** @description Malformed query parameter. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        type: string;
+                        title: string;
+                        status: number;
+                        code: string;
+                        request_id: string;
+                        detail?: string;
+                        errors?: {
+                            field: string;
+                            code: string;
+                            message?: string;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    "public-api.projects.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `PublicProject` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicProject"];
+                };
+            };
+            404: components["responses"]["ModelNotFoundException"];
+        };
+    };
     "projects.index": {
         parameters: {
             query?: never;
@@ -6959,6 +8084,79 @@ export interface operations {
                             mailer: string;
                             delivers: boolean;
                         };
+                    };
+                };
+            };
+        };
+    };
+    "public-api.interviews.recording": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interview: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A ready recording: a signed audio URL, its format, duration and size. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        interview_id: string;
+                        /** @constant */
+                        kind: "audio";
+                        url: string;
+                        expires_at: string;
+                        format: string;
+                        duration_seconds: number;
+                        size_bytes: number;
+                    };
+                };
+            };
+            /** @description Not found, or recording not ready (code=recording_not_ready). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        type: string;
+                        title: string;
+                        status: number;
+                        code: string;
+                        request_id: string;
+                        detail?: string;
+                        errors?: {
+                            field: string;
+                            code: string;
+                            message?: string;
+                        }[];
+                    };
+                };
+            };
+            /** @description The signed URL could not be generated (code=internal_error). */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        type: string;
+                        title: string;
+                        status: number;
+                        code: string;
+                        request_id: string;
+                        detail?: string;
+                        errors?: {
+                            field: string;
+                            code: string;
+                            message?: string;
+                        }[];
                     };
                 };
             };
@@ -7541,6 +8739,52 @@ export interface operations {
             401: components["responses"]["AuthenticationException"];
         };
     };
+    "public-api.interviews.session-tokens.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                interview: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        session_token: string;
+                        expires_at: string;
+                        hosted_url: string;
+                    };
+                };
+            };
+            404: components["responses"]["ModelNotFoundException"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        type: string;
+                        /** @constant */
+                        title: "Invalid state";
+                        /** @constant */
+                        status: 409;
+                        /** @constant */
+                        code: "invalid_state";
+                        request_id: string;
+                        /** @constant */
+                        detail: "Session tokens can only be minted while the interview is pending.";
+                        errors: null;
+                    };
+                };
+            };
+        };
+    };
     "snapshot.store": {
         parameters: {
             query?: never;
@@ -8033,6 +9277,131 @@ export interface operations {
                     "application/json": {
                         /** @constant */
                         error: "utterance_lock_timeout";
+                    };
+                };
+            };
+        };
+    };
+    "public-api.webhooks.deliveries.index": {
+        parameters: {
+            query?: {
+                status?: string;
+                event_type?: string;
+                interview_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of webhook delivery attempts for the caller's organization, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            id: string;
+                            event_type: string;
+                            status: string;
+                            interview_id: string;
+                            project_id: string;
+                            candidate_ref: string;
+                            target_url: string | null;
+                            attempt_count: number;
+                            max_attempts: number;
+                            payload_version: string;
+                            last_response_status: number | null;
+                            last_attempt_at: string | null;
+                            next_attempt_at: string | null;
+                            delivered_at: string | null;
+                            created_at: string;
+                        }[];
+                        next_cursor: string | null;
+                        has_more: boolean;
+                    };
+                };
+            };
+            /** @description Malformed query parameter. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        type: string;
+                        title: string;
+                        status: number;
+                        code: string;
+                        request_id: string;
+                        detail?: string;
+                        errors?: {
+                            field: string;
+                            code: string;
+                            message?: string;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    "public-api.webhooks.deliveries.redeliver": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Re-queued for immediate re-delivery with the frozen payload bytes and a fresh signature timestamp. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        event_type: string;
+                        status: string;
+                        interview_id: string;
+                        project_id: string;
+                        candidate_ref: string;
+                        target_url: string | null;
+                        attempt_count: number;
+                        max_attempts: number;
+                        payload_version: string;
+                        last_response_status: number | null;
+                        last_attempt_at: string | null;
+                        next_attempt_at: string | null;
+                        delivered_at: string | null;
+                        created_at: string;
+                    };
+                };
+            };
+            404: components["responses"]["ModelNotFoundException"];
+            /** @description The delivery is not in a terminal state (code=invalid_state). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        type: string;
+                        title: string;
+                        status: number;
+                        code: string;
+                        request_id: string;
+                        detail?: string;
+                        errors?: {
+                            field: string;
+                            code: string;
+                            message?: string;
+                        }[];
                     };
                 };
             };

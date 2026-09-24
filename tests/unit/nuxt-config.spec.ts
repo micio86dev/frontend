@@ -104,4 +104,37 @@ describe('nuxt.config.ts — Permissions-Policy routeRules (D6)', () => {
     const nonDefaultLocaleCount = 1
     expect(prefixedEntries.length).toBe(nonDefaultLocaleCount)
   })
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // public-api step 5 (G-33) — hosted entry route `/i/{token}` mirrors the
+  // `/interview/**` headers verbatim. Framing stays denied (X-Frame-Options:
+  // DENY) until step 10 introduces `/embed/**` with `frame-ancestors`.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it('contains /i/** route entry', () => {
+    expect(configSource).toContain("'/i/**'")
+  })
+
+  it('contains /en/i/** route entry for non-default locale', () => {
+    expect(configSource).toContain("'/en/i/**'")
+  })
+
+  it('sets camera=(self) microphone=(self) geolocation=() on /i/** routes too (count includes interview + i)', () => {
+    // interview/** (x2) + i/** (x2) = 4 occurrences of the per-route Permissions-Policy value.
+    const count = (
+      configSource.match(/'camera=\(self\) microphone=\(self\) geolocation=\(\)'/g) ?? []
+    ).length
+    expect(count).toBe(4)
+  })
+
+  it('retains X-Frame-Options: DENY on /i/** routes (framing stays denied until step 10)', () => {
+    // global /** + interview/** x2 + i/** x2 = 5.
+    const denyCount = (configSource.match(/'DENY'/g) ?? []).length
+    expect(denyCount).toBe(5)
+  })
+
+  it('has exactly one non-default-locale hosted-entry route entry per non-default locale', () => {
+    const prefixedEntries = Array.from(configSource.matchAll(/'\/([a-z]{2})\/i\/\*\*'/g))
+    expect(prefixedEntries.length).toBe(1)
+  })
 })

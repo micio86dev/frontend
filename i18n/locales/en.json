@@ -88,6 +88,14 @@
         "title": "This Invitation Has Already Been Used",
         "body": "This invitation has already been used and cannot be used again. If you have not yet completed your interview, please contact whoever invited you."
       },
+      "link_used": {
+        "title": "This Link Has Already Been Used",
+        "body": "This interview link has already been used or has been replaced by a newer one. Please ask the sender for a new link."
+      },
+      "link_invalid": {
+        "title": "This Link Is No Longer Valid",
+        "body": "This interview link has expired or is not valid. Please ask the sender for a new link."
+      },
       "malformed_response": {
         "title": "Unexpected Response from the Interview Service",
         "body": "The interview service returned something we could not read, so the session cannot continue. This is a problem on our side, not with anything you did. Please contact support.",

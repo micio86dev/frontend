@@ -38,6 +38,28 @@ export default defineNuxtConfig({
           'Referrer-Policy': 'strict-origin-when-cross-origin',
         },
       },
+      // public-api step 5 (G-33) — hosted entry route `/i/{token}`: same
+      // chrome and headers as `/interview/**` (it runs top-level, no
+      // framing). `X-Frame-Options: DENY` is DELIBERATELY kept here — step
+      // 10 adds `/embed/{token}` on the same component and REPLACES this
+      // rule for that path only with `frame-ancestors` scoped to the
+      // organization's allowed domains; `/i/**` itself stays denied.
+      '/i/**': {
+        headers: {
+          'Permissions-Policy': 'camera=(self) microphone=(self) geolocation=()',
+          'X-Frame-Options': 'DENY',
+          'X-Content-Type-Options': 'nosniff',
+          'Referrer-Policy': 'strict-origin-when-cross-origin',
+        },
+      },
+      '/en/i/**': {
+        headers: {
+          'Permissions-Policy': 'camera=(self) microphone=(self) geolocation=()',
+          'X-Frame-Options': 'DENY',
+          'X-Content-Type-Options': 'nosniff',
+          'Referrer-Policy': 'strict-origin-when-cross-origin',
+        },
+      },
     },
   },
 
