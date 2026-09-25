@@ -59,8 +59,8 @@ describe('nuxt.config.ts — Permissions-Policy routeRules (D6)', () => {
   // D6: Nitro REPLACES not merges → all four headers must appear per entry
   // ─────────────────────────────────────────────────────────────────────────
 
-  it('sets camera=(self) microphone=(self) geolocation=() on interview routes', () => {
-    expect(configSource).toContain("'camera=(self) microphone=(self) geolocation=()'")
+  it('sets camera=(self), microphone=(self), geolocation=() on interview routes', () => {
+    expect(configSource).toContain("'camera=(self), microphone=(self), geolocation=()'")
   })
 
   it('retains X-Frame-Options: DENY on interview routes (Nitro replace-not-merge)', () => {
@@ -119,10 +119,10 @@ describe('nuxt.config.ts — Permissions-Policy routeRules (D6)', () => {
     expect(configSource).toContain("'/en/i/**'")
   })
 
-  it('sets camera=(self) microphone=(self) geolocation=() on /i/** routes too (count includes interview + i)', () => {
+  it('sets camera=(self), microphone=(self), geolocation=() on /i/** routes too (count includes interview + i)', () => {
     // interview/** (x2) + i/** (x2) = 4 occurrences of the per-route Permissions-Policy value.
     const count = (
-      configSource.match(/'camera=\(self\) microphone=\(self\) geolocation=\(\)'/g) ?? []
+      configSource.match(/'camera=\(self\), microphone=\(self\), geolocation=\(\)'/g) ?? []
     ).length
     expect(count).toBe(4)
   })

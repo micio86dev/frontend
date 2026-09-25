@@ -24,7 +24,7 @@ export default defineNuxtConfig({
       // non-default locale prefix. Add a new entry for each additional locale (es/fr/de/pt).
       '/interview/**': {
         headers: {
-          'Permissions-Policy': 'camera=(self) microphone=(self) geolocation=()',
+          'Permissions-Policy': 'camera=(self), microphone=(self), geolocation=()',
           'X-Frame-Options': 'DENY',
           'X-Content-Type-Options': 'nosniff',
           'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -32,7 +32,7 @@ export default defineNuxtConfig({
       },
       '/en/interview/**': {
         headers: {
-          'Permissions-Policy': 'camera=(self) microphone=(self) geolocation=()',
+          'Permissions-Policy': 'camera=(self), microphone=(self), geolocation=()',
           'X-Frame-Options': 'DENY',
           'X-Content-Type-Options': 'nosniff',
           'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -46,7 +46,7 @@ export default defineNuxtConfig({
       // organization's allowed domains; `/i/**` itself stays denied.
       '/i/**': {
         headers: {
-          'Permissions-Policy': 'camera=(self) microphone=(self) geolocation=()',
+          'Permissions-Policy': 'camera=(self), microphone=(self), geolocation=()',
           'X-Frame-Options': 'DENY',
           'X-Content-Type-Options': 'nosniff',
           'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -54,7 +54,7 @@ export default defineNuxtConfig({
       },
       '/en/i/**': {
         headers: {
-          'Permissions-Policy': 'camera=(self) microphone=(self) geolocation=()',
+          'Permissions-Policy': 'camera=(self), microphone=(self), geolocation=()',
           'X-Frame-Options': 'DENY',
           'X-Content-Type-Options': 'nosniff',
           'Referrer-Policy': 'strict-origin-when-cross-origin',
