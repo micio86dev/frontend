@@ -17,7 +17,11 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { isSupportedBrowser } from '../../app/utils/browser-gate'
+import {
+  effectiveViewportWidth,
+  isGateExemptPath,
+  isSupportedBrowser,
+} from '../../app/utils/browser-gate'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Representative UA strings (not pinned to specific versions — logic matters)
@@ -144,5 +148,38 @@ describe('isSupportedBrowser — D5 browser gate (SA-11)', () => {
 
   it('path.endsWith("/unsupported") guard — "/interview/token123" does NOT match', () => {
     expect('/interview/token123'.endsWith('/unsupported')).toBe(false)
+  })
+})
+
+describe('effectiveViewportWidth — embedded pages measure the device, not the iframe', () => {
+  const top = {} as Window
+
+  it('uses innerWidth for a top-level page', () => {
+    const win = { innerWidth: 800, screen: { width: 1920 }, parent: top } as unknown as Window
+    Object.defineProperty(win, 'parent', { value: win })
+    expect(effectiveViewportWidth(win)).toBe(800)
+  })
+
+  it('uses screen.width when framed, so a narrow container on a desktop is not gated', () => {
+    const win = { innerWidth: 600, screen: { width: 1920 }, parent: top } as unknown as Window
+    expect(effectiveViewportWidth(win)).toBe(1920)
+  })
+
+  it('still gates a phone when framed', () => {
+    const win = { innerWidth: 390, screen: { width: 390 }, parent: top } as unknown as Window
+    expect(effectiveViewportWidth(win)).toBeLessThan(1024)
+  })
+})
+
+describe('isGateExemptPath — routes the global gate never redirects', () => {
+  it.each(['/unsupported', '/en/unsupported', '/embed/tok', '/en/embed/tok', '/es/embed/tok'])(
+    'exempts %s',
+    (path) => {
+      expect(isGateExemptPath(path)).toBe(true)
+    }
+  )
+
+  it.each(['/interview/x', '/i/tok', '/embedded/tok', '/'])('gates %s', (path) => {
+    expect(isGateExemptPath(path)).toBe(false)
   })
 })

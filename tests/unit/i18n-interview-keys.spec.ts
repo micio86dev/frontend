@@ -83,6 +83,14 @@ const REQUIRED_KEYS = [
   'interview.terminal.session_expired.body',
   'interview.terminal.spent_link.title',
   'interview.terminal.spent_link.body',
+  // public-api step 5 — hosted entry route (`/i/{token}`), `GET
+  // /api/embed/exchange` error mapping (G-32): a consumed/replaced session
+  // token (410) vs an expired/malformed one (401) get distinct, honest copy
+  // — neither implies the OTHER failure's remedy would help.
+  'interview.terminal.link_used.title',
+  'interview.terminal.link_used.body',
+  'interview.terminal.link_invalid.title',
+  'interview.terminal.link_invalid.body',
 ]
 
 describe('i18n interview flow keys', () => {

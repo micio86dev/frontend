@@ -26,13 +26,32 @@ export interface CandidateSession {
   exp: number
   candidateRef: string
   projectId: number
+  /**
+   * The public-api session token's `sub` claim (`int_…`, SPEC §3.5), captured
+   * at store()-time by the hosted entry route (`app/pages/i/[token].vue`) —
+   * NOT a claim carried by the candidate JWT itself. Lets a revisit of the
+   * same `/i/{token}` link skip a second `/api/embed/exchange` call (which
+   * would otherwise 410 `token_consumed`, since the session token is
+   * single-use), the same "may I reuse what I already hold" optimization
+   * `storedSessionMatchesLink` applies to the SSO-link flow. Absent for
+   * sessions stored via the SSO-link entry route.
+   */
+  interviewId?: string
+}
+
+export interface StoreExtra {
+  interviewId?: string
 }
 
 export interface UseCandidateSessionReturn {
   /** Purges and returns null when `exp` has passed. Never returns an expired session. */
   read(): CandidateSession | null
-  /** Decodes claims from the JWT payload; no signature verification (server re-validates). */
-  store(accessToken: string): void
+  /**
+   * Decodes claims from the JWT payload; no signature verification (server
+   * re-validates). `extra.interviewId`, when passed, is stored alongside the
+   * decoded claims — see `CandidateSession.interviewId`.
+   */
+  store(accessToken: string, extra?: StoreExtra): void
   clear(): void
 }
 
@@ -64,7 +83,7 @@ export function useCandidateSession(): UseCandidateSessionReturn {
     return parsed
   }
 
-  function store(accessToken: string): void {
+  function store(accessToken: string, extra?: StoreExtra): void {
     if (!hasLocalStorage()) return
 
     const claims = decodeJwtPayload(accessToken)
@@ -77,6 +96,7 @@ export function useCandidateSession(): UseCandidateSessionReturn {
     const projectId = typeof claims['project_id'] === 'number' ? claims['project_id'] : 0
 
     const session: CandidateSession = { accessToken, exp, candidateRef, projectId }
+    if (extra?.interviewId) session.interviewId = extra.interviewId
     localStorage.setItem(STORAGE_KEY, JSON.stringify(session))
   }
 

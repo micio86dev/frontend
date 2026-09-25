@@ -17,12 +17,10 @@
  * SSR invariant: window/navigator access is guarded by import.meta.client.
  */
 
-import { defineNuxtRouteMiddleware, navigateTo, useRequestHeaders } from '#imports'
-import { isSupportedBrowser } from '~/utils/browser-gate'
+import { effectiveViewportWidth, isGateExemptPath, isSupportedBrowser } from '~/utils/browser-gate'
 
 export default defineNuxtRouteMiddleware((to) => {
-  // Skip for the /unsupported page itself (covers both /unsupported and /en/unsupported)
-  if (to.path.endsWith('/unsupported')) {
+  if (isGateExemptPath(to.path)) {
     return
   }
 
@@ -38,7 +36,7 @@ export default defineNuxtRouteMiddleware((to) => {
   if (import.meta.client) {
     // Client-side: UA from navigator + actual viewport width
     const ua = navigator.userAgent
-    const width = window.innerWidth
+    const width = effectiveViewportWidth(window)
     if (!isSupportedBrowser(ua, width)) {
       return navigateTo('/unsupported')
     }

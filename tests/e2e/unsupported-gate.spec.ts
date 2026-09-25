@@ -71,6 +71,25 @@ test.describe('SA-11 — Unsupported experience gate', () => {
     })
   })
 
+  test.describe('SA-11 — Mobile: hosted entry route (/i/{token}) redirects to /unsupported', () => {
+    // The public-api hosted entry route (public-api step 5) is gated by the
+    // SAME global browser-gate.global.ts middleware as /interview/{token} —
+    // no route-specific opt-in exists, so mobile must redirect here too.
+    test('mobile viewport navigating to /i/fake-token redirects to /unsupported', async ({
+      page,
+      isMobile,
+    }) => {
+      if (isMobile) {
+        await page.goto('/i/fake-token')
+        await expect(page).toHaveURL(/\/unsupported/)
+        await expect(page.getByTestId('unsupported-gate')).toBeVisible()
+      } else {
+        await page.goto('/i/fake-token')
+        await expect(page).not.toHaveURL(/\/unsupported/)
+      }
+    })
+  })
+
   test.describe('SA-11 — Desktop: Firefox UA redirects to /unsupported', () => {
     // UA spoofing technique: use browser.newContext({ userAgent }) to correctly
     // override the User-Agent for the SSR request. page.setExtraHTTPHeaders()

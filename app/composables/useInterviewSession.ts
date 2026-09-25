@@ -100,6 +100,7 @@
 
 import { ref, shallowRef, computed, type ComputedRef } from 'vue'
 import { createProvider } from '~/app/providers/factory'
+import { effectiveViewportWidth } from '~/app/utils/browser-gate'
 import type { InterviewProvider, ProviderName, StartConfig } from '~/app/types/interview-provider'
 import type { operations } from '~~/types/api'
 
@@ -576,7 +577,7 @@ export function useInterviewSession(
     if (typeof window === 'undefined') return
 
     resizeListener = () => {
-      if (window.innerWidth < 1024) {
+      if (effectiveViewportWidth(window) < 1024) {
         // Flush integrity before navigating away, via the shared keepalive
         // transport (D-C) — replaces the hand-built `navigator.sendBeacon`
         // duplicate that used to live here (a second copy was a second chance

@@ -59,7 +59,10 @@
     "paused": {
       "title": "Interview Paused",
       "body": "The interview is on hold and nothing is being recorded. Resuming reconnects you to the same question, right where you left it.",
-      "resume": "Resume"
+      "resume": "Resume",
+      "tab_hidden_warning": "The interview was paused because this tab stayed in the background for more than a minute.",
+      "network_reconnecting": "Connection lost. Attempting to reconnect…",
+      "network_failed": "The connection could not be restored. Press \"Resume\" to try again."
     },
     "done": {
       "title": "Interview Completed",
@@ -87,6 +90,22 @@
       "spent_link": {
         "title": "This Invitation Has Already Been Used",
         "body": "This invitation has already been used and cannot be used again. If you have not yet completed your interview, please contact whoever invited you."
+      },
+      "link_used": {
+        "title": "This Link Has Already Been Used",
+        "body": "This interview link has already been used or has been replaced by a newer one. Please ask the sender for a new link."
+      },
+      "link_invalid": {
+        "title": "This Link Is No Longer Valid",
+        "body": "This interview link has expired or is not valid. Please ask the sender for a new link."
+      },
+      "unsupported": {
+        "title": "Unsupported Browser",
+        "body": "This interview requires a supported desktop browser (Chrome, Edge, Opera or Safari) on a desktop computer."
+      },
+      "unavailable": {
+        "title": "Service Temporarily Unavailable",
+        "body": "We could not reach the interview service right now. This is usually temporary — please try again in a few moments."
       },
       "malformed_response": {
         "title": "Unexpected Response from the Interview Service",
