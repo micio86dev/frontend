@@ -59,7 +59,10 @@
     "paused": {
       "title": "Colloquio in pausa",
       "body": "Il colloquio è in pausa e non viene registrato nulla. Riprendendo ti ricolleghi alla stessa domanda, esattamente da dove l'hai lasciata.",
-      "resume": "Riprendi"
+      "resume": "Riprendi",
+      "tab_hidden_warning": "Il colloquio è stato messo in pausa perché questa scheda è rimasta in background per oltre un minuto.",
+      "network_reconnecting": "Connessione assente. Tentativo di riconnessione in corso…",
+      "network_failed": "Impossibile ripristinare la connessione. Premi \"Riprendi\" per riprovare."
     },
     "done": {
       "title": "Colloquio completato",
@@ -95,6 +98,10 @@
       "link_invalid": {
         "title": "Questo link non è più valido",
         "body": "Questo link per il colloquio è scaduto o non è valido. Chiedi un nuovo link a chi te lo ha inviato."
+      },
+      "unavailable": {
+        "title": "Servizio temporaneamente non disponibile",
+        "body": "In questo momento non riusciamo a raggiungere il servizio di colloquio. Di solito è un problema temporaneo: riprova tra qualche istante."
       },
       "malformed_response": {
         "title": "Risposta imprevista dal servizio di intervista",

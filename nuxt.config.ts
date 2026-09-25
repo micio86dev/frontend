@@ -18,8 +18,8 @@ export default defineNuxtConfig({
           'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
         },
       },
-      // Per-route override for the interview flow (D6 — Nitro REPLACES headers, never merges).
-      // All four security headers must be restated explicitly; omitting any drops it silently.
+      // Per-route override for the interview flow (D6 — Nitro merges matching rules key by key with defu).
+      // All four security headers are restated explicitly here so this rule never depends on the blanket rule's values.
       // Covers the default locale (no prefix, strategy: prefix_except_default) and the English
       // non-default locale prefix. Add a new entry for each additional locale (es/fr/de/pt).
       '/interview/**': {
@@ -56,6 +56,24 @@ export default defineNuxtConfig({
         headers: {
           'Permissions-Policy': 'camera=(self) microphone=(self) geolocation=()',
           'X-Frame-Options': 'DENY',
+          'X-Content-Type-Options': 'nosniff',
+          'Referrer-Policy': 'strict-origin-when-cross-origin',
+        },
+      },
+      // public-api step 10 (SPEC §4.4) — the embed iframe route `/embed/{token}`.
+      // `Content-Security-Policy: frame-ancestors` varies PER ORGANIZATION, which a
+      // static rule cannot express, so `server/middleware/embed-csp.ts` sets it (and
+      // `Permissions-Policy`) per request. Nitro MERGES matching rules (defu), so this
+      // route also inherits the blanket `/**` `X-Frame-Options: DENY`; that middleware
+      // removes it. Only the two static, org-independent headers are restated here.
+      '/embed/**': {
+        headers: {
+          'X-Content-Type-Options': 'nosniff',
+          'Referrer-Policy': 'strict-origin-when-cross-origin',
+        },
+      },
+      '/en/embed/**': {
+        headers: {
           'X-Content-Type-Options': 'nosniff',
           'Referrer-Policy': 'strict-origin-when-cross-origin',
         },

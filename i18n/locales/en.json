@@ -59,7 +59,10 @@
     "paused": {
       "title": "Interview Paused",
       "body": "The interview is on hold and nothing is being recorded. Resuming reconnects you to the same question, right where you left it.",
-      "resume": "Resume"
+      "resume": "Resume",
+      "tab_hidden_warning": "The interview was paused because this tab stayed in the background for more than a minute.",
+      "network_reconnecting": "Connection lost. Attempting to reconnect…",
+      "network_failed": "The connection could not be restored. Press \"Resume\" to try again."
     },
     "done": {
       "title": "Interview Completed",
@@ -95,6 +98,10 @@
       "link_invalid": {
         "title": "This Link Is No Longer Valid",
         "body": "This interview link has expired or is not valid. Please ask the sender for a new link."
+      },
+      "unavailable": {
+        "title": "Service Temporarily Unavailable",
+        "body": "We could not reach the interview service right now. This is usually temporary — please try again in a few moments."
       },
       "malformed_response": {
         "title": "Unexpected Response from the Interview Service",

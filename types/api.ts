@@ -692,6 +692,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/embed/frame-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `GET /api/embed/frame-policy?token=<session_token>` — read-only
+         *     `allowed_domains` lookup for the embed page's `Content-Security-Policy:
+         *     frame-ancestors` header (public-api step 10, SPEC.md §4.4)
+         * @description PUBLIC, deliberately NOT `exchange()` reused: `exchange()` atomically
+         *     CONSUMES the session token (the compare-and-clear UPDATE against
+         *     `session_token_jti`) — calling it from `frontend`'s per-request Nitro
+         *     CSP middleware, ahead of the candidate's OWN later `/embed/exchange`
+         *     call, would burn the single-use token before the candidate ever
+         *     reaches it, or race it into a `410` the candidate never caused. This
+         *     action reads only the token's OWN claims and the organization they
+         *     resolve to — no participant lookup, no write, callable any number of
+         *     times without affecting the token's single-use state.
+         *
+         *     Same `401 token_invalid` shape as `exchange()` for a malformed,
+         *     expired, mis-signed, wrong-audience, or unresolvable-organization
+         *     token — the caller (the CSP middleware) treats ANY non-200 as "cannot
+         *          * resolve a policy", which is the trigger for its own fail-safe
+         *     `frame-ancestors 'none'` default (never "no restriction").
+         */
+        get: operations["exchange.framePolicy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["public-api.exports.index"];
+        put?: never;
+        post: operations["public-api.exports.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/exports/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["public-api.exports.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/forgot-password": {
         parameters: {
             query?: never;
@@ -2471,6 +2539,22 @@ export interface paths {
         patch: operations["superadmin.updateSettings"];
         trace?: never;
     };
+    "/v1/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["public-api.usage.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users": {
         parameters: {
             query?: never;
@@ -2822,6 +2906,31 @@ export interface components {
             definition: string;
             type: string;
             bars_available: boolean;
+        };
+        /**
+         * CreateExportRequest
+         * @description `POST /v1/exports` request validation (public-api step 8, SPEC.md §3.3
+         *     "Exports", `openapi.yaml`'s `CreateExportRequest` schema).
+         *
+         *     FORMAT only — the "one active export per organization" concurrency gate
+         *     needs the resolved `Organization` and lives in
+         *     `App\Http\Controllers\PublicApi\ExportController::store()`, mirroring
+         *     `CreateInterviewRequest`'s own division of labour.
+         *
+         *     `authorize()` returns `true` unconditionally — scope enforcement
+         *     (`scope:exports:write`) is `App\Http\Middleware\PublicApi\RequireScope`'s
+         *     job, applied per-route in `routes/api.php`.
+         */
+        CreateExportRequest: {
+            /** @enum {string} */
+            scope: "all" | "interviews";
+            /** @enum {string} */
+            format: "jsonl" | "csv";
+            from?: string | null;
+            to?: string | null;
+            include_transcripts?: boolean;
+            include_scoring?: boolean;
+            include_audio?: boolean;
         };
         /**
          * CreateInterviewRequest
@@ -4094,6 +4203,22 @@ export interface components {
                 "application/json": {
                     /** @description Error overview. */
                     message: string;
+                };
+            };
+        };
+        /** @description Validation error */
+        QueryValidationException: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @description Errors overview. */
+                    message: string;
+                    /** @description A detailed description of each field that failed validation. */
+                    errors: {
+                        [key: string]: string[];
+                    };
                 };
             };
         };
@@ -5799,6 +5924,191 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    "exchange.framePolicy": {
+        parameters: {
+            query: {
+                /** @description The session token from POST /v1/interviews or POST /v1/interviews/{id}/session-tokens. */
+                token: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        allowed_domains: string[];
+                    };
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        type: string;
+                        /** @constant */
+                        title: "Invalid session token";
+                        /** @constant */
+                        status: 401;
+                        /** @constant */
+                        code: "token_invalid";
+                        request_id: string;
+                        detail: null;
+                        errors: null;
+                    };
+                };
+            };
+        };
+    };
+    "public-api.exports.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of this organization's export jobs, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            id: string;
+                            status: string;
+                            scope: string;
+                            format: string;
+                            livemode: boolean;
+                            from: string | null;
+                            to: string | null;
+                            record_count: number | null;
+                            download_url: string | null;
+                            download_expires_at: string | null;
+                            size_bytes: number | null;
+                            checksum_sha256: string | null;
+                            failure_reason: string | null;
+                            created_at: string;
+                            completed_at: string | null;
+                        }[];
+                        next_cursor: string | null;
+                        has_more: boolean;
+                    };
+                };
+            };
+            422: components["responses"]["QueryValidationException"];
+        };
+    };
+    "public-api.exports.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateExportRequest"];
+            };
+        };
+        responses: {
+            /** @description Export job accepted. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        status: string;
+                        scope: string;
+                        format: string;
+                        livemode: boolean;
+                        from: string | null;
+                        to: string | null;
+                        record_count: number | null;
+                        download_url: string | null;
+                        download_expires_at: string | null;
+                        size_bytes: number | null;
+                        checksum_sha256: string | null;
+                        failure_reason: string | null;
+                        created_at: string;
+                        completed_at: string | null;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+            /** @description An export is already in progress for this organization and mode (code=export_in_progress). */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        type: string;
+                        title: string;
+                        status: number;
+                        code: string;
+                        request_id: string;
+                        detail?: string;
+                        errors?: {
+                            field: string;
+                            code: string;
+                            message?: string;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    "public-api.exports.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The export job, with a fresh signed download URL when ready. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        status: string;
+                        scope: string;
+                        format: string;
+                        livemode: boolean;
+                        from: string | null;
+                        to: string | null;
+                        record_count: number | null;
+                        download_url: string | null;
+                        download_expires_at: string | null;
+                        size_bytes: number | null;
+                        checksum_sha256: string | null;
+                        failure_reason: string | null;
+                        created_at: string;
+                        completed_at: string | null;
+                    };
+                };
+            };
+            404: components["responses"]["ModelNotFoundException"];
         };
     };
     "auth.forgotPassword": {
@@ -9082,6 +9392,71 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             422: components["responses"]["ValidationException"];
+        };
+    };
+    "public-api.usage.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Usage summary for the requested window. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        from: string;
+                        to: string;
+                        livemode: boolean;
+                        interviews: {
+                            pending: number;
+                            in_progress: number;
+                            under_evaluation: number;
+                            completed: number;
+                            error: number;
+                        };
+                        evaluations: {
+                            completed: number;
+                            /** @description 'processing' folded into 'pending' — see class doc, point 2. */
+                            pending: string;
+                        };
+                        completion_rate: number;
+                        llm_tokens: {
+                            input: number;
+                            output: number;
+                        };
+                        cost_usd: number;
+                        /** @constant */
+                        currency: "USD";
+                    };
+                };
+            };
+            /** @description Malformed query parameter, or from is after to (code=validation_failed). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        type: string;
+                        title: string;
+                        status: number;
+                        code: string;
+                        request_id: string;
+                        detail?: string;
+                        errors?: {
+                            field: string;
+                            code: string;
+                            message?: string;
+                        }[];
+                    };
+                };
+            };
         };
     };
     "user.index": {
