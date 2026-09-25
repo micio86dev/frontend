@@ -45,3 +45,13 @@ export function isSupportedBrowser(ua: string, width: number): boolean {
 
   return true
 }
+
+/**
+ * Width the desktop gate should judge. Inside an iframe (the embed page) the
+ * viewport is the host's container, which can be narrower than 1024 on a
+ * perfectly capable desktop; the device's screen width is what matters there.
+ */
+export function effectiveViewportWidth(win: Window): number {
+  const framed = win.parent != null && win.parent !== win
+  return framed ? win.screen.width : win.innerWidth
+}

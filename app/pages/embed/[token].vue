@@ -79,6 +79,7 @@
  * noindex: this route is session-gated and must never be indexed.
  */
 import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { effectiveViewportWidth, isSupportedBrowser } from '~/app/utils/browser-gate'
 import { $fetch } from 'ofetch'
 import { Skeleton } from '~/components/ui/skeleton'
 import InterviewSession from '~/components/InterviewSession.vue'
@@ -111,7 +112,7 @@ const route = useRoute()
 
 type ExchangeState = 'exchanging' | 'ready' | 'error'
 const exchangeState = ref<ExchangeState>('exchanging')
-type ExchangeErrorReason = 'link_used' | 'link_invalid' | '403' | 'unavailable'
+type ExchangeErrorReason = 'link_used' | 'link_invalid' | '403' | 'unavailable' | 'unsupported'
 const exchangeErrorReason = ref<ExchangeErrorReason>('403')
 const allowedOrigins = ref<string[]>([])
 const interviewRef = ref<InstanceType<typeof InterviewSession> | null>(null)
@@ -178,6 +179,20 @@ const bridge = useEmbedBridge({
 
 async function exchangeAndMount(): Promise<void> {
   const token = String(route.params['token'] ?? '')
+
+  // The global browser gate skips /embed/** (redirecting would unmount this
+  // page and silence the bridge); the same check runs here so the host is told.
+  if (!isSupportedBrowser(navigator.userAgent, effectiveViewportWidth(window))) {
+    exchangeErrorReason.value = 'unsupported'
+    exchangeState.value = 'error'
+    bridge.post('error', {
+      code: 'unsupported',
+      message: 'This browser or device is not supported for the interview.',
+      recoverable: false,
+    })
+    return
+  }
+
   const session = useCandidateSession()
   const stored = session.read()
   const sessionTokenClaims = decodeJwtPayload(token)
@@ -346,12 +361,40 @@ watch(interviewRef, (instance) => {
   }
 })
 
+const RESIZE_THROTTLE_MS = 100
+let resizeObserver: ResizeObserver | null = null
+let resizeTimer: ReturnType<typeof setTimeout> | null = null
+let lastPostedHeight: number | null = null
+
+function scheduleResizePost(): void {
+  if (resizeTimer !== null) return
+  resizeTimer = setTimeout(() => {
+    resizeTimer = null
+    const height = Math.ceil(document.documentElement.scrollHeight)
+    if (height === lastPostedHeight) return
+    lastPostedHeight = height
+    bridge.post('resize', { height })
+  }, RESIZE_THROTTLE_MS)
+}
+
+function stopResizeReporting(): void {
+  resizeObserver?.disconnect()
+  resizeObserver = null
+  if (resizeTimer !== null) clearTimeout(resizeTimer)
+  resizeTimer = null
+}
+
 onMounted(() => {
   bridge.attach()
+  if (typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(scheduleResizePost)
+    resizeObserver.observe(document.documentElement)
+  }
   void exchangeAndMount()
 })
 
 onUnmounted(() => {
+  stopResizeReporting()
   clearRetryTimer()
   bridge.detach()
   for (const stop of stopWatchers) stop()

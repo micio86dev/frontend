@@ -132,6 +132,32 @@ describe('embed/[token].vue — exchange error mapping', () => {
   })
 })
 
+describe('embed/[token].vue — unsupported browser gate', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('shows the unsupported screen inline and tells the host, without calling the exchange', async () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 14.0; rv:120.0) Gecko/20100101 Firefox/120.0'
+    )
+
+    const wrapper = await mountPage()
+
+    expect(wrapper.find('[data-testid="embed-error-screen"]').text()).toContain(
+      'interview.terminal.unsupported.title'
+    )
+    expect(mockPost).toHaveBeenCalledWith(
+      'error',
+      expect.objectContaining({ code: 'unsupported', recoverable: false })
+    )
+    expect(mockFetch).not.toHaveBeenCalledWith(
+      expect.stringContaining('/embed/exchange'),
+      expect.anything()
+    )
+  })
+})
+
 describe('embed/[token].vue — success path and event mapping', () => {
   it('stores the candidate session and posts ready once the interview mounts', async () => {
     await mountPage()
@@ -238,5 +264,95 @@ describe('embed/[token].vue — provider auto-retry', () => {
     vi.advanceTimersByTime(AUTO_RETRY_DELAY_MS * 2)
 
     expect(session.retry).not.toHaveBeenCalled()
+  })
+})
+
+describe('embed/[token].vue — resize emission', () => {
+  const RESIZE_THROTTLE_MS = 100
+  let observerCallback: (() => void) | null
+  let observe: ReturnType<typeof vi.fn>
+  let disconnect: ReturnType<typeof vi.fn>
+  let height: number
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    observerCallback = null
+    observe = vi.fn()
+    disconnect = vi.fn()
+    height = 640
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(cb: () => void) {
+          observerCallback = cb
+        }
+        observe = observe
+        disconnect = disconnect
+        unobserve = vi.fn()
+      }
+    )
+    Object.defineProperty(document.documentElement, 'scrollHeight', {
+      configurable: true,
+      get: () => height,
+    })
+  })
+
+  afterEach(() => {
+    Reflect.deleteProperty(document.documentElement, 'scrollHeight')
+  })
+
+  function resizeCalls(): unknown[][] {
+    return mockPost.mock.calls.filter((call) => call[0] === 'resize')
+  }
+
+  it('observes the document root and posts its scrollHeight', async () => {
+    await mountPage()
+    expect(observe).toHaveBeenCalledWith(document.documentElement)
+
+    observerCallback?.()
+    vi.advanceTimersByTime(RESIZE_THROTTLE_MS)
+
+    expect(resizeCalls()).toEqual([['resize', { height: 640 }]])
+  })
+
+  it('does not re-post an unchanged height', async () => {
+    await mountPage()
+
+    observerCallback?.()
+    vi.advanceTimersByTime(RESIZE_THROTTLE_MS)
+    observerCallback?.()
+    vi.advanceTimersByTime(RESIZE_THROTTLE_MS)
+
+    expect(resizeCalls()).toHaveLength(1)
+  })
+
+  it('collapses a burst of changes into one post carrying the latest height', async () => {
+    await mountPage()
+
+    observerCallback?.()
+    height = 700
+    observerCallback?.()
+    height = 720
+    observerCallback?.()
+    vi.advanceTimersByTime(RESIZE_THROTTLE_MS)
+
+    expect(resizeCalls()).toEqual([['resize', { height: 720 }]])
+  })
+
+  it('disconnects the observer and drops a pending post on unmount', async () => {
+    const wrapper = await mountPage()
+
+    observerCallback?.()
+    wrapper.unmount()
+    vi.advanceTimersByTime(RESIZE_THROTTLE_MS)
+
+    expect(disconnect).toHaveBeenCalled()
+    expect(resizeCalls()).toHaveLength(0)
+  })
+
+  it('does not throw where ResizeObserver is unavailable', async () => {
+    vi.stubGlobal('ResizeObserver', undefined)
+
+    await expect(mountPage()).resolves.toBeDefined()
   })
 })

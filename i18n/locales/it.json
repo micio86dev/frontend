@@ -99,6 +99,10 @@
         "title": "Questo link non è più valido",
         "body": "Questo link per il colloquio è scaduto o non è valido. Chiedi un nuovo link a chi te lo ha inviato."
       },
+      "unsupported": {
+        "title": "Browser non supportato",
+        "body": "Questo colloquio richiede un browser desktop supportato (Chrome, Edge, Opera o Safari) su un computer desktop."
+      },
       "unavailable": {
         "title": "Servizio temporaneamente non disponibile",
         "body": "In questo momento non riusciamo a raggiungere il servizio di colloquio. Di solito è un problema temporaneo: riprova tra qualche istante."

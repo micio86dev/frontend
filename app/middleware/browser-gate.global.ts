@@ -18,11 +18,17 @@
  */
 
 import { defineNuxtRouteMiddleware, navigateTo, useRequestHeaders } from '#imports'
-import { isSupportedBrowser } from '~/utils/browser-gate'
+import { effectiveViewportWidth, isSupportedBrowser } from '~/utils/browser-gate'
 
 export default defineNuxtRouteMiddleware((to) => {
   // Skip for the /unsupported page itself (covers both /unsupported and /en/unsupported)
   if (to.path.endsWith('/unsupported')) {
+    return
+  }
+
+  // The embed page runs the same check itself and reports it to the host over
+  // postMessage; redirecting would unmount it and leave the host's iframe silent.
+  if (/^\/(?:en\/)?embed\//.test(to.path)) {
     return
   }
 
@@ -38,7 +44,7 @@ export default defineNuxtRouteMiddleware((to) => {
   if (import.meta.client) {
     // Client-side: UA from navigator + actual viewport width
     const ua = navigator.userAgent
-    const width = window.innerWidth
+    const width = effectiveViewportWidth(window)
     if (!isSupportedBrowser(ua, width)) {
       return navigateTo('/unsupported')
     }

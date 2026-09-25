@@ -99,6 +99,10 @@
         "title": "This Link Is No Longer Valid",
         "body": "This interview link has expired or is not valid. Please ask the sender for a new link."
       },
+      "unsupported": {
+        "title": "Unsupported Browser",
+        "body": "This interview requires a supported desktop browser (Chrome, Edge, Opera or Safari) on a desktop computer."
+      },
       "unavailable": {
         "title": "Service Temporarily Unavailable",
         "body": "We could not reach the interview service right now. This is usually temporary — please try again in a few moments."
