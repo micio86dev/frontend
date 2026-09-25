@@ -56,7 +56,7 @@ describe('nuxt.config.ts — Permissions-Policy routeRules (D6)', () => {
 
   // ─────────────────────────────────────────────────────────────────────────
   // Permissions-Policy header value — camera + microphone self + geolocation deny
-  // D6: Nitro REPLACES not merges → all four headers must appear per entry
+  // D6: Nitro merges matching rules key by key → all four headers must appear per entry
   // ─────────────────────────────────────────────────────────────────────────
 
   it('sets camera=(self), microphone=(self), geolocation=() on interview routes', () => {
