@@ -109,6 +109,24 @@ describe('useCandidateSession', () => {
     })
   })
 
+  describe('store() with extra.interviewId (hosted-entry T-TOK-011..014)', () => {
+    it('persists interviewId when passed as extra', () => {
+      const { store, read } = useCandidateSession()
+      const token = makeCandidateJwt(validClaims())
+
+      store(token, { interviewId: 'int_abc123' })
+
+      expect(read()?.interviewId).toBe('int_abc123')
+    })
+
+    it('leaves interviewId undefined when no extra is passed (backward compatible)', () => {
+      const { store, read } = useCandidateSession()
+      store(makeCandidateJwt(validClaims()))
+
+      expect(read()?.interviewId).toBeUndefined()
+    })
+  })
+
   describe('clear()', () => {
     it('removes a stored session', () => {
       const { store, read, clear } = useCandidateSession()

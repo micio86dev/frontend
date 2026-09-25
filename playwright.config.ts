@@ -51,43 +51,67 @@ export default defineConfig({
 
   // Build the SSR app and serve the production output. Readiness is checked
   // against a real endpoint (/api/health); binding forced to IPv4 via HOST.
-  webServer: {
-    command: 'bun run build && node .output/server/index.mjs',
-    // 4174, NOT 3000, and the port is the whole point.
-    //
-    // `reuseExistingServer` is true locally, and the local docker stack
-    // publishes this app on 3000. So running the E2E while `./dev.sh` was up
-    // handed the whole suite to the CONTAINER: a server built from a different
-    // checkout, with none of the env below — no mock provider, no measurement
-    // ID, an apiBase pointing somewhere else. 39 specs failed, every one of
-    // them correctly, against an app they were never meant to be testing.
-    //
-    // Nothing in the output says which server answered, which is what made it
-    // cost an afternoon. The backoffice suite has always used its own 4173 and
-    // never had the problem; this is the same fix.
-    url: 'http://127.0.0.1:4174/api/health',
-    env: {
-      HOST: '0.0.0.0',
-      PORT: '4174',
-      NITRO_PORT: '4174',
-      // apiBase INCLUDES the /api suffix (AGENTS.md, .env.example, docker-compose.yml).
-      // Left unset, apiBase would be '' and every candidate call would resolve to a
-      // same-origin '/candidate/...' URL that the specs' '**/api/candidate/...' route
-      // globs do not match — the E2E would exercise a URL shape no environment uses.
-      NUXT_PUBLIC_API_BASE: 'http://127.0.0.1:4174/api',
-      // C10 PR7: wires the W3-documented mock injection point (factory.ts) so E2E
-      // specs can drive the interview state machine to `live`/`done` without a
-      // real HeyGen/Tavus SDK connection. See app/providers/factory.ts and
-      // tests/e2e/fixtures/interview-provider.ts.
-      NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK: 'true',
-      // C13 task 5.6: the consent banner only appears where there is something
-      // to ask permission FOR, so E2E needs a measurement ID configured. It is
-      // a fake one, and analytics-consent.spec.ts blocks the third-party hosts
-      // at the network layer — a suite that phoned Google on every run would be
-      // slow, flaky, and reporting CI traffic into a real property.
-      NUXT_PUBLIC_GA_MEASUREMENT_ID: 'G-E2ETEST',
+  webServer: [
+    {
+      // Stand-in api for the CSP middleware's frame-policy lookup (embed.spec.ts).
+      command: 'node tests/e2e/fixtures/frame-policy-stub.mjs',
+      url: 'http://127.0.0.1:4175/api/health',
+      reuseExistingServer: !process.env['CI'],
+      timeout: 30_000,
     },
-    reuseExistingServer: !process.env['CI'],
-    timeout: 180_000,
-  },
+    {
+      command: 'bun run build && node .output/server/index.mjs',
+      // 4174, NOT 3000, and the port is the whole point.
+      //
+      // `reuseExistingServer` is true locally, and the local docker stack
+      // publishes this app on 3000. So running the E2E while `./dev.sh` was up
+      // handed the whole suite to the CONTAINER: a server built from a different
+      // checkout, with none of the env below — no mock provider, no measurement
+      // ID, an apiBase pointing somewhere else. 39 specs failed, every one of
+      // them correctly, against an app they were never meant to be testing.
+      //
+      // Nothing in the output says which server answered, which is what made it
+      // cost an afternoon. The backoffice suite has always used its own 4173 and
+      // never had the problem; this is the same fix.
+      url: 'http://127.0.0.1:4174/api/health',
+      env: {
+        HOST: '0.0.0.0',
+        PORT: '4174',
+        NITRO_PORT: '4174',
+        // apiBase INCLUDES the /api suffix (AGENTS.md, .env.example, docker-compose.yml).
+        // Left unset, apiBase would be '' and every candidate call would resolve to a
+        // same-origin '/candidate/...' URL that the specs' '**/api/candidate/...' route
+        // globs do not match — the E2E would exercise a URL shape no environment uses.
+        NUXT_PUBLIC_API_BASE: 'http://127.0.0.1:4174/api',
+        // C10 PR7: wires the W3-documented mock injection point (factory.ts) so E2E
+        // specs can drive the interview state machine to `live`/`done` without a
+        // real HeyGen/Tavus SDK connection. See app/providers/factory.ts and
+        // tests/e2e/fixtures/interview-provider.ts.
+        NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK: 'true',
+        // C13 task 5.6: the consent banner only appears where there is something
+        // to ask permission FOR, so E2E needs a measurement ID configured. It is
+        // a fake one, and analytics-consent.spec.ts blocks the third-party hosts
+        // at the network layer — a suite that phoned Google on every run would be
+        // slow, flaky, and reporting CI traffic into a real property.
+        NUXT_PUBLIC_GA_MEASUREMENT_ID: 'G-E2ETEST',
+      },
+      reuseExistingServer: !process.env['CI'],
+      timeout: 180_000,
+    },
+    {
+      // Second instance of the SAME build, pointed at the frame-policy stub, for
+      // embed.spec.ts only. NUXT_API_ORIGIN also switches on the /api proxy, which
+      // would change every other spec's behavior on the main server above.
+      command: 'node .output/server/index.mjs',
+      url: 'http://127.0.0.1:4176/api/health',
+      env: {
+        HOST: '0.0.0.0',
+        PORT: '4176',
+        NITRO_PORT: '4176',
+        NUXT_API_ORIGIN: 'http://127.0.0.1:4175',
+      },
+      reuseExistingServer: !process.env['CI'],
+      timeout: 60_000,
+    },
+  ],
 })
