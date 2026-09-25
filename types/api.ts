@@ -4207,22 +4207,6 @@ export interface components {
             };
         };
         /** @description Validation error */
-        QueryValidationException: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": {
-                    /** @description Errors overview. */
-                    message: string;
-                    /** @description A detailed description of each field that failed validation. */
-                    errors: {
-                        [key: string]: string[];
-                    };
-                };
-            };
-        };
-        /** @description Validation error */
         ValidationException: {
             headers: {
                 [name: string]: unknown;
@@ -5971,7 +5955,12 @@ export interface operations {
     };
     "public-api.exports.index": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Opaque pagination cursor from a previous page's next_cursor. Omit for the first page. A present but malformed value answers 400 invalid_cursor. */
+                cursor?: string;
+                /** @description Page size, 1-100 (default 25). Out of range answers 400 validation_failed. */
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -6007,7 +5996,27 @@ export interface operations {
                     };
                 };
             };
-            422: components["responses"]["QueryValidationException"];
+            /** @description Malformed query parameter. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        type: string;
+                        title: string;
+                        status: number;
+                        code: string;
+                        request_id: string;
+                        detail?: string;
+                        errors?: {
+                            field: string;
+                            code: string;
+                            message?: string;
+                        }[];
+                    };
+                };
+            };
         };
     };
     "public-api.exports.store": {
@@ -6369,6 +6378,12 @@ export interface operations {
                 created_after?: string;
                 /** @description Exclusive upper bound on created_at. Strict ISO 8601 date-time, UTC (Z) or a numeric offset, e.g. 2026-01-01T00:00:00Z. An invalid or non-ISO-8601 value answers 400 validation_failed. */
                 created_before?: string;
+                /** @description Opaque pagination cursor from a previous page's next_cursor. Omit for the first page. A present but malformed value answers 400 invalid_cursor. */
+                cursor?: string;
+                /** @description Page size, 1-100 (default 25). Out of range answers 400 validation_failed. */
+                limit?: number;
+                /** @description Comma-separated related resources to inline. Supported: project. */
+                expand?: string;
             };
             header?: never;
             path?: never;
@@ -6475,7 +6490,10 @@ export interface operations {
     };
     "public-api.interviews.show": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Comma-separated related resources to inline. Supported: project. */
+                expand?: string;
+            };
             header?: never;
             path: {
                 interview: string;
@@ -7966,7 +7984,18 @@ export interface operations {
     };
     "public-api.projects.index": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Opaque pagination cursor from a previous page's next_cursor. Omit for the first page. A present but malformed value answers 400 invalid_cursor. */
+                cursor?: string;
+                /** @description Page size, 1-100 (default 25). Out of range answers 400 validation_failed. */
+                limit?: number;
+                /** @description Filter by project status. */
+                status?: string;
+                /** @description Filter by role code (ICO, FLL, MLL, BUL, SRX). */
+                role_code?: string;
+                /** @description Filter by assessment type (standard or potential). */
+                assessment_type?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -9396,7 +9425,12 @@ export interface operations {
     };
     "public-api.usage.show": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Start of the reporting window. Strict ISO 8601 date-time. Defaults to the start of the current month (UTC). from > to answers 400 validation_failed. */
+                from?: string;
+                /** @description End of the reporting window. Strict ISO 8601 date-time. Defaults to now (UTC). */
+                to?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -9663,6 +9697,10 @@ export interface operations {
                 status?: string;
                 event_type?: string;
                 interview_id?: string;
+                /** @description Opaque pagination cursor from a previous page's next_cursor. Omit for the first page. A present but malformed value answers 400 invalid_cursor. */
+                cursor?: string;
+                /** @description Page size, 1-100 (default 25). Out of range answers 400 validation_failed. */
+                limit?: number;
             };
             header?: never;
             path?: never;
