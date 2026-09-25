@@ -17,18 +17,10 @@
  * SSR invariant: window/navigator access is guarded by import.meta.client.
  */
 
-import { defineNuxtRouteMiddleware, navigateTo, useRequestHeaders } from '#imports'
-import { effectiveViewportWidth, isSupportedBrowser } from '~/utils/browser-gate'
+import { effectiveViewportWidth, isGateExemptPath, isSupportedBrowser } from '~/utils/browser-gate'
 
 export default defineNuxtRouteMiddleware((to) => {
-  // Skip for the /unsupported page itself (covers both /unsupported and /en/unsupported)
-  if (to.path.endsWith('/unsupported')) {
-    return
-  }
-
-  // The embed page runs the same check itself and reports it to the host over
-  // postMessage; redirecting would unmount it and leave the host's iframe silent.
-  if (/^\/(?:en\/)?embed\//.test(to.path)) {
+  if (isGateExemptPath(to.path)) {
     return
   }
 

@@ -55,3 +55,12 @@ export function effectiveViewportWidth(win: Window): number {
   const framed = win.parent != null && win.parent !== win
   return framed ? win.screen.width : win.innerWidth
 }
+
+/**
+ * Routes the global gate must not redirect. `/unsupported` itself avoids a
+ * loop; the embed page runs the same check inline and reports it to the host
+ * over postMessage, which a redirect would silence by unmounting it.
+ */
+export function isGateExemptPath(path: string): boolean {
+  return path.endsWith('/unsupported') || /^\/(?:[a-z]{2}\/)?embed\//.test(path)
+}
