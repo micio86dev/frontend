@@ -198,14 +198,29 @@ describe('the canvas contrast guarantee (DESIGN.md §7.3.2 rule 2)', () => {
     expect(read('--color-primary-light')).toBe('#ec8867')
   })
 
-  it('does not brand --color-primary-dark at all, because nothing reads it', () => {
-    // Grepped and confirmed: the token appears in its `@theme` declaration and
-    // nowhere else in the app. Painting it would be the "ceremony that looks
-    // like coverage" this composable's own header condemns — and it would come
-    // with a passing test, which is exactly why nobody would notice.
+  it('DOES brand --color-primary-dark now: main.css aliases --color-accent-dark to it', () => {
+    // Reversed. This used to say "nothing reads it" — true when written, false
+    // since `--color-accent-dark: var(--color-primary-dark)` (main.css) made it
+    // the highlighted-row background for every Select/DropdownMenu row
+    // (DESIGN.md §16 rule 10). Leaving it unbranded would have repeated
+    // exactly the half-applied-brand bug this file's own header condemns, one
+    // token further out: a tenant's active/pressed and highlighted-row states
+    // would keep snapping back to Quint purple.
     applyBrandColor('#12203a')
 
-    expect(BRAND_DERIVED_TOKENS).not.toContain('--color-primary-dark')
-    expect(read('--color-primary-dark')).toBe('')
+    expect(BRAND_DERIVED_TOKENS).toContain('--color-primary-dark')
+    expect(read('--color-primary-dark')).toBe('#0f1b31')
+  })
+
+  it('darkens toward black, which only ever RAISES contrast against white text — no ensureContrast loop needed here', () => {
+    // Unlike --color-primary-light (which lightens and could undershoot a
+    // dark-background floor, hence its own contrast-repair loop above),
+    // mixing toward black moves away from white monotonically: white's
+    // luminance is fixed, so the other side can only fall. #431695, the
+    // product's own value at this same 85%-toward-black ratio, already clears
+    // the DESIGN.md ≥4.5:1 white-text floor at 11.75:1.
+    applyBrandColor('#e45526')
+
+    expect(contrastRatio('#ffffff', read('--color-primary-dark'))).toBeGreaterThanOrEqual(4.5)
   })
 })

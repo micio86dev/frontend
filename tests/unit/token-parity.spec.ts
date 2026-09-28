@@ -52,8 +52,8 @@ describe('main.css — brand token reconciliation (D9)', () => {
     expect(cssSource).not.toContain('#2d5282')
   })
 
-  it('--color-primary-dark is #4F1AAF', () => {
-    expectToken(cssSource, '--color-primary-dark', '#4[Ff]1[Aa]{2}[Ff]')
+  it('--color-primary-dark is #431695 (15% darker than the prior #4F1AAF)', () => {
+    expectToken(cssSource, '--color-primary-dark', '#431695')
     expect(cssSource).not.toContain('#132740')
   })
 
@@ -67,9 +67,10 @@ describe('main.css — brand token reconciliation (D9)', () => {
     expect(cssSource).not.toContain('#14b8a6')
   })
 
-  it('--color-accent-dark is #B8431E', () => {
-    expectToken(cssSource, '--color-accent-dark', '#[Bb]8431[Ee]')
+  it('--color-accent-dark aliases --color-primary-dark (no longer a separate orange literal)', () => {
+    expectToken(cssSource, '--color-accent-dark', 'var\\(--color-primary-dark\\)')
     expect(cssSource).not.toContain('#0f766e')
+    expect(cssSource).not.toContain('#b8431e')
   })
 
   // ─────────────────────────────────────────────────────────────────────────
