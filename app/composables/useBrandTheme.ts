@@ -93,7 +93,11 @@ export const BRAND_COLOR_TOKENS = ['--color-primary'] as const
  * looks at in product purple, which is the half-applied brand this file's own
  * header condemns, one token further out.
  */
-export const BRAND_DERIVED_TOKENS = ['--color-primary-light', '--color-lavender'] as const
+export const BRAND_DERIVED_TOKENS = [
+  '--color-primary-light',
+  '--color-primary-dark',
+  '--color-lavender',
+] as const
 
 /**
  * The interview panel these canvas marks are measured against.
@@ -125,6 +129,16 @@ const DERIVE: Record<(typeof BRAND_DERIVED_TOKENS)[number], (color: string) => s
   // product's own `#c222d3` measures 3.79:1 — so 3:1 is the guarantee, not the
   // target, and a tenant colour that already clears it is left alone.
   '--color-primary-light': (color) => ensureContrast(mix(color, '#ffffff', 0.7), AVATAR_PANEL, 3),
+
+  // The "active / pressed" shade — also aliased by `--color-accent-dark` in
+  // main.css, so this ONE derivation covers both roles. Darkening toward
+  // black only ever RAISES contrast against white text (the opposite
+  // direction from `--color-primary-light`'s guard, which is why this needs
+  // no `ensureContrast` loop of its own): the product's own #431695 already
+  // clears the DESIGN.md-documented ≥4.5:1 white-text floor at 11.75:1, and
+  // every tenant colour darkened the same 15% clears it by at least as much,
+  // since white's luminance is fixed and the other side can only fall.
+  '--color-primary-dark': (color) => mix(color, '#000000', 0.85),
 
   // The ribbon CENTRE and the resting baseline — the only mark on screen while
   // nobody is speaking, which DESIGN.md §7.3 calls the property the whole
