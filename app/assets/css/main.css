@@ -35,10 +35,18 @@
   /* Normative Quint brand values (D9 — C7b reconciliation; replaces stale navy/teal) */
   --color-primary: #771aaf;
   --color-primary-light: #c222d3;
-  --color-primary-dark: #4f1aaf;
+  /* 15% darker than the prior #4f1aaf — still 11.75:1 against white (was
+     10:1), so the ≥4.5:1 white-text floor stays comfortably clear. */
+  --color-primary-dark: #431695;
   --color-accent: #e45526;
   --color-accent-light: #f19823;
-  --color-accent-dark: #b8431e;
+  /* Aliased to --color-primary-dark, not a second literal: the "active /
+     pressed" role used to point at a leftover orange the product no longer
+     wants there. A var() reference (not a duplicated hex) is what keeps this
+     in sync automatically once useBrandTheme.ts starts deriving
+     --color-primary-dark per-tenant — the pattern already proven by --input
+     below, which points at --color-neutral-500 the same way. */
+  --color-accent-dark: var(--color-primary-dark);
 
   /* Supporting secondary — subtle highlights, badges (DESIGN.md §3.1) */
   --color-lavender: #8373d2;

@@ -235,25 +235,29 @@ function contrastRatio(hexA: string, hexB: string): number {
 // #171717), NOT white — DESIGN.md:702,913-917 (§16 rule 10) mandates white
 // text on `--color-accent-dark` for EVERY current and future
 // focus:/hover:/data-highlighted: select-highlight variant. Computed
-// contrast of #171717 on #b8431e is 3.29:1, failing the 4.5:1 AA minimum
+// contrast of #171717 on #431695 is 1.53:1, failing the 4.5:1 AA minimum
 // for normal text. Reka-ui's `SelectItem` (node_modules/reka-ui/src/Select/
 // SelectItem.vue) drives `data-highlighted` from the SAME `isFocused` ref
 // as the native `focus`/`blur` DOM events — there is no separate
 // keyboard-navigation state to also check; `focus:` IS the highlighted
 // state here. Mirrors `backoffice/tests/unit/theme.spec.ts`'s identical
 // guard, which already passes against the correct `focus:text-white`.
+//
+// `#b8431e` → `#431695`: `--color-accent-dark` is now an alias of
+// `--color-primary-dark` (main.css), moved off the leftover orange onto the
+// product's own dark violet — see main.css's `--color-accent-dark` comment.
 describe('select highlighted-option contrast (frontend, DESIGN.md §16 rule 10)', () => {
-  it('--color-accent-dark resolves to #b8431e', async () => {
+  it('--color-accent-dark resolves to #431695', async () => {
     const compiled = await compileForCandidates(['bg-accent-dark'])
-    expect(computedBackgroundColor(compiled, 'bg-accent-dark')).toBe('#b8431e')
+    expect(computedBackgroundColor(compiled, 'bg-accent-dark')).toBe('#431695')
   })
 
   it('white on --color-accent-dark measures >= 4.5:1 (numerically, not eyeballed)', () => {
-    expect(contrastRatio('#ffffff', '#b8431e')).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio('#ffffff', '#431695')).toBeGreaterThanOrEqual(4.5)
   })
 
   it('the near-black --accent-foreground on --color-accent-dark measures BELOW 4.5:1 — the exact regression this requirement rejects', () => {
-    expect(contrastRatio('#171717', '#b8431e')).toBeLessThan(4.5)
+    expect(contrastRatio('#171717', '#431695')).toBeLessThan(4.5)
   })
 
   it("SelectItem's highlighted-state classes pair --color-accent-dark with white text, never --accent-foreground", () => {
