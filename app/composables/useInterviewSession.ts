@@ -111,6 +111,7 @@ import {
   CandidateUnauthorizedError,
 } from '~/app/utils/candidate-api'
 import { useCandidateSession } from '~/app/composables/useCandidateSession'
+import { createCancelableTimer } from '~/app/utils/cancelable-timer'
 
 /**
  * The `/candidate/interview/start` success body, DERIVED from the generated
@@ -490,9 +491,9 @@ export function useInterviewSession(
   let resizeListener: (() => void) | null = null
   /** Microphone chosen at device check; reused for every subsequent competency. */
   let confirmedAudioDeviceId: string | undefined
-  let handoverBoundTimer: ReturnType<typeof setTimeout> | null = null
-  let promoteTimer: ReturnType<typeof setTimeout> | null = null
-  let connectingCeilingTimer: ReturnType<typeof setTimeout> | null = null
+  const handoverBoundTimer = createCancelableTimer()
+  const promoteTimer = createCancelableTimer()
+  const connectingCeilingTimer = createCancelableTimer()
 
   // ---- Helpers -------------------------------------------------------------
 
@@ -773,27 +774,6 @@ export function useInterviewSession(
 
   // ---- Handover machinery (D2, D3, D5, D6) ---------------------------------
 
-  function clearHandoverBoundTimer() {
-    if (handoverBoundTimer) {
-      clearTimeout(handoverBoundTimer)
-      handoverBoundTimer = null
-    }
-  }
-
-  function clearPromoteTimer() {
-    if (promoteTimer) {
-      clearTimeout(promoteTimer)
-      promoteTimer = null
-    }
-  }
-
-  function clearConnectingCeilingTimer() {
-    if (connectingCeilingTimer) {
-      clearTimeout(connectingCeilingTimer)
-      connectingCeilingTimer = null
-    }
-  }
-
   /**
    * THE single place the handover lifecycle ends — every timer it owns
    * (bound, crossfade/promote, connecting-ceiling) is cancelled here and
@@ -803,19 +783,19 @@ export function useInterviewSession(
    * `transitionTo()` itself on `done`/`error`/`terminal`.
    */
   function endHandover() {
-    clearHandoverBoundTimer()
-    clearPromoteTimer()
-    clearConnectingCeilingTimer()
+    handoverBoundTimer.clear()
+    promoteTimer.clear()
+    connectingCeilingTimer.clear()
     handoverActive.value = false
   }
 
-  /** D5: armed the instant the live handle's `complete` is handled, before `/end`. */
+  /**
+   * D5: armed the instant the live handle's `complete` is handled, before
+   * `/end`. `arm()` is atomic (cancels-then-schedules — see
+   * `createCancelableTimer`), so no separate clear is needed here first.
+   */
   function armHandoverBound() {
-    clearHandoverBoundTimer()
-    handoverBoundTimer = setTimeout(() => {
-      handoverBoundTimer = null
-      releaseOutgoing('bound')
-    }, HANDOVER_BOUND_MS)
+    handoverBoundTimer.arm(() => releaseOutgoing('bound'), HANDOVER_BOUND_MS)
   }
 
   /**
@@ -826,11 +806,7 @@ export function useInterviewSession(
    * modes this closes and why one mechanism covers both.
    */
   function armConnectingCeiling() {
-    clearConnectingCeilingTimer()
-    connectingCeilingTimer = setTimeout(() => {
-      connectingCeilingTimer = null
-      giveUpOnHandover()
-    }, CONNECTING_CEILING_MS)
+    connectingCeilingTimer.arm(() => giveUpOnHandover(), CONNECTING_CEILING_MS)
   }
 
   /**
@@ -972,10 +948,7 @@ export function useInterviewSession(
     incomingEntering.value = true
     endHandover() // cancels the bound timer — the incoming is no longer at risk
     const delay = crossfadeDelayMs()
-    promoteTimer = setTimeout(() => {
-      promoteTimer = null
-      promote()
-    }, delay)
+    promoteTimer.arm(() => promote(), delay)
   }
 
   function wireProviderEvents(handle: ProviderSession) {
