@@ -48,6 +48,13 @@ export default defineConfig({
       ],
       thresholds: {
         lines: 85,
+        // branches/functions were previously ungated — nothing stopped either
+        // from regressing silently. Set below the actual run at the time this
+        // was added (branches 90.29%, functions 92.08%) rather than at that
+        // exact value, so ordinary fluctuation from unrelated changes does not
+        // make this flaky.
+        branches: 88,
+        functions: 90,
       },
     },
   },
