@@ -27,6 +27,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/organizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every client, for the switcher
+         * @description Reachable ONLY by a superadmin, so the cross-tenant read is the point
+         *     rather than a leak — and it returns identity only. Nothing about
+         *     webhooks, credentials or settings crosses here: the switcher needs a
+         *     name to put in a menu, and every other read stays behind the acting
+         *     organization the caller then selects.
+         *
+         *     The shape is declared for Scramble, and not as documentation for its own
+         *     sake: both Nuxt apps generate their typed client from this spec, so an
+         *     undeclared `response()->json()` produced `data: string` and the switcher
+         *     failed to compile against its own API.
+         */
+        get: operations["superadmin.organizations"];
+        put?: never;
+        /** POST /api/admin/organizations */
+        post: operations["adminOrganization.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/admin/organizations/{id} */
+        get: operations["adminOrganization.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** PATCH /api/admin/organizations/{id} */
+        patch: operations["adminOrganization.update"];
+        trace?: never;
+    };
     "/m2m/clients": {
         parameters: {
             query?: never;
@@ -2416,35 +2464,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/organizations": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Every client, for the switcher
-         * @description Reachable ONLY by a superadmin, so the cross-tenant read is the point
-         *     rather than a leak — and it returns identity only. Nothing about
-         *     webhooks, credentials or settings crosses here: the switcher needs a
-         *     name to put in a menu, and every other read stays behind the acting
-         *     organization the caller then selects.
-         *
-         *     The shape is declared for Scramble, and not as documentation for its own
-         *     sake: both Nuxt apps generate their typed client from this spec, so an
-         *     undeclared `response()->json()` produced `data: string` and the switcher
-         *     failed to compile against its own API.
-         */
-        get: operations["superadmin.organizations"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/admin/clients": {
         parameters: {
             query?: never;
@@ -3640,6 +3659,18 @@ export interface components {
             position: number;
         };
         /**
+         * StoreOrganizationRequest
+         * @description Validates POST /api/admin/organizations (superadmin only).
+         *
+         *     The superadmin check lives here so authorization answers before validation,
+         *     exactly as `StorePlatformUserRequest` does: otherwise a non-superadmin would
+         *     get a 422 enumerating this endpoint's rules.
+         */
+        StoreOrganizationRequest: {
+            name: string;
+            slug: string;
+        };
+        /**
          * StorePlatformUserRequest
          * @description Validates POST /api/admin/platform-users (platform-user-management D2).
          *
@@ -3880,6 +3911,18 @@ export interface components {
                 it?: string;
             };
             position?: number;
+        };
+        /**
+         * UpdateManagedOrganizationRequest
+         * @description Validates PATCH /api/admin/organizations/{id} (superadmin only).
+         *
+         *     Only `name` and `primary_color` are writable here. `slug` is a tenancy
+         *     identifier and is never editable; the webhook defaults and the logo keep
+         *     their own tenant-facing endpoints.
+         */
+        UpdateManagedOrganizationRequest: {
+            name?: string;
+            primary_color?: string | null;
         };
         /**
          * UpdateOrganizationRequest
@@ -4277,6 +4320,132 @@ export interface operations {
             403: components["responses"]["AuthorizationException"];
         };
     };
+    "superadmin.organizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            id: number;
+                            name: string;
+                        }[];
+                        acting_organization_id: number | null;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+        };
+    };
+    "adminOrganization.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreOrganizationRequest"];
+            };
+        };
+        responses: {
+            /** @description `OrganizationResource` */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "adminOrganization.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `OrganizationResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description An error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description Error overview.
+                         * @example
+                         */
+                        message: string;
+                    };
+                };
+            };
+        };
+    };
+    "adminOrganization.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateManagedOrganizationRequest"];
+            };
+        };
+        responses: {
+            /** @description `OrganizationResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
     "apiClient.index": {
         parameters: {
             query?: never;
@@ -4626,8 +4795,13 @@ export interface operations {
                  *     the documented endpoint unreachable and poisoning the generated TS client
                  *     with `provider: ""` (avatar-template-catalogue, caught by native review).
                  */
-                provider: "heygen" | "tavus";
-                resource: "voice" | "avatar" | "replica";
+                provider: "heygen" | "tavus" | "cartesia" | "elevenlabs";
+                resource: "voice" | "avatar" | "replica" | "pal";
+                /**
+                 * @description Keep only genuinely Italian voices (`italian` = native). The
+                 *     list is already sorted Italian-first without it.
+                 */
+                italian_only?: boolean;
             };
             header?: never;
             path?: never;
@@ -4642,13 +4816,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: {
-                            /** @constant */
-                            status: "unavailable";
-                            items: string[];
-                        } | {
-                            /** @constant */
-                            status: "ok";
+                            status: string;
                             items: unknown[];
+                            code?: string;
                         };
                     };
                 };
@@ -9270,32 +9440,6 @@ export interface operations {
                 };
             };
             422: components["responses"]["ValidationException"];
-        };
-    };
-    "superadmin.organizations": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: {
-                            id: number;
-                            name: string;
-                        }[];
-                        acting_organization_id: number | null;
-                    };
-                };
-            };
-            401: components["responses"]["AuthenticationException"];
         };
     };
     "superadmin.clients": {
