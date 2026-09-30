@@ -427,6 +427,29 @@ export interface paths {
         patch: operations["avatarTemplate.update"];
         trace?: never;
     };
+    "/avatar-templates/{id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/avatar-templates/{id}/duplicate
+         * @description Creates one new INACTIVE template per target organization and answers
+         *     `{data: [{organization_id, id, name}]}` in the order of the targets.
+         *     All-or-nothing. The source organization among the targets is a 422
+         *     (`source_organization_included`).
+         */
+        post: operations["avatarTemplateDuplicate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/avatar-templates/export": {
         parameters: {
             query?: never;
@@ -460,6 +483,33 @@ export interface paths {
          *     they find out at interview time, on a candidate.
          */
         post: operations["avatarTemplatePortability.import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/avatar-templates/voice-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/avatar-templates/voice-preview
+         * @description Returns the RAW AUDIO bytes (`audio/mpeg`, `audio/wav` or `audio/ogg`),
+         *     not JSON. Failures are `{message: <code>}` with one of
+         *     `voice_preview_unavailable` (422, Tavus stock voice), `voice_preview_provider_not_configured`
+         *     (503), `voice_preview_voice_not_found` (404) and `voice_preview_provider_error` (502).
+         *     `voice_preview_unavailable` also carries a `reason`: `tavus_stock_voice`,
+         *     `pal_uses_tavus_voice`, `pal_azure_engine` or `pal_no_voice_configured`.
+         *
+         *     For `provider: tavus` send `pal_id` INSTEAD of `voice_id` to hear a persona's voice.
+         */
+        post: operations["avatarVoicePreview"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2841,6 +2891,37 @@ export interface components {
                     usd: number;
                 } | null;
             };
+            pal_sync: {
+                status: string | null;
+                code: string | null;
+                synced_at: string | null;
+            };
+        };
+        /**
+         * AvatarVoicePreviewRequest
+         * @description Body of `POST /api/avatar-templates/voice-preview`.
+         *
+         *     There is deliberately NO free-text field: the sample sentence lives in
+         *     `config/avatar_preview.php`, so an unknown key such as `text` is simply never
+         *     read. `voice_id` is format-restricted because it is interpolated into a
+         *     provider URL path (ElevenLabs, LiveAvatar).
+         *
+         *     Authorization is done in the controller with the same `create` ability as
+         *     authoring a template, like the sibling export/import actions.
+         */
+        AvatarVoicePreviewRequest: {
+            /** @enum {string} */
+            provider: "cartesia" | "elevenlabs" | "heygen" | "tavus";
+            /** @description Exactly one of `voice_id` / `pal_id`; `pal_id` (a Tavus persona) only with `tavus`. */
+            voice_id?: string;
+            pal_id?: string;
+            /**
+             * @description Meaningful for `tavus` only: which TTS vendor its voice is routed through.
+             * @enum {string|null}
+             */
+            tts_engine?: "cartesia" | "elevenlabs" | "tavus-auto" | "azure" | null;
+            /** @enum {string|null} */
+            language?: "it" | "en" | null;
         };
         /** BarsIndicatorResource */
         BarsIndicatorResource: {
@@ -5065,6 +5146,43 @@ export interface operations {
             422: components["responses"]["ValidationException"];
         };
     };
+    avatarTemplateDuplicate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    target_organization_ids: number[];
+                    name?: string | null;
+                };
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            organization_id: number;
+                            id: number;
+                            name: string;
+                        }[];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
     "avatarTemplatePortability.export": {
         parameters: {
             query?: never;
@@ -5131,6 +5249,32 @@ export interface operations {
                     "application/json": {
                         data: unknown[];
                     };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    avatarVoicePreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AvatarVoicePreviewRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
                 };
             };
             401: components["responses"]["AuthenticationException"];
