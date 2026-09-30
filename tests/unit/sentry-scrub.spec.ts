@@ -909,6 +909,65 @@ describe('the third half of the plural rule', () => {
   })
 })
 
+describe('the candidate external reference (candidate-external-reference)', () => {
+  // `external_id` is the calling system's own record id for a candidate — the
+  // linkable datum, same class as `candidate_ref`. `source` is deliberately NOT
+  // denied: it is a generic key (Sentry's own `transaction_info.source`) and its
+  // value names a system, not a person. The set stays the one the api denies.
+  it.each([
+    ['external_id', 'snake_case'],
+    ['externalId', 'camelCase'],
+    ['external_ids', 'plural'],
+    ['externalIds', 'camelCase plural'],
+    ['participant_external_id', 'compound, namespaced'],
+    ['participant.externalId', 'dotted, camelCase'],
+    ['data[external_id]', 'bracketed'],
+    ['external_id_raw', 'compound, suffixed'],
+  ])('redacts the key `%s` (%s)', (key) => {
+    const scrubbed = scrubSentryEvent(eventWith({ [key]: 'EXTREF-4471' }))
+
+    expect(JSON.stringify(scrubbed.extra)).not.toContain('EXTREF-4471')
+  })
+
+  it('redacts external_id at any nesting depth, in tags and breadcrumb data too', () => {
+    const scrubbed = scrubSentryEvent({
+      tags: { external_id: 'EXTREF-TAG' },
+      extra: { enrolment: { candidate: { externalId: 'EXTREF-DEEP', keep: 'ok' } } },
+      contexts: { participant: { external_ids: ['EXTREF-CTX-1', 'EXTREF-CTX-2'] } },
+      breadcrumbs: [{ category: 'fetch', data: { external_id: 'EXTREF-CRUMB' } }],
+    } as unknown as ScrubbableEvent)
+
+    const encoded = JSON.stringify(scrubbed)
+
+    for (const leak of [
+      'EXTREF-TAG',
+      'EXTREF-DEEP',
+      'EXTREF-CTX-1',
+      'EXTREF-CTX-2',
+      'EXTREF-CRUMB',
+    ]) {
+      expect(encoded).not.toContain(leak)
+    }
+
+    // The walk redacts the value, not the surrounding diagnostics.
+    expect(encoded).toContain('ok')
+  })
+
+  it('redacts external_id inside a JSON blob carried as a string', () => {
+    const scrubbed = scrubSentryEvent({
+      extra: { body: '{"external_id":9007199254740991,"status":"in_attesa"}' },
+    } as unknown as ScrubbableEvent)
+
+    expect(JSON.stringify(scrubbed.extra)).not.toContain('9007199254740991')
+  })
+
+  it('leaves the generic `source` key untouched', () => {
+    const scrubbed = scrubSentryEvent(eventWith({ source: 'workday', status: 'in_attesa' }))
+
+    expect(scrubbed.extra).toEqual({ source: 'workday', status: 'in_attesa' })
+  })
+})
+
 describe('the else branch of every ternary', () => {
   it('scrubs non-string fingerprint elements and exception values', () => {
     // `typeof x === 'string' ? redact(x) : x` keeps the raw value on the else —
@@ -2191,6 +2250,9 @@ describe('a multi-word denied key behind a prefix', () => {
     'queries',
     'emails',
     'entry_url',
+    // The calling system's own record id for a candidate; `source` is NOT here.
+    'external_id',
+    'external_ids',
   ]
 
   const EXPECTED_HANDLED_FIELDS = [

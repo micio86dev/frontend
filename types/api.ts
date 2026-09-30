@@ -229,6 +229,14 @@ export interface paths {
          *     than no type: both Nuxt apps generate their client from this file, so a
          *     `string` there makes every `abilities.users.viewAny` read a compile
          *     error in the two repositories that consume it.
+         *
+         *     `abilities.avatarTemplates.manageGlobal` is true only for a superadmin: it
+         *     gates the platform (global) avatar template surface under
+         *     `/admin/avatar-templates`, whose templates are offered to every
+         *     organization. It is a rendering hint for the client; the server still
+         *     refuses every other caller with a 403. (A per-flag schema description is
+         *     not expressible here: the shape is an inline PHPDoc type, and a nested
+         *     doc comment would end this block.)
          */
         get: operations["auth.me"];
         put?: never;
@@ -257,9 +265,10 @@ export interface paths {
          *     submit, with nothing they could do about it.
          *
          *     So this is the narrow answer rather than a widened `viewAny`: exactly
-         *     the four fields choosing a template requires — `id`, `name`, `provider`
-         *     and `is_active`, which is what the method below returns and what
-         *     `openapi.json` publishes. A viewer gets it too —
+         *     the five fields choosing a template requires — `id`, `name`, `provider`,
+         *     `is_active` and `scope` (`organization` | `platform`, so a picker can
+         *     group and badge the platform templates it is offered), which is what the
+         *     method below returns and what `openapi.json` publishes. A viewer gets it too —
          *     reading a project's configuration should show which template it names,
          *     not a bare id.
          *
@@ -1556,6 +1565,11 @@ export interface paths {
          * @description Server-paginated (D5 — a fresh authorized query per page, never
          *     fetch-all + client filter). Sort is fixed (created_at desc, id desc):
          *     no client-specified sort column reaches the query builder.
+         *
+         *     `q` matches `candidate_ref`, `display_name` and `source` as a
+         *     case-insensitive substring, taking `%`, `_` and `\` literally, and the
+         *     candidate's `external_id` by exact equality, only when the trimmed term
+         *     is a whole number from 1 to 9007199254740991.
          */
         get: operations["participant.index"];
         put?: never;
@@ -1770,6 +1784,139 @@ export interface paths {
         head?: never;
         /** PATCH /api/participants/{id}/schedule */
         patch: operations["participantSchedule.update"];
+        trace?: never;
+    };
+    "/admin/avatar-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List platform avatar templates with their usage */
+        get: operations["platformAvatarTemplate.index"];
+        put?: never;
+        /**
+         * Create a platform avatar template
+         * @description Created INACTIVE and never activatable through this payload: creating a
+         *     template must not change what candidates are being interviewed with
+         *     right now, and offering it to every organization is its own decision.
+         */
+        post: operations["platformAvatarTemplate.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/avatar-templates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Show a platform avatar template with its usage */
+        get: operations["platformAvatarTemplate.show"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a platform avatar template: only when it is retired AND unpinned
+         * @description Two 409s, in this order. `template_active`: deleting what organizations
+         *     are being offered is a decision, not a cleanup — retire it first.
+         *     `template_in_use`: a pin in ANY organization refuses the delete, and the
+         *     body carries the organization and project counts so the superadmin knows
+         *     how far the blast radius reaches. Trashed projects do not count. The
+         *     count-then-delete window is closed by the model's own `deleting` guard,
+         *     whose exception renders as the same 409.
+         */
+        delete: operations["platformAvatarTemplate.destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * Edit a platform avatar template
+         * @description An edit reaches EVERY project that pins this template, in every
+         *     organization, on the next read (live edit, design D1) — which is why the
+         *     audit row carries the usage at edit time: the reach of the change is part
+         *     of what happened. It records field NAMES, never config values.
+         */
+        patch: operations["platformAvatarTemplate.update"];
+        trace?: never;
+    };
+    "/admin/avatar-templates/{id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Offer a platform avatar template for new project pins
+         * @description "Offered" is not "the one in use": any number of platform templates may
+         *     be offered at once (a single active row per provider is an organization
+         *     rule), so nothing else is deactivated. The stored config is validated
+         *     again HERE because a config goes stale when the field spec changes, and
+         *     offering is the last moment anyone can catch that before an organization
+         *     pins it. Idempotent: offering an offered template changes and audits
+         *     nothing.
+         */
+        post: operations["platformAvatarTemplate.activate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/avatar-templates/{id}/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retire a platform avatar template: it is no longer offered for NEW pins
+         * @description Existing pins keep resolving to it (a pin is valid in any state), so
+         *     retiring is reversible bookkeeping and always allowed — including while
+         *     projects in other organizations still use it. No config revalidation:
+         *     withdrawing can only reduce exposure, and an already-invalid template is
+         *     exactly the one an operator most wants to retire. Idempotent.
+         */
+        post: operations["platformAvatarTemplate.deactivate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/avatar-templates/{id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy a platform avatar template into one or more organizations
+         * @description This is the ONLY route that copies a platform template: the organization
+         *     duplicate route answers 404 for a platform id, like every organization
+         *     route. Each copy is an independent, INACTIVE organization template (no
+         *     shared provider-side configuration), so editing the platform template
+         *     afterwards never reaches it. Written OUTSIDE the platform context — the
+         *     copies belong to their target organizations — and audited per target by
+         *     the tenant recorder, with `source_scope: platform`.
+         */
+        post: operations["platformAvatarTemplate.duplicate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/admin/platform-users": {
@@ -2874,6 +3021,8 @@ export interface components {
             name: string;
             description: string | null;
             provider: string;
+            /** @enum {string} */
+            scope: "organization" | "platform";
             config: {
                 [key: string]: unknown;
             };
@@ -2897,6 +3046,12 @@ export interface components {
                 synced_at: string | null;
             };
         };
+        /**
+         * AvatarTemplateScope
+         * @description Who owns an avatar template: one organization, or the platform itself (`organization_id IS NULL`). The wire vocabulary for the scope marker on template resources and picker options.
+         * @enum {string}
+         */
+        AvatarTemplateScope: "organization" | "platform";
         /**
          * AvatarVoicePreviewRequest
          * @description Body of `POST /api/avatar-templates/voice-preview`.
@@ -3237,6 +3392,8 @@ export interface components {
             candidate_ref: string;
             display_name: string;
             email: string;
+            external_id: number | null;
+            source: string | null;
             role_code: string | null;
             language: string | null;
             /** @enum {string} */
@@ -3285,12 +3442,46 @@ export interface components {
             };
             created_at: string | null;
         };
+        /** ParticipantEnrolmentResource */
+        ParticipantEnrolmentResource: {
+            id: number;
+            candidate_ref: string;
+            display_name: string;
+            role_code: string | null;
+            language: string | null;
+            /** @enum {string} */
+            status: "in_attesa" | "in_corso" | "in_valutazione" | "completato" | "errore";
+            started_at: string | null;
+            completed_at: string | null;
+            created_at: string | null;
+            scheduled_at: string | null;
+            /** @enum {string|null} */
+            scheduling_status: "pending" | "notice_sent" | "started" | "cancelled" | null;
+            branding: {
+                name: string | null;
+                primary_color: string | null;
+                logo_url: string | null;
+            };
+            project: {
+                id: number;
+                role_code: string | null;
+                language: string;
+                /** @enum {string} */
+                assessment_type: "standard" | "potential";
+                exit_redirect_url: string | null;
+                error_redirect_url: string | null;
+            } | null;
+            external_id: number | null;
+            source: string | null;
+        };
         /** ParticipantResource */
         ParticipantResource: {
             id: number;
             candidate_ref: string;
             display_name: string;
             email: string;
+            external_id: number | null;
+            source: string | null;
             role_code: string | null;
             language: string | null;
             /** @enum {string} */
@@ -3300,6 +3491,41 @@ export interface components {
             started_at: string | null;
             completed_at: string | null;
             created_at: string | null;
+        };
+        /** PlatformAvatarTemplateResource */
+        PlatformAvatarTemplateResource: {
+            id: number;
+            name: string;
+            description: string | null;
+            provider: string;
+            /** @enum {string} */
+            scope: "organization" | "platform";
+            config: {
+                [key: string]: unknown;
+            };
+            is_active: boolean;
+            created_at: string | null;
+            updated_at: string | null;
+            llm_model_id: number | null;
+            llm_credential_id: number | null;
+            llm_sync_status: string | null;
+            llm_synced_at: string | null;
+            llm: {
+                estimated_cost_usd_per_interview: {
+                    minutes: number;
+                    turns: number;
+                    usd: number;
+                } | null;
+            };
+            pal_sync: {
+                status: string | null;
+                code: string | null;
+                synced_at: string | null;
+            };
+            usage: {
+                organization_count: number;
+                project_count: number;
+            };
         };
         /** PlatformUserResource */
         PlatformUserResource: {
@@ -3359,6 +3585,8 @@ export interface components {
                 id: number;
                 name: string;
                 provider: string;
+                /** @enum {string} */
+                scope: "organization" | "platform";
                 llm_model: string | null;
             } | null;
             webhook_url: string | null;
@@ -3438,6 +3666,10 @@ export interface components {
             recording_ready: boolean;
             created_at: string;
             updated_at: string;
+            /** @description The calling system's own numeric identifier for this candidate, as supplied when the interview was created; `null` when none was given. */
+            external_id: number | null;
+            /** @description The calling system the candidate came from, as supplied when the interview was created; `null` when none was given. */
+            source: string | null;
             project: {
                 id: string;
                 name: string;
@@ -4787,6 +5019,7 @@ export interface operations {
                                 update: boolean;
                                 activate: boolean;
                                 delete: boolean;
+                                manageGlobal: boolean;
                             };
                             projects: {
                                 viewAny: boolean;
@@ -4835,6 +5068,7 @@ export interface operations {
                             name: string;
                             provider: string;
                             is_active: boolean;
+                            scope: components["schemas"]["AvatarTemplateScope"];
                         }[];
                     };
                 };
@@ -5969,11 +6203,13 @@ export interface operations {
                      *     who wants to deliver the link some other way opts out explicitly.
                      */
                     send_email?: boolean;
+                    external_id?: number | null;
+                    source?: string | null;
                 };
             };
         };
         responses: {
-            /** @description `App.Http.Resources.ParticipantResource` */
+            /** @description `ParticipantEnrolmentResource` */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -5987,7 +6223,7 @@ export interface operations {
                          *     rather than leaving the operator to guess whether it went.
                          */
                         email_sent: boolean;
-                    } | components["schemas"]["App.Http.Resources.ParticipantResource"];
+                    } | components["schemas"]["ParticipantEnrolmentResource"];
                 };
             };
             401: components["responses"]["AuthenticationException"];
@@ -7642,14 +7878,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Paginated set of `App.Http.Resources.ParticipantResource` */
+            /** @description Paginated set of `ParticipantEnrolmentResource` */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        data: components["schemas"]["App.Http.Resources.ParticipantResource"][];
+                        data: components["schemas"]["ParticipantEnrolmentResource"][];
                         links: {
                             first: string | null;
                             last: string | null;
@@ -7712,17 +7948,19 @@ export interface operations {
                      *     live in ONE place, never re-typed per surface.
                      */
                     scheduled_at?: string;
+                    external_id?: number | null;
+                    source?: string | null;
                 };
             };
         };
         responses: {
-            /** @description `App.Http.Resources.ParticipantResource` */
+            /** @description `ParticipantEnrolmentResource` */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["App.Http.Resources.ParticipantResource"];
+                    "application/json": components["schemas"]["ParticipantEnrolmentResource"];
                 };
             };
             401: components["responses"]["AuthenticationException"];
@@ -7755,14 +7993,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description `App.Http.Resources.ParticipantResource` */
+            /** @description `ParticipantEnrolmentResource` */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        data: components["schemas"]["App.Http.Resources.ParticipantResource"];
+                        data: components["schemas"]["ParticipantEnrolmentResource"];
                     };
                 };
             };
@@ -7780,13 +8018,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description `App.Http.Resources.ParticipantResource` */
+            /** @description `ParticipantEnrolmentResource` */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["App.Http.Resources.ParticipantResource"] | string;
+                    "application/json": components["schemas"]["ParticipantEnrolmentResource"] | string;
                 };
             };
             401: components["responses"]["AuthenticationException"];
@@ -7810,13 +8048,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description `App.Http.Resources.ParticipantResource` */
+            /** @description `ParticipantEnrolmentResource` */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["App.Http.Resources.ParticipantResource"] | string;
+                    "application/json": components["schemas"]["ParticipantEnrolmentResource"] | string;
                 };
             };
             401: components["responses"]["AuthenticationException"];
@@ -7927,13 +8165,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description `App.Http.Resources.ParticipantResource` */
+            /** @description `ParticipantEnrolmentResource` */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["App.Http.Resources.ParticipantResource"] | string;
+                    "application/json": components["schemas"]["ParticipantEnrolmentResource"] | string;
                 };
             };
             401: components["responses"]["AuthenticationException"];
@@ -7958,18 +8196,284 @@ export interface operations {
             };
         };
         responses: {
-            /** @description `App.Http.Resources.ParticipantResource` */
+            /** @description `ParticipantEnrolmentResource` */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["App.Http.Resources.ParticipantResource"] | string;
+                    "application/json": components["schemas"]["ParticipantEnrolmentResource"] | string;
                 };
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "platformAvatarTemplate.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PlatformAvatarTemplateResource"][];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "platformAvatarTemplate.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    description?: string | null;
+                    /**
+                     * @description Literal list — see catalogue()'s validation for why implode(self::PROVIDERS) is not used.
+                     * @enum {string}
+                     */
+                    provider: "heygen" | "tavus";
+                    config: string[];
+                    /**
+                     * @description Both-or-neither is enforced by the DB CHECK (I1) and by
+                     *     AvatarTemplate::booted()'s I2/I3/I4 guards — never re-checked
+                     *     here (pluggable-conversation-llm PR P3a, design D4).
+                     */
+                    llm_model_id?: number | null;
+                    llm_credential_id?: number | null;
+                };
+            };
+        };
+        responses: {
+            /** @description `PlatformAvatarTemplateResource` */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PlatformAvatarTemplateResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "platformAvatarTemplate.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `PlatformAvatarTemplateResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PlatformAvatarTemplateResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "platformAvatarTemplate.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The template was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": null;
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            /** @description Still offered (`template_active`) or pinned by projects (`template_in_use`, with counts). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        error: "template_active" | "template_in_use";
+                        message: string;
+                        project_count?: number;
+                        organization_count?: number;
+                    };
+                };
+            };
+        };
+    };
+    "platformAvatarTemplate.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    name?: string;
+                    description?: string | null;
+                    config?: string[];
+                    /**
+                     * @description Both-or-neither is enforced by the DB CHECK (I1) and by
+                     *     AvatarTemplate::booted()'s I2/I3/I4 guards — never re-checked
+                     *     here (pluggable-conversation-llm PR P3a, design D4). Both null
+                     *     clears the binding (see "Unbinding a template clears only
+                     *      that template's binding").
+                     */
+                    llm_model_id?: number | null;
+                    llm_credential_id?: number | null;
+                };
+            };
+        };
+        responses: {
+            /** @description `PlatformAvatarTemplateResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PlatformAvatarTemplateResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "platformAvatarTemplate.activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `PlatformAvatarTemplateResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PlatformAvatarTemplateResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "platformAvatarTemplate.deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `PlatformAvatarTemplateResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PlatformAvatarTemplateResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "platformAvatarTemplate.duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    target_organization_ids: number[];
+                    name?: string | null;
+                };
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            organization_id: number;
+                            id: number;
+                            name: string;
+                        }[];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             422: components["responses"]["ValidationException"];
         };
     };
@@ -9539,6 +10043,8 @@ export interface operations {
                     display_name: string;
                     role_code?: string | null;
                     lang?: string | null;
+                    external_id?: number | null;
+                    source?: string | null;
                 };
             };
         };
