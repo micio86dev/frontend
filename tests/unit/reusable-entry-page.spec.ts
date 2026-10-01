@@ -1072,6 +1072,17 @@ describe('interview/reusable.vue — leaving the page clears what it held', () =
       return wrapper
     }
 
+    /** What must hold whatever the late answer was: the page acted for nobody. */
+    function expectNothingHappenedAfterLeaving(requests = 1): void {
+      expect(navigations).toEqual([])
+      expect(navigateToDouble).not.toHaveBeenCalled()
+      expect(routerReplace).not.toHaveBeenCalled()
+      expect(localStorage.getItem(STORAGE_KEY)).toBeNull()
+      expect(useCandidateSession().read()).toBeNull()
+      expect(sessionStorage.getItem(IDENTITY_PENDING_KEY)).toBeNull()
+      expect(mockFetchImpl).toHaveBeenCalledTimes(requests)
+    }
+
     it.each([
       ['a 200', () => ({ access_token: makeCandidateJwt() })],
       ['a 404', () => httpError(404)],
@@ -1082,13 +1093,7 @@ describe('interview/reusable.vue — leaving the page clears what it held', () =
       async (_n, answer) => {
         await leaveWhileInFlight(answer)
 
-        expect(navigations).toEqual([])
-        expect(navigateToDouble).not.toHaveBeenCalled()
-        expect(routerReplace).not.toHaveBeenCalled()
-        expect(localStorage.getItem(STORAGE_KEY)).toBeNull()
-        expect(useCandidateSession().read()).toBeNull()
-        expect(mockFetchImpl).toHaveBeenCalledTimes(1)
-        expect(sessionStorage.getItem(IDENTITY_PENDING_KEY)).toBeNull()
+        expectNothingHappenedAfterLeaving()
       }
     )
 
@@ -1096,12 +1101,10 @@ describe('interview/reusable.vue — leaving the page clears what it held', () =
       ['a 429', () => httpError(429)],
       ['a 502', () => httpError(502)],
       ['a 409', () => httpError(409, { message: 'duplicate_enrolment' })],
-    ])('%s: nothing is stored and nothing navigates either', async (_n, answer) => {
+    ])('%s: the same holds, whatever the late answer was', async (_n, answer) => {
       await leaveWhileInFlight(answer)
 
-      expect(navigations).toEqual([])
-      expect(localStorage.getItem(STORAGE_KEY)).toBeNull()
-      expect(mockFetchImpl).toHaveBeenCalledTimes(1)
+      expectNothingHappenedAfterLeaving()
     })
 
     it('a Retry that settles after the page was left is gated the same way', async () => {
@@ -1117,8 +1120,8 @@ describe('interview/reusable.vue — leaving the page clears what it held', () =
       settle({ access_token: makeCandidateJwt() })
       await flushPromises()
 
-      expect(navigations).toEqual([])
-      expect(localStorage.getItem(STORAGE_KEY)).toBeNull()
+      // The first request failed and the Retry is the second: no third one.
+      expectNothingHappenedAfterLeaving(2)
     })
   })
 })
