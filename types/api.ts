@@ -5747,8 +5747,11 @@ export interface operations {
                         entry_url: string;
                         expires_at: string;
                         /**
-                         * @description Reported back so the UI can say "sent to grace@example.test"
-                         *     rather than leaving the operator to guess whether it went.
+                         * @description Whether an invitation was queued, so the UI can say it was sent
+                         *     rather than leaving the operator to guess. It is false when no mail
+                         *     was asked for, and when none will go out: the participant is a
+                         *     reusable-link visitor with a self-declared address, or holds a
+                         *     placeholder address.
                          */
                         email_sent: boolean;
                     } | components["schemas"]["ParticipantEnrolmentResource"];
