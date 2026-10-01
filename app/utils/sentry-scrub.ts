@@ -1014,15 +1014,27 @@ const EMAIL_PATTERN = /(?<![\w.%+-])[\w.%+-]+@(?:[A-Z0-9-]+\.)+[A-Z]{2,}/gi
  * strips the fragment, and a key denylist cannot reach a token that sits inside
  * a string, so the value itself is the net.
  *
- * EXACTLY 43, matching the api's token format, which is also what keeps the
- * 16-character display prefix (`beai_rl_` + 8) and a near miss such as the
- * marker followed by 10 characters readable: an over-eager scrubber that eats
- * ordinary text makes the error report useless. The backoffice applies the
- * same rule, and both are pinned by one shared fixture set.
+ * The pattern is `beai_rl_[A-Za-z0-9_-]{16,}`, the same one the api scrubber
+ * uses, and it is OVER-INCLUSIVE on purpose: not anchored at the end and not
+ * fixed at the real token's 43 characters. A token that is a little short, a
+ * little long, or followed by more base64url text is cut whole, because a
+ * pattern pinned to exactly 43 leaves a readable tail of the credential the
+ * moment the format changes or the text runs on. The floor of 16 characters
+ * after the marker is what keeps the display prefix (`beai_rl_` + 8) and a
+ * near miss such as the marker followed by 10 characters readable: an
+ * over-eager scrubber that eats ordinary text makes the error report useless.
+ * The backoffice applies the same rule, and both are pinned by one shared
+ * fixture set.
+ *
+ * The class is spelled out rather than `[\w-]` so the literal is identical to
+ * the api's and a text comparison across the three repositories can hold it.
+ * `\w` would mean the same here (no `u` or `i` flag); the lint rule that
+ * prefers it is switched off for this one line for that reason.
  */
-const REUSABLE_LINK_TOKEN_PATTERN = /beai_rl_[\w-]{43}/g
+// eslint-disable-next-line regexp/prefer-w
+const REUSABLE_LINK_TOKEN_PATTERN = /beai_rl_[A-Za-z0-9_-]{16,}/g
 
-function redactReusableLinkTokens(text: string): string {
+export function redactReusableLinkTokens(text: string): string {
   return text.replace(REUSABLE_LINK_TOKEN_PATTERN, REDACTED)
 }
 

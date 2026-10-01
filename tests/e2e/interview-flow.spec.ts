@@ -667,12 +667,22 @@ test.describe('Interview flow — E2E', () => {
     ) {
       await page.evaluate(() => {
         const w = window as unknown as {
-          __gapSampler?: { samples: boolean[]; gapFrames: number; running: boolean }
+          __gapSampler?: {
+            samples: boolean[]
+            gapFrames: number
+            running: boolean
+            maxVideos: number
+            lastVideos: number
+          }
         }
-        w.__gapSampler = { samples: [], gapFrames: 0, running: true }
+        w.__gapSampler = { samples: [], gapFrames: 0, running: true, maxVideos: 0, lastVideos: 0 }
         function tick() {
           if (!w.__gapSampler!.running) return
           const videos = Array.from(document.querySelectorAll('video'))
+          // Handover bookkeeping: two avatars are mounted while the incoming one
+          // fades in, one again once it is promoted and the outgoing unmounts.
+          w.__gapSampler!.lastVideos = videos.length
+          w.__gapSampler!.maxVideos = Math.max(w.__gapSampler!.maxVideos, videos.length)
           const visible = videos.some((v) => {
             const wrapper = v.parentElement
             if (!wrapper) return false
@@ -684,6 +694,38 @@ test.describe('Interview flow — E2E', () => {
         }
         requestAnimationFrame(tick)
       })
+    }
+
+    /**
+     * Resolves when the handover has actually run its course: a second avatar
+     * was mounted at some frame (`maxVideos >= 2`) and the outgoing one has
+     * since unmounted (`lastVideos === 1`), with enough frames sampled. It replaces a fixed sleep that only
+     * hoped the 200 ms crossfade was over, and it makes the premise of the
+     * assertion that follows (zero gap frames ACROSS a handover) observed
+     * instead of assumed: with no handover there is nothing to have a gap in.
+     */
+    async function waitForHandoverComplete(
+      page: Parameters<typeof test>[0] extends { page: infer P } ? P : never
+    ) {
+      await page.waitForFunction(
+        () => {
+          const w = window as unknown as {
+            __gapSampler?: { samples: unknown[]; maxVideos: number; lastVideos: number }
+          }
+          const sampler = w.__gapSampler
+
+          // More than 30 frames, so the sample the caller asserts on is large
+          // enough to mean something; frames keep arriving after the swap, which
+          // is where a late gap would show.
+          return (
+            (sampler?.maxVideos ?? 0) >= 2 &&
+            sampler?.lastVideos === 1 &&
+            (sampler?.samples.length ?? 0) > 30
+          )
+        },
+        null,
+        { timeout: 15000 }
+      )
     }
 
     async function stopGapSampler(
@@ -731,9 +773,9 @@ test.describe('Interview flow — E2E', () => {
         p.emitEndPhrase()
       })
 
-      // The crossfade is 200ms (DESIGN.md §10); give the whole handover
-      // margin to complete.
-      await page.waitForTimeout(1000)
+      // The crossfade is 200ms (DESIGN.md §10): wait for the handover itself to
+      // finish, not for a guess at how long it takes.
+      await waitForHandoverComplete(page)
 
       const result = await stopGapSampler(page)
 
@@ -828,7 +870,7 @@ test.describe('Interview flow — E2E', () => {
         p.emitEndPhrase()
       })
 
-      await page.waitForTimeout(1000)
+      await waitForHandoverComplete(page)
 
       const result = await stopGapSampler(page)
       expect(result.samples.length).toBeGreaterThan(30)

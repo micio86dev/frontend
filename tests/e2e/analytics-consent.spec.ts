@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import type { Page } from '@playwright/test'
 import { checkA11y } from './fixtures/a11y'
 
 /**
@@ -15,6 +16,23 @@ import { checkA11y } from './fixtures/a11y'
  */
 
 const THIRD_PARTY = /googletagmanager\.com|clarity\.ms|google-analytics\.com/
+
+/**
+ * "Nothing was attempted" cannot be proven by looking once: a tag that loads
+ * late would simply not have been requested yet. The page is first brought to
+ * rest (network idle), then the list is held empty across a window long enough
+ * for an injected script to have been requested. Fails as soon as it is not empty.
+ */
+async function expectStaysEmpty(page: Page, read: () => string[], windowMs = 500): Promise<void> {
+  await page.waitForLoadState('networkidle')
+
+  const deadline = Date.now() + windowMs
+
+  do {
+    expect(read(), 'a third-party request was attempted').toEqual([])
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  } while (Date.now() < deadline)
+}
 
 test.describe('Analytics consent', () => {
   test.beforeEach(async ({ page }) => {
@@ -42,12 +60,12 @@ test.describe('Analytics consent', () => {
 
     await page.goto('/')
     await expect(page.getByTestId('analytics-consent')).toBeVisible()
-    await page.waitForTimeout(500)
 
     // The assertion the whole feature rests on. A banner that appears while the
     // tags have already loaded is theatre, and it is the single most common way
-    // consent is implemented wrongly.
-    expect(attempted).toEqual([])
+    // consent is implemented wrongly. The 'granting consent' test below is the
+    // positive control: the same requests DO appear once the visitor says yes.
+    await expectStaysEmpty(page, () => attempted)
   })
 
   test('a refusal is remembered across a reload', async ({ page }) => {
@@ -82,12 +100,12 @@ test.describe('Analytics consent', () => {
 
     await page.goto('/')
     await page.getByTestId('analytics-consent-accept').click()
-    await page.waitForTimeout(500)
 
     // Consenting and then seeing nothing happen reads as a broken button — and
     // "fixing" that with a page reload would throw away whatever the visitor
-    // was doing. The banner announces; the plugin acts.
-    expect(attempted.length).toBeGreaterThan(0)
+    // was doing. The banner announces; the plugin acts. Waited for, not slept
+    // on: the request is the event.
+    await expect.poll(() => attempted.length).toBeGreaterThan(0)
   })
 
   test('it does NOT appear on the interview, where the recording consent lives', async ({

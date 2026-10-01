@@ -4,6 +4,7 @@ import {
   DENIED_KEYS,
   HANDLED_EVENT_FIELDS,
   redactFreeText,
+  redactReusableLinkTokens,
   redactUrl,
   scrubBreadcrumb,
   scrubSentryEvent,
@@ -12,6 +13,8 @@ import {
 import { sentryPosture } from '~/app/utils/sentry-init'
 import {
   REUSABLE_LINK_HASH,
+  REUSABLE_LINK_REDACTED,
+  REUSABLE_LINK_REDACTION_CASES,
   REUSABLE_LINK_SCRUB_CASES,
   REUSABLE_LINK_SECRET,
   REUSABLE_LINK_TOKEN,
@@ -4620,6 +4623,59 @@ describe('scrubSentryEvent — the reusable link token', () => {
 
     expect(encoded).toContain(testCase.survives)
   })
+
+  it('pins the redaction marker the fixture expects', () => {
+    expect(redactReusableLinkTokens(REUSABLE_LINK_TOKEN)).toBe(REUSABLE_LINK_REDACTED)
+  })
+
+  it.each(REUSABLE_LINK_REDACTION_CASES)(
+    'the value pattern gives the exact output: $name',
+    ({ input, expected }) => {
+      expect(redactReusableLinkTokens(input)).toBe(expected)
+    }
+  )
+
+  /**
+   * The same string appears 3 times in the probe event: `message`, `extra.note`
+   * and the breadcrumb `message`. The over-redaction test counts them against
+   * this constant, so a field added to or dropped from the probe has to change
+   * it here instead of silently weakening the assertion.
+   */
+  const PROBE_OCCURRENCES = 3
+
+  function probeEvent(input: string): ScrubbableEvent {
+    return {
+      message: input,
+      extra: { note: input },
+      breadcrumbs: [{ category: 'console', message: input }],
+    } as ScrubbableEvent
+  }
+
+  function occurrences(haystack: string, needle: string): number {
+    return haystack.split(needle).length - 1
+  }
+
+  it.each(REUSABLE_LINK_REDACTION_CASES.filter((testCase) => testCase.leaked.length > 0))(
+    'the whole scrubber leaves no part of the token behind: $name',
+    ({ input, leaked }) => {
+      const encoded = JSON.stringify(scrubSentryEvent(probeEvent(input)))
+
+      for (const fragment of leaked) {
+        expect(encoded).not.toContain(fragment)
+      }
+    }
+  )
+
+  it.each(REUSABLE_LINK_REDACTION_CASES.filter((testCase) => testCase.leaked.length === 0))(
+    'the whole scrubber does not over-redact: $name',
+    ({ input, expected }) => {
+      const encoded = JSON.stringify(scrubSentryEvent(probeEvent(input)))
+
+      // A case with nothing to leak is one that must come through unchanged.
+      expect(expected).toBe(input)
+      expect(occurrences(encoded, input)).toBe(PROBE_OCCURRENCES)
+    }
+  )
 
   it('cuts the token out of free text and keeps the sentence readable', () => {
     const scrubbed = redactFreeText(`could not open ${REUSABLE_LINK_TOKEN} in a tab`)

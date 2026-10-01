@@ -38,7 +38,14 @@
         <p class="text-sm text-muted-foreground">{{ $t('interview.terminal.link_used.body') }}</p>
       </template>
 
-      <!-- Hosted-entry terminal — `GET /api/embed/exchange` 401 `token_invalid`: expired, mis-signed, or wrong-audience session token (G-32). -->
+      <!--
+        `link_invalid`: the link is not valid or is no longer active. Reached
+        from `i/[token].vue` (exchange 401) and `interview/reusable.vue` (redeem
+        404, a malformed fragment, or no fragment and no stored reusable
+        session). A reusable link has no expiry, so the copy must not claim one.
+        `embed/[token].vue` shows these same strings inline on 401 and 404; it
+        does not navigate here.
+      -->
       <template v-else-if="reason === 'link_invalid'">
         <h1 id="terminal-page-heading" class="text-2xl font-semibold text-foreground">
           {{ $t('interview.terminal.link_invalid.title') }}
@@ -88,32 +95,27 @@
 
 <script setup lang="ts">
 /**
- * Terminal page — no exit, no retry.
+ * Terminal page: no exit, no retry. The reason comes from `?reason=` (or a
+ * route param of the same name).
  *
- * Props (via query param):
- *   reason — '403' (authorization expired/closed), 'spent_link' (sso-link
- *     jti already consumed — exchange 401), 'link_used' (public-api hosted
- *     entry's session token already consumed/replaced — `/api/embed/exchange`
- *     410 `token_consumed`, G-32), 'link_invalid' (hosted entry's session
- *     token expired/malformed — `/api/embed/exchange` 401 `token_invalid`,
- *     G-32), 'session_expired' (stored candidate session absent/expired —
- *     candidate-session middleware gate, D-E), or 'absent_phrase' (service
- *     unavailable, fallback default).
+ * Who navigates here, and with what:
+ *   - `interview/[token].vue` (sso-link exchange): `spent_link` on a 401, `403`
+ *     on a 403 without a usable `redirect_url` and on any other failure.
+ *   - `i/[token].vue` (hosted entry, `/api/embed/exchange`): `link_used` on a
+ *     410, `link_invalid` on a 401, `403` on any other failure.
+ *   - `interview/reusable.vue`: `link_invalid` on a redeem 404, on a malformed
+ *     fragment, and when there is no fragment and no stored reusable session;
+ *     `403` on a 403 without a usable `redirect_url`.
+ *   - `middleware/candidate-session.ts`: `session_expired` when no valid stored
+ *     session exists.
+ * `absent_phrase` has no navigating caller in `app/`; it renders only when the
+ * query carries it. A missing or unrecognised reason renders as `403`.
  *
- * Reached from three places:
- *   1. The sso-link entry route (`interview/[token].vue`) on an exchange
- *      401/403 — D1.
- *   2. The public-api hosted entry route (`i/[token].vue`) on an
- *      `/api/embed/exchange` 410/401 — public-api step 5, G-32.
- *   3. `middleware/candidate-session.ts` on `/interview/session` when no
- *      valid stored session exists — D-E.
+ * Copy: `session_expired` never suggests a new link will help (pinned by
+ * `tests/unit/i18n-interview-keys.spec.ts`); `link_used` and `link_invalid` do
+ * ask for a new one.
  *
- * Shows DISTINCT localized messages per reason. `session_expired`,
- * `spent_link`, `link_used` and `link_invalid` are honest, non-generic copy
- * — see D-D/D-F: nothing here ever implies a new link/mint will resolve an
- * expired or already-used one.
- *
- * noindex: session-gated page.
+ * noindex: the page sets `robots: noindex, nofollow`.
  */
 import { computed } from 'vue'
 
