@@ -150,7 +150,7 @@
           "nameTooLong": "Il nome può contenere al massimo 255 caratteri.",
           "nameInvalid": "Controlla il nome inserito.",
           "emailRequired": "Inserisci la tua email.",
-          "emailInvalid": "Inserisci un indirizzo email valido, ad esempio nome@esempio.it.",
+          "emailInvalid": "Inserisci un indirizzo email valido, ad esempio nome{'@'}esempio.it.",
           "emailTooLong": "L'email può contenere al massimo 255 caratteri.",
           "emailTaken": "Questo indirizzo email è già stato utilizzato per questo colloquio. Contatta chi ti ha condiviso il link."
         }
