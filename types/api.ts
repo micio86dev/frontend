@@ -1400,9 +1400,9 @@ export interface paths {
         };
         /**
          * List participants
-         * @description Paginated on the server, newest first. The `q` filter matches `candidate_ref`, `display_name` and
-         *     `source` as a case-insensitive substring, and the candidate's `external_id` by exact equality when
-         *     the trimmed term is a whole number from 1 to 9007199254740991.
+         * @description Paginated on the server, newest first. The `q` filter matches `candidate_ref`, `display_name`,
+         *     `email` and `source` as a case-insensitive substring, and the candidate's `external_id` by exact
+         *     equality when the trimmed term is a whole number from 1 to 9007199254740991.
          */
         get: operations["participant.index"];
         put?: never;
@@ -2212,14 +2212,19 @@ export interface paths {
         /**
          * Redeem a reusable interview link
          * @description Exchanges the secret of a reusable interview link for a candidate access
-         *     token. Every successful call starts a NEW anonymous candidate in the
-         *     link's project, in the link's language, so one link serves any number of
-         *     people. The link never expires: it works until it is disabled or its
-         *     project closes. The token comes only from the `link_token` body field.
+         *     token. Every successful call starts a NEW candidate in the link's project,
+         *     in the link's language, identified by the name and email in the body
+         *     (self-declared, not verified), so one link serves any number of people.
+         *     The link never expires: it works until it is disabled or its project
+         *     closes. The token comes only from the `link_token` body field.
          *
-         *     A token that is unknown, malformed, or disabled is answered with the same
-         *     404, so a response never reveals whether a link exists. A 403 means the
-         *     link is valid but its project is not open for interviews right now.
+         *     The name and the email are checked first: a missing or invalid one is a
+         *     422 whatever the token is. A valid name and email beside a token that is
+         *     unknown, malformed, or disabled is answered with the same 404, so a
+         *     response never reveals whether a link exists. A 403 means the link is valid
+         *     but its project is not open for interviews right now. A 409 means the email
+         *     is already enrolled in the link's project: nothing is created and the
+         *     existing enrolment is never resumed.
          */
         post: operations["reusableLinkRedeem.redeem"];
         delete?: never;
@@ -9008,13 +9013,16 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
+                    display_name: string;
+                    /** Format: email */
+                    email: string;
                     /** @description The link token from the reusable link URL: `beai_rl_` followed by 43 URL-safe base64 characters (51 characters in all). */
                     link_token: string;
                 };
             };
         };
         responses: {
-            /** @description A candidate access token for a new anonymous candidate in the link's project. */
+            /** @description A candidate access token for the new candidate in the link's project. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9037,7 +9045,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description No such link: the token is unknown, malformed or disabled. The body is identical for every such case. */
+            /** @description No such link: with a valid name and email, the token is unknown, malformed or disabled. The body is identical for every such case. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -9048,6 +9056,18 @@ export interface operations {
                     };
                 };
             };
+            /** @description This email is already enrolled in the link's project. Nothing was created, and the existing enrolment is neither resumed nor described. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
             /** @description Too many attempts. Retry after the number of seconds in the `Retry-After` header. */
             429: {
                 headers: {

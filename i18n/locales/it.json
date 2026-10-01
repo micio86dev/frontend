@@ -99,6 +99,10 @@
         "title": "Questo link non è più valido",
         "body": "Questo link per il colloquio non è valido o non è più attivo. Chiedi un nuovo link a chi te lo ha inviato."
       },
+      "link_reopen": {
+        "title": "Apri di nuovo il link",
+        "body": "Questa pagina è stata ricaricata, quindi il link del tuo colloquio non è più qui. Riapri il link (inquadra di nuovo il codice QR oppure usa il messaggio ricevuto) per iniziare."
+      },
       "unsupported": {
         "title": "Browser non supportato",
         "body": "Questo colloquio richiede un browser desktop supportato (Chrome, Edge, Opera o Safari) su un computer desktop."
@@ -128,7 +132,29 @@
         "title": "Non siamo riusciti ad avviare il tuo colloquio",
         "body": "Qualcosa è andato storto nel raggiungere il servizio di colloquio. Di solito è un problema temporaneo: riprova tra qualche istante."
       },
-      "retry": "Riprova"
+      "retry": "Riprova",
+      "identity": {
+        "title": "Prima di iniziare",
+        "intro": "Inserisci il tuo nome e la tua email, così il colloquio potrà esserti attribuito.",
+        "name": {
+          "label": "Nome e cognome"
+        },
+        "email": {
+          "label": "Email"
+        },
+        "privacy": "Il tuo nome e la tua email sono condivisi con l'organizzazione che conduce il colloquio, così che il tuo colloquio possa essere identificato e le richieste relative ai tuoi dati possano essere gestite.",
+        "submit": "Inizia il colloquio",
+        "submitting": "Avvio in corso…",
+        "errors": {
+          "nameRequired": "Inserisci il tuo nome.",
+          "nameTooLong": "Il nome può contenere al massimo 255 caratteri.",
+          "nameInvalid": "Controlla il nome inserito.",
+          "emailRequired": "Inserisci la tua email.",
+          "emailInvalid": "Inserisci un indirizzo email valido, ad esempio nome{'@'}esempio.it.",
+          "emailTooLong": "L'email può contenere al massimo 255 caratteri.",
+          "emailTaken": "Questo indirizzo email è già stato utilizzato per questo colloquio. Contatta chi ti ha condiviso il link."
+        }
+      }
     },
     "document_title": "Colloquio BEAI",
     "guide": {

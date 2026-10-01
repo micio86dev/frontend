@@ -2,17 +2,23 @@ import { test, expect } from '@playwright/test'
 import type { Browser, Page, Request } from '@playwright/test'
 import { checkA11y } from './fixtures/a11y'
 import { injectDeviceMocks } from './fixtures/device-mocks'
+import { waitForHydration } from './fixtures/hydration'
+import { startRouterPush, waitForRouterBusy, waitForRouterIdle } from './fixtures/nuxt-router-state'
 
 /**
  * Playwright E2E — the reusable entry route `/interview/reusable#beai_rl_<43>`
  * (reusable-interview-links, AD-16).
  *
- * The link token is a live, non-expiring credential carried in the URL FRAGMENT.
- * What this file proves, against the real built app with the api network-
- * intercepted, is the part no unit test can: the fragment is gone from the
- * address bar before the request goes out, the redeem call carries the token in
- * its BODY and nowhere else, the route is matched ahead of `interview/[token]`
- * (no `GET /api/sso/exchange`), and a phone, Firefox or a narrow window never
+ * The link token is a live, non-expiring credential carried in the URL FRAGMENT,
+ * and since reusable-link-visitor-identity the visitor types a name and an email
+ * into a form before anything is redeemed. What this file proves, against the real
+ * built app with the api network-intercepted, is the part no unit test can: the
+ * form appears with ZERO requests and the fragment already gone, the redeem call
+ * carries the token and the typed identity in its BODY and nowhere else (no URL,
+ * storage, history, console or other request), the route is matched ahead of
+ * `interview/[token]` (no `GET /api/sso/exchange`), a reload while the form is
+ * shown ends on the truthful "open the link again" page, every state of the form
+ * passes axe, and a phone, Firefox or a narrow window never shows the form or
  * redeems.
  *
  * Projects: chromium + webkit. The `mobile` project (Pixel 7) runs only
@@ -23,6 +29,16 @@ import { injectDeviceMocks } from './fixtures/device-mocks'
 
 const LINK_TOKEN = 'beai_rl_9AuXUvnfk8dgg-mOHfBcWFbQ98k_MXZ5SChgVAqzCpY'
 const REDEEM = '**/api/reusable-links/redeem'
+
+/** What the visitor types. Sentinels no other string in the app contains, so a leak is a substring match. */
+const VISITOR = { name: 'Ada Sentinel Lovelace', email: 'ada.sentinel@example.test' }
+
+/** The exact body of a redemption: the token and the trimmed identity, nothing else. */
+const REDEEM_BODY = {
+  link_token: LINK_TOKEN,
+  display_name: VISITOR.name,
+  email: VISITOR.email,
+}
 
 const FIREFOX_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0'
@@ -217,6 +233,11 @@ function watchSsoExchange(page: Page): { calls: Request[] } {
   return { calls }
 }
 
+/** The copy the visitor reads (en), exactly as the spec fixes it. */
+const DUPLICATE_COPY =
+  'This email address has already been used for this interview. Please contact the person who shared the link with you.'
+const EMAIL_INVALID_COPY = 'Enter a valid email address, like name@example.com.'
+
 const consentScreen = (page: Page) =>
   page.getByRole('region', { name: /privacy notice and consent/i })
 
@@ -225,6 +246,48 @@ async function expectLinkInvalidTerminal(page: Page): Promise<void> {
   await expect(page).toHaveURL(/\/en\/interview\/terminal\?reason=link_invalid$/)
   await expect(page.getByText('This Link Is No Longer Valid')).toBeVisible()
   await expect(page.getByRole('button', { name: /try again|retry/i })).toHaveCount(0)
+}
+
+/** The identity form's controls, found by label and role in either locale. */
+const NAME_LABEL = /^(full name|nome e cognome)$/i
+const EMAIL_LABEL = /^email$/i
+const identityForm = (page: Page) => page.getByTestId('reusable-identity-form')
+const submitButton = (page: Page) => page.getByTestId('reusable-identity-submit')
+
+async function fillIdentity(page: Page, identity: { name: string; email: string } = VISITOR) {
+  await page.getByLabel(NAME_LABEL).fill(identity.name)
+  await page.getByLabel(EMAIL_LABEL).fill(identity.email)
+}
+
+async function submitIdentity(page: Page): Promise<void> {
+  await submitButton(page).click()
+}
+
+/**
+ * Opens the link the way a visitor does and completes the form: the page shows the
+ * form with no request, the visitor fills both fields and submits. Everything after
+ * that is the test's own assertion.
+ */
+async function openLinkAndSubmit(
+  page: Page,
+  path: string = `/en/interview/reusable#${LINK_TOKEN}`,
+  identity: { name: string; email: string } = VISITOR
+): Promise<void> {
+  await page.goto(path)
+  await expect(identityForm(page)).toBeVisible()
+  await fillIdentity(page, identity)
+  await submitIdentity(page)
+}
+
+/** The terminal page for a reload while the identity form was shown, reached by `replace`. */
+async function expectLinkReopenTerminal(page: Page): Promise<void> {
+  await expect(page).toHaveURL(/\/en\/interview\/terminal\?reason=link_reopen$/)
+  await expect(page.getByRole('heading', { name: 'Please open the link again' })).toBeVisible()
+  await expect(page.getByText(/scan the QR code or use the message you received/)).toBeVisible()
+  await expect(identityForm(page)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /try again|retry/i })).toHaveCount(0)
+  // Not the untrue "this link is bad": the link is fine, the page just forgot it.
+  await expect(page.getByText('This Link Is No Longer Valid')).toHaveCount(0)
 }
 
 /**
@@ -288,7 +351,7 @@ async function expectTokenNowhereInThePage(page: Page): Promise<void> {
 }
 
 test.describe('reusable entry route — /interview/reusable#<token>', () => {
-  test('redeems once with the token in the BODY, strips the fragment first, and lands on the session route', async ({
+  test('redeems once per submit with the token and identity in the BODY, strips the fragment first, and lands on the session route', async ({
     page,
   }) => {
     const redeem = await mockRedeem(page)
@@ -296,14 +359,14 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
     const exchange = watchSsoExchange(page)
     await mockCandidateSession(page)
 
-    await page.goto(`/interview/reusable#${LINK_TOKEN}`)
+    await openLinkAndSubmit(page, `/interview/reusable#${LINK_TOKEN}`)
 
     await expect(page).toHaveURL(/\/interview\/session$/)
     expect(redeem.calls).toHaveLength(1)
 
     const [call] = redeem.calls as [RedeemCall]
     expect(call.method).toBe('POST')
-    expect(call.body).toEqual({ link_token: LINK_TOKEN })
+    expect(call.body).toEqual(REDEEM_BODY)
     expect(call.url).not.toContain('beai_rl_')
     expect(call.url).not.toContain('?')
 
@@ -330,7 +393,7 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
     await mockRedeem(page)
     await mockCandidateSession(page)
 
-    await page.goto(`/interview/reusable#${LINK_TOKEN}`)
+    await openLinkAndSubmit(page, `/interview/reusable#${LINK_TOKEN}`)
     await expect(page).toHaveURL(/\/interview\/session$/)
 
     const stored = await page.evaluate(() => window.localStorage.getItem('beai_candidate_session'))
@@ -348,7 +411,7 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
     const atFetch = await watchRedeemFetch(page)
     await mockCandidateSession(page)
 
-    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await openLinkAndSubmit(page, `/en/interview/reusable#${LINK_TOKEN}`)
 
     await expect(page).toHaveURL(/\/en\/interview\/session$/)
     await expect(consentScreen(page)).toBeVisible()
@@ -364,7 +427,7 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
   test('a 404 is the terminal "link is no longer valid" page, with no retry', async ({ page }) => {
     const redeem = await mockRedeem(page, [404])
 
-    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await openLinkAndSubmit(page, `/en/interview/reusable#${LINK_TOKEN}`)
 
     await expectLinkInvalidTerminal(page)
     // Terminal means one request and no second try, however long it is left.
@@ -372,14 +435,14 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
     await expectTokenNowhereInThePage(page)
   })
 
-  test('a 429 shows the busy state, and Retry re-posts the same token and succeeds', async ({
+  test('a 429 shows the busy state, and Retry re-posts the same token AND identity and succeeds', async ({
     page,
   }) => {
     const redeem = await mockRedeem(page, [429, 'ok'])
     const atFetch = await watchRedeemFetch(page)
     await mockCandidateSession(page)
 
-    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await openLinkAndSubmit(page, `/en/interview/reusable#${LINK_TOKEN}`)
 
     await expect(
       page.getByRole('heading', { name: 'Many people are starting right now' })
@@ -399,10 +462,7 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
     await expect(page).toHaveURL(/\/en\/interview\/session$/)
     // Retry is exactly one more request, not a burst.
     await expectCountStays(() => redeem.calls.length, 2, 500)
-    expect(redeem.calls.map((call) => call.body)).toEqual([
-      { link_token: LINK_TOKEN },
-      { link_token: LINK_TOKEN },
-    ])
+    expect(redeem.calls.map((call) => call.body)).toEqual([REDEEM_BODY, REDEEM_BODY])
     // The retry never put the token back in the address bar either.
     const records = await atFetch.read()
     expect(records).toHaveLength(2)
@@ -419,7 +479,7 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
   }) => {
     const redeem = await mockRedeem(page, [503])
 
-    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await openLinkAndSubmit(page, `/en/interview/reusable#${LINK_TOKEN}`)
 
     await expect(
       page.getByRole('heading', { name: 'We could not start your interview' })
@@ -437,7 +497,7 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
     const redeem = await mockRedeem(page)
     await mockCandidateSession(page)
 
-    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await openLinkAndSubmit(page, `/en/interview/reusable#${LINK_TOKEN}`)
     await expect(page).toHaveURL(/\/en\/interview\/session$/)
     expect(redeem.calls).toHaveLength(1)
 
@@ -465,11 +525,11 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
     const redeem = await mockRedeem(page)
     await mockCandidateSession(page)
 
-    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await openLinkAndSubmit(page, `/en/interview/reusable#${LINK_TOKEN}`)
     await expect(page).toHaveURL(/\/en\/interview\/session$/)
 
     // A kiosk: the next person opens the same link in the same browser.
-    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await openLinkAndSubmit(page, `/en/interview/reusable#${LINK_TOKEN}`)
     await expect(page).toHaveURL(/\/en\/interview\/session$/)
 
     expect(redeem.calls).toHaveLength(2)
@@ -497,7 +557,7 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
   test('the page is noindex and sends no referrer', async ({ page }) => {
     await mockRedeem(page, [503])
 
-    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await openLinkAndSubmit(page, `/en/interview/reusable#${LINK_TOKEN}`)
     await expect(
       page.getByRole('heading', { name: 'We could not start your interview' })
     ).toBeVisible()
@@ -528,7 +588,7 @@ test.describe('reusable entry route — a 403 and a dropped connection', () => {
       })
     )
 
-    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await openLinkAndSubmit(page, `/en/interview/reusable#${LINK_TOKEN}`)
 
     await page.waitForURL(EXTERNAL_PAGE)
     await expect(page.getByText('External closed page')).toBeVisible()
@@ -558,7 +618,7 @@ test.describe('reusable entry route — a 403 and a dropped connection', () => {
         }
       })
 
-      await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+      await openLinkAndSubmit(page, `/en/interview/reusable#${LINK_TOKEN}`)
 
       await expect(page).toHaveURL(/\/en\/interview\/terminal\?reason=403$/)
       await expect(page.getByRole('heading', { name: 'Session Not Authorized' })).toBeVisible()
@@ -579,7 +639,7 @@ test.describe('reusable entry route — a 403 and a dropped connection', () => {
     const redeem = await mockRedeem(page, ['abort', 'ok'])
     await mockCandidateSession(page)
 
-    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await openLinkAndSubmit(page, `/en/interview/reusable#${LINK_TOKEN}`)
 
     await expect(
       page.getByRole('heading', { name: 'We could not start your interview' })
@@ -596,10 +656,7 @@ test.describe('reusable entry route — a 403 and a dropped connection', () => {
     await expect(consentScreen(page)).toBeVisible()
     await expectCountStays(() => redeem.calls.length, 2, 500)
     // The retry re-posts the SAME token, from the page's memory.
-    expect(redeem.calls.map((call) => call.body)).toEqual([
-      { link_token: LINK_TOKEN },
-      { link_token: LINK_TOKEN },
-    ])
+    expect(redeem.calls.map((call) => call.body)).toEqual([REDEEM_BODY, REDEEM_BODY])
   })
 })
 
@@ -695,7 +752,7 @@ test.describe('reusable entry route — a failed redeem leaves no previous visit
       await seedStoredSession(page, { entry: 'reusable', candidateRef: 'rlv_PREVIOUSPERSON' })
       await mockRedeem(page, [answer])
 
-      await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+      await openLinkAndSubmit(page, `/en/interview/reusable#${LINK_TOKEN}`)
 
       // Wait for a positive end state of each outcome, then read the storage.
       if (answer === 404) {
@@ -712,7 +769,7 @@ test.describe('reusable entry route — a failed redeem leaves no previous visit
     await seedStoredSession(page, { candidateRef: 'cand-from-the-sso-link' })
     await mockRedeem(page, [503])
 
-    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await openLinkAndSubmit(page, `/en/interview/reusable#${LINK_TOKEN}`)
 
     await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible()
     expect(await storedSession(page)).toBeNull()
@@ -724,7 +781,7 @@ test.describe('reusable entry route — Retry sends exactly one request', () => 
     const redeem = await mockRedeem(page, [503, 'ok'])
     await mockCandidateSession(page)
 
-    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await openLinkAndSubmit(page, `/en/interview/reusable#${LINK_TOKEN}`)
     await page.getByRole('button', { name: 'Try again' }).dblclick()
 
     await expect(page).toHaveURL(/\/en\/interview\/session$/)
@@ -738,7 +795,7 @@ test.describe('reusable entry route — Retry sends exactly one request', () => 
     const redeem = await mockRedeem(page, [503, 'ok'])
     await mockCandidateSession(page)
 
-    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await openLinkAndSubmit(page, `/en/interview/reusable#${LINK_TOKEN}`)
 
     // A real double click can only reach the second handler if the page has not
     // re-rendered between the two clicks, and it normally has: the button is
@@ -767,7 +824,7 @@ test.describe('reusable entry route — no history entry holds the token', () =>
     await page.goto('/api/health')
     const lengthBefore = await page.evaluate(() => window.history.length)
 
-    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await openLinkAndSubmit(page, `/en/interview/reusable#${LINK_TOKEN}`)
     await expect(page).toHaveURL(/\/en\/interview\/session$/)
 
     // The browser does not let a page read the URLs of earlier entries, so this
@@ -797,9 +854,39 @@ test.describe('reusable entry route — no history entry holds the token', () =>
  * nothing reloads (the early plugin's `hashchange` listener, AD-16).
  */
 async function pasteIntoThisTab(page: Page, token: string): Promise<void> {
-  await page.evaluate((value) => {
-    window.location.hash = value
-  }, token)
+  // "A tab that is already open" means a hydrated one. Before hydration the
+  // router is not listening yet: the plugin strips the fragment, the router never
+  // sees it, and no navigation exists to be waited for.
+  await waitForHydration(page)
+
+  // Resolves from INSIDE the page on the `hashchange` it caused. The plugin's own
+  // listener is registered earlier, so the strip has already run by then, and
+  // `popstate` has already fired, so vue-router has already started its own
+  // navigation to the pasted fragment.
+  await page.evaluate(
+    (value) =>
+      new Promise<void>((resolve) => {
+        window.addEventListener('hashchange', () => resolve(), { once: true })
+        window.location.hash = value
+      }),
+    token
+  )
+
+  // That navigation is asynchronous (the global middleware are awaited), and
+  // Nuxt's `navigateTo` called while one is in flight is taken for a middleware
+  // redirect and does nothing. The tests that go on to leave the entry route (the
+  // redeem is released, a soft navigation is made) would lose that navigation
+  // depending on how fast the runner is.
+  //
+  // So wait for the router to be idle. Nuxt holds `_processingMiddleware` from the
+  // start of a navigation to its `afterEach`, and that is reached whatever the
+  // order of the events: it is not "the router adopted the pasted hash", which
+  // never happens when the strip wins. No sleep, no longer timeout.
+  //
+  // That flag is a Nuxt internal, and "it is gone" is vacuously true once Nuxt stops
+  // using it, so the helper first checks the installed Nuxt still works that way and
+  // fails loudly, naming the assumption, when it does not.
+  await waitForRouterIdle(page)
 }
 
 /** A second, well-formed token: what a visitor pastes over the first. */
@@ -827,9 +914,9 @@ test.describe('reusable entry route — a link pasted into a tab that is already
     const redeem = await mockRedeem(page, ['pending'])
     await mockCandidateSession(page)
 
-    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await openLinkAndSubmit(page, `/en/interview/reusable#${LINK_TOKEN}`)
     await expect.poll(() => redeem.calls.length).toBe(1)
-    await expect(page.getByRole('main')).toHaveAttribute('aria-busy', 'true')
+    await expect(identityForm(page)).toHaveAttribute('aria-busy', 'true')
 
     // The tab is still on the entry route (its redeem is in flight) when a second
     // link is pasted over the address bar.
@@ -843,7 +930,7 @@ test.describe('reusable entry route — a link pasted into a tab that is already
 
     // One redeem, for the link that was opened: the pasted one never reached the api.
     await expectCountStays(() => redeem.calls.length, 1)
-    expect((redeem.calls[0] as RedeemCall).body).toEqual({ link_token: LINK_TOKEN })
+    expect((redeem.calls[0] as RedeemCall).body).toEqual(REDEEM_BODY)
     await expectTokenNowhereInThePage(page)
   })
 
@@ -879,16 +966,109 @@ test.describe('reusable entry route — a link pasted into a tab that is already
   })
 })
 
-test.describe('reusable entry route — every state passes WCAG 2.1 AA', () => {
-  test('the loading state (a redeem still in flight)', async ({ page }) => {
+test.describe('reusable entry route — leaving while a router navigation is in flight', () => {
+  // Nuxt's `navigateTo` called while a router navigation is in flight is taken for a
+  // middleware redirect and navigates nowhere (it returns a route object instead).
+  // A pasted fragment starts exactly such a navigation, so a redeem that returns
+  // during it used to strand the visitor on the page. The page leaves through
+  // `router.replace`, which supersedes the pending navigation.
+  //
+  // The navigation is held in flight deterministically: it targets a route whose
+  // JavaScript chunk has not been loaded yet, and that one request is held, so the
+  // router stays in the middle of the navigation until the test lets go.
+  test('the visitor still lands on the session route when the redeem returns mid-navigation', async ({
+    page,
+  }) => {
     const redeem = await mockRedeem(page, ['pending'])
     await mockCandidateSession(page)
 
+    let holding = false
+    const held: Array<() => void> = []
+    await page.route('**/_nuxt/**/*.js', async (route) => {
+      if (!holding) return route.continue()
+      await new Promise<void>((resolve) => held.push(resolve))
+      return route.continue().catch(() => undefined)
+    })
+
+    await openLinkAndSubmit(page)
+    await expect.poll(() => redeem.calls.length).toBe(1)
+
+    // Start a navigation to a route that has to fetch its chunk, and do not wait for it.
+    holding = true
+    await startRouterPush(page, '/en/interview/terminal?reason=403')
+    await expect.poll(() => held.length).toBeGreaterThan(0)
+    // Precondition: Nuxt is mid-navigation (`_processingMiddleware`), the state that
+    // makes `navigateTo` a no-op. A Nuxt internal: this throws a named error, rather
+    // than timing out obscurely, if an upgrade changes it.
+    await waitForRouterBusy(page)
+
+    // The redeem answer arrives NOW, with the navigation still pending.
+    holding = false
+    redeem.release()
+
+    try {
+      await expect(page).toHaveURL(/\/en\/interview\/session$/)
+      await expect(consentScreen(page)).toBeVisible()
+    } finally {
+      for (const release of held) release()
+    }
+
+    expect(redeem.calls).toHaveLength(1)
+    await expectTokenNowhereInThePage(page)
+  })
+})
+
+test.describe('reusable entry route — every state passes WCAG 2.1 AA', () => {
+  test('the identity form, pristine', async ({ page }) => {
+    await mockRedeem(page)
+
     await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
 
-    // The loading <main> is the only landmark here, and it announces itself busy.
-    await expect(page.getByRole('main')).toHaveAttribute('aria-busy', 'true')
+    await expect(identityForm(page)).toBeVisible()
+    // Nothing is focused on load, and no error reference dangles.
+    await expect(page.getByLabel(NAME_LABEL)).not.toBeFocused()
+    await expect(page.getByLabel(NAME_LABEL)).not.toHaveAttribute('aria-describedby', /.+/)
+    await checkA11y(page)
+  })
+
+  test('the identity form with client-side errors', async ({ page }) => {
+    await mockRedeem(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await submitIdentity(page)
+
+    await expect(page.getByText('Enter your name.')).toBeVisible()
+    await expect(page.getByText('Enter your email.')).toBeVisible()
+    await checkA11y(page)
+  })
+
+  test('the identity form after a 409 (this email has already been used)', async ({ page }) => {
+    await mockRedeem(page, [{ status: 409, body: { message: 'duplicate_enrolment' } }])
+
+    await openLinkAndSubmit(page)
+
+    await expect(page.getByText(DUPLICATE_COPY)).toBeVisible()
+    await checkA11y(page)
+  })
+
+  test('the identity form after a 422', async ({ page }) => {
+    await mockRedeem(page, [{ status: 422, body: { message: 'x', errors: { email: ['x'] } } }])
+
+    await openLinkAndSubmit(page)
+
+    await expect(page.getByText(EMAIL_INVALID_COPY)).toBeVisible()
+    await checkA11y(page)
+  })
+
+  test('the identity form while the request is in flight (busy)', async ({ page }) => {
+    const redeem = await mockRedeem(page, ['pending'])
+    await mockCandidateSession(page)
+
+    await openLinkAndSubmit(page)
+
     await expect.poll(() => redeem.calls.length).toBe(1)
+    await expect(identityForm(page)).toHaveAttribute('aria-busy', 'true')
+    await expect(submitButton(page)).toBeDisabled()
     await checkA11y(page)
 
     // Let it finish, so the test does not end with a request still held.
@@ -896,10 +1076,39 @@ test.describe('reusable entry route — every state passes WCAG 2.1 AA', () => {
     await expect(page).toHaveURL(/\/en\/interview\/session$/)
   })
 
+  test('the busy state (429) and the failed state', async ({ page }) => {
+    await mockRedeem(page, [429])
+    await openLinkAndSubmit(page)
+    await expect(
+      page.getByRole('heading', { name: 'Many people are starting right now' })
+    ).toBeVisible()
+    await checkA11y(page)
+  })
+
+  test('the failed state (a 5xx)', async ({ page }) => {
+    await mockRedeem(page, [503])
+    await openLinkAndSubmit(page)
+    await expect(
+      page.getByRole('heading', { name: 'We could not start your interview' })
+    ).toBeVisible()
+    await checkA11y(page)
+  })
+
+  test('the "open the link again" page reached by a reload', async ({ page }) => {
+    await mockRedeem(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await expect(identityForm(page)).toBeVisible()
+    await page.reload()
+
+    await expectLinkReopenTerminal(page)
+    await checkA11y(page)
+  })
+
   test('the terminal "link is no longer valid" page', async ({ page }) => {
     await mockRedeem(page, [404])
 
-    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await openLinkAndSubmit(page, `/en/interview/reusable#${LINK_TOKEN}`)
 
     await expectLinkInvalidTerminal(page)
     await checkA11y(page)
@@ -909,7 +1118,7 @@ test.describe('reusable entry route — every state passes WCAG 2.1 AA', () => {
     await mockRedeem(page)
     await mockCandidateSession(page)
 
-    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await openLinkAndSubmit(page, `/en/interview/reusable#${LINK_TOKEN}`)
 
     await expect(consentScreen(page)).toBeVisible()
     await checkA11y(page)
@@ -956,7 +1165,7 @@ test.describe('reusable entry route — the visitor session reaches the intervie
       )
     }
 
-    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await openLinkAndSubmit(page, `/en/interview/reusable#${LINK_TOKEN}`)
 
     // Consent -> device check -> the interview starts: the page the redeem
     // landed on is the ordinary session route, with nothing reusable-specific left.
@@ -1055,6 +1264,416 @@ test.describe('reusable entry route — an unsupported browser never redeems (SA
       expect(calls).toHaveLength(0)
     } finally {
       await close()
+    }
+  })
+})
+
+test.describe('reusable entry route — the identity form', () => {
+  test('is shown with ZERO redeem requests and no fragment in the address bar', async ({
+    page,
+  }) => {
+    const redeem = await mockRedeem(page)
+    const exchange = watchSsoExchange(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+
+    await expect(identityForm(page)).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Before you start' })).toBeVisible()
+    expect(page.url()).not.toContain('#')
+    expect(page.url()).not.toContain('beai_rl_')
+    await expectCountStays(() => redeem.calls.length, 0)
+    expect(exchange.calls).toHaveLength(0)
+    await expectTokenNowhereInThePage(page)
+  })
+
+  test('has no checkbox, no link and no verification step, and shows the privacy notice above the button', async ({
+    page,
+  }) => {
+    await mockRedeem(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+
+    await expect(identityForm(page)).toBeVisible()
+    await expect(identityForm(page).getByRole('checkbox')).toHaveCount(0)
+    await expect(identityForm(page).getByRole('link')).toHaveCount(0)
+    await expect(identityForm(page).getByRole('textbox')).toHaveCount(2)
+    const notice = identityForm(page).getByText(
+      'Your name and email are shared with the organization running this interview so your interview can be identified and requests about your data can be handled.'
+    )
+    await expect(notice).toBeVisible()
+    await expect(submitButton(page)).toHaveAccessibleDescription(/shared with the organization/)
+
+    // ABOVE the button, proved two ways: document order, and where it is painted.
+    const follows = await notice.evaluate(
+      (noticeElement, button) =>
+        Boolean(
+          button && noticeElement.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING
+        ),
+      await submitButton(page).elementHandle()
+    )
+    expect(follows, 'the submit button must come AFTER the privacy notice in the DOM').toBe(true)
+
+    const noticeBox = await notice.boundingBox()
+    const buttonBox = await submitButton(page).boundingBox()
+    expect(noticeBox, 'the notice has a box once visible').not.toBeNull()
+    expect(buttonBox, 'the button has a box once visible').not.toBeNull()
+    expect(
+      (noticeBox?.y ?? Infinity) + (noticeBox?.height ?? 0),
+      'the notice must end above the top of the button'
+    ).toBeLessThanOrEqual(buttonBox?.y ?? -Infinity)
+  })
+
+  test('sends a body of exactly {link_token, display_name, email} with TRIMMED values', async ({
+    page,
+  }) => {
+    const redeem = await mockRedeem(page)
+    await mockCandidateSession(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await expect(identityForm(page)).toBeVisible()
+    await fillIdentity(page, { name: `   ${VISITOR.name}  `, email: `  ${VISITOR.email}   ` })
+    await submitIdentity(page)
+
+    await expect(page).toHaveURL(/\/en\/interview\/session$/)
+    expect(redeem.calls).toHaveLength(1)
+    expect((redeem.calls[0] as RedeemCall).body).toEqual(REDEEM_BODY)
+    expect(Object.keys((redeem.calls[0] as RedeemCall).body as object).sort()).toEqual([
+      'display_name',
+      'email',
+      'link_token',
+    ])
+  })
+
+  test('keeps the token and the identity out of every store: sessionStorage holds only the flag while the form is shown and nothing after success', async ({
+    page,
+  }) => {
+    await mockRedeem(page)
+    await mockCandidateSession(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await expect(identityForm(page)).toBeVisible()
+    await fillIdentity(page)
+
+    const whileShown = await page.evaluate(() => ({
+      local: Object.entries(window.localStorage),
+      session: Object.entries(window.sessionStorage),
+    }))
+    expect(whileShown.local).toEqual([])
+    expect(whileShown.session).toEqual([['beai_reusable_identity_pending', '1']])
+
+    await submitIdentity(page)
+    await expect(page).toHaveURL(/\/en\/interview\/session$/)
+
+    const after = await page.evaluate(() => ({
+      href: window.location.href,
+      state: JSON.stringify(window.history.state),
+      local: JSON.stringify(Object.entries(window.localStorage)),
+      session: JSON.stringify(Object.entries(window.sessionStorage)),
+    }))
+    for (const [where, value] of Object.entries(after)) {
+      for (const secret of ['beai_rl_', VISITOR.name, VISITOR.email]) {
+        expect(value, `${secret} leaked into ${where}`).not.toContain(secret)
+      }
+    }
+    expect(JSON.parse(after.session)).toEqual([])
+  })
+
+  test('an empty submit shows both errors, focuses the name and sends nothing', async ({
+    page,
+  }) => {
+    const redeem = await mockRedeem(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await expect(identityForm(page)).toBeVisible()
+    await submitIdentity(page)
+
+    await expect(page.getByText('Enter your name.')).toBeVisible()
+    await expect(page.getByText('Enter your email.')).toBeVisible()
+    await expect(page.getByLabel(NAME_LABEL)).toBeFocused()
+    await expect(page.getByLabel(NAME_LABEL)).toHaveAttribute('aria-invalid', 'true')
+    await expect(page.getByLabel(EMAIL_LABEL)).toHaveAttribute(
+      'aria-describedby',
+      'reusable-identity-email-error'
+    )
+    await expectCountStays(() => redeem.calls.length, 0, 500)
+  })
+
+  test('a blank NAME with the email filled shows only the name message, focuses the name and sends nothing', async ({
+    page,
+  }) => {
+    const redeem = await mockRedeem(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await expect(identityForm(page)).toBeVisible()
+    await page.getByLabel(EMAIL_LABEL).fill(VISITOR.email)
+    await submitIdentity(page)
+
+    await expect(page.getByText('Enter your name.')).toBeVisible()
+    await expect(page.getByText('Enter your email.')).toHaveCount(0)
+    await expect(page.getByLabel(NAME_LABEL)).toBeFocused()
+    await expect(page.getByLabel(NAME_LABEL)).toHaveAttribute('aria-invalid', 'true')
+    await expect(page.getByLabel(EMAIL_LABEL)).not.toHaveAttribute('aria-invalid', 'true')
+    await expect(page.getByLabel(EMAIL_LABEL)).not.toHaveAttribute('aria-describedby', /.+/)
+    await expectCountStays(() => redeem.calls.length, 0, 500)
+  })
+
+  test('a blank EMAIL with the name filled shows only the email message, focuses the email and sends nothing', async ({
+    page,
+  }) => {
+    const redeem = await mockRedeem(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await expect(identityForm(page)).toBeVisible()
+    await page.getByLabel(NAME_LABEL).fill(VISITOR.name)
+    await submitIdentity(page)
+
+    await expect(page.getByText('Enter your email.')).toBeVisible()
+    await expect(page.getByText('Enter your name.')).toHaveCount(0)
+    await expect(page.getByLabel(EMAIL_LABEL)).toBeFocused()
+    await expect(page.getByLabel(EMAIL_LABEL)).toHaveAttribute('aria-invalid', 'true')
+    await expect(page.getByLabel(NAME_LABEL)).not.toHaveAttribute('aria-invalid', 'true')
+    await expect(page.getByLabel(NAME_LABEL)).not.toHaveAttribute('aria-describedby', /.+/)
+    await expectCountStays(() => redeem.calls.length, 0, 500)
+  })
+
+  test('a malformed email is refused on the page, with no request', async ({ page }) => {
+    const redeem = await mockRedeem(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await expect(identityForm(page)).toBeVisible()
+    await fillIdentity(page, { name: VISITOR.name, email: 'ana@gmail' })
+    await submitIdentity(page)
+
+    await expect(page.getByText(EMAIL_INVALID_COPY)).toBeVisible()
+    await expect(page.getByLabel(EMAIL_LABEL)).toBeFocused()
+    await expectCountStays(() => redeem.calls.length, 0, 500)
+  })
+
+  test('a 422 on the email shows the app’s OWN copy on that field and never the server text', async ({
+    page,
+  }) => {
+    await mockRedeem(page, [
+      {
+        status: 422,
+        body: {
+          message: 'SERVER-TEXT-MUST-NOT-RENDER',
+          errors: { email: ['SERVER-TEXT-MUST-NOT-RENDER'] },
+        },
+      },
+    ])
+
+    await openLinkAndSubmit(page)
+
+    await expect(page.getByText(EMAIL_INVALID_COPY)).toBeVisible()
+    await expect(page.getByLabel(EMAIL_LABEL)).toBeFocused()
+    await expect(page.getByText('SERVER-TEXT-MUST-NOT-RENDER')).toHaveCount(0)
+    // Still on the form, still editable, typed values kept.
+    await expect(identityForm(page)).toBeVisible()
+    await expect(page.getByLabel(NAME_LABEL)).toHaveValue(VISITOR.name)
+    await expect(page.getByLabel(EMAIL_LABEL)).toHaveValue(VISITOR.email)
+  })
+
+  test('a 409 shows the duplicate copy on the email field; correcting it resubmits with the SAME token', async ({
+    page,
+  }) => {
+    const redeem = await mockRedeem(page, [
+      { status: 409, body: { message: 'duplicate_enrolment' } },
+      'ok',
+    ])
+    await mockCandidateSession(page)
+
+    await openLinkAndSubmit(page)
+
+    await expect(page.getByText(DUPLICATE_COPY)).toBeVisible()
+    await expect(page.getByLabel(EMAIL_LABEL)).toBeFocused()
+    await expect(page).toHaveURL(/\/en\/interview\/reusable$/)
+    // The copy never offers a resume.
+    await expect(page.getByText(/resume/i)).toHaveCount(0)
+
+    await page.getByLabel(EMAIL_LABEL).fill('ada.other@example.test')
+    await submitIdentity(page)
+
+    await expect(page).toHaveURL(/\/en\/interview\/session$/)
+    expect(redeem.calls.map((call) => call.body)).toEqual([
+      REDEEM_BODY,
+      { ...REDEEM_BODY, email: 'ada.other@example.test' },
+    ])
+  })
+
+  test('a reload while the form is shown is the truthful "open the link again" page, with no request', async ({
+    page,
+  }) => {
+    const redeem = await mockRedeem(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await expect(identityForm(page)).toBeVisible()
+    await fillIdentity(page)
+    await page.reload()
+
+    await expectLinkReopenTerminal(page)
+    await expectCountStays(() => redeem.calls.length, 0, 500)
+    // The typed identity did not survive the reload, anywhere.
+    await expect(page.getByText(VISITOR.email)).toHaveCount(0)
+    await expectTokenNowhereInThePage(page)
+  })
+
+  test('the reopen page is localized, and opening the link again starts at an empty form', async ({
+    page,
+  }) => {
+    await mockRedeem(page)
+
+    await page.goto(`/interview/reusable#${LINK_TOKEN}`)
+    await expect(identityForm(page)).toBeVisible()
+    await page.reload()
+
+    await expect(page).toHaveURL(/\/interview\/terminal\?reason=link_reopen$/)
+    await expect(page.getByRole('heading', { name: 'Apri di nuovo il link' })).toBeVisible()
+
+    await page.goto(`/interview/reusable#${LINK_TOKEN}`)
+    await expect(identityForm(page)).toBeVisible()
+    await expect(page.getByLabel(NAME_LABEL)).toHaveValue('')
+    await expect(page.getByLabel(EMAIL_LABEL)).toHaveValue('')
+  })
+
+  test('without a form shown and without a session, the same reload is "link no longer valid", not "open again"', async ({
+    page,
+  }) => {
+    await mockRedeem(page)
+
+    await page.goto('/en/interview/reusable')
+
+    await expectLinkInvalidTerminal(page)
+    await expect(page.getByText('Please open the link again')).toHaveCount(0)
+  })
+
+  test('is completed with the keyboard alone: Tab, type, Enter, one request', async ({ page }) => {
+    const redeem = await mockRedeem(page)
+    await mockCandidateSession(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await expect(identityForm(page)).toBeVisible()
+
+    await page.keyboard.press('Tab')
+    await expect(page.getByLabel(NAME_LABEL)).toBeFocused()
+    await page.keyboard.type(VISITOR.name)
+    await page.keyboard.press('Tab')
+    await expect(page.getByLabel(EMAIL_LABEL)).toBeFocused()
+    await page.keyboard.type(VISITOR.email)
+    await page.keyboard.press('Enter')
+
+    await expect(page).toHaveURL(/\/en\/interview\/session$/)
+    await expectCountStays(() => redeem.calls.length, 1, 500)
+    expect((redeem.calls[0] as RedeemCall).body).toEqual(REDEEM_BODY)
+  })
+
+  test('a double click on Start the interview is ONE request while it is in flight', async ({
+    page,
+  }) => {
+    const redeem = await mockRedeem(page, ['pending'])
+    await mockCandidateSession(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await expect(identityForm(page)).toBeVisible()
+    await fillIdentity(page)
+
+    await submitButton(page).dblclick()
+    await expect.poll(() => redeem.calls.length).toBe(1)
+    await expect(submitButton(page)).toBeDisabled()
+    await expectCountStays(() => redeem.calls.length, 1, 500)
+
+    redeem.release()
+    await expect(page).toHaveURL(/\/en\/interview\/session$/)
+    await expectCountStays(() => redeem.calls.length, 1, 500)
+  })
+
+  test('two submits delivered in the same task are one request: the in-flight guard, not the re-render, stops the second', async ({
+    page,
+  }) => {
+    const redeem = await mockRedeem(page, ['pending'])
+    await mockCandidateSession(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await expect(identityForm(page)).toBeVisible()
+    await fillIdentity(page)
+
+    await identityForm(page).evaluate((form: HTMLFormElement) => {
+      form.requestSubmit()
+      form.requestSubmit()
+    })
+
+    await expect.poll(() => redeem.calls.length).toBe(1)
+    await expectCountStays(() => redeem.calls.length, 1, 500)
+    redeem.release()
+    await expect(page).toHaveURL(/\/en\/interview\/session$/)
+  })
+
+  test('a 429 and a dropped connection show the inline retry, and Retry re-sends the SAME token and identity', async ({
+    page,
+  }) => {
+    const redeem = await mockRedeem(page, [429, 'abort', 'ok'])
+    await mockCandidateSession(page)
+
+    await openLinkAndSubmit(page)
+    await expect(
+      page.getByRole('heading', { name: 'Many people are starting right now' })
+    ).toBeVisible()
+    await page.getByRole('button', { name: 'Try again' }).click()
+
+    await expect(
+      page.getByRole('heading', { name: 'We could not start your interview' })
+    ).toBeVisible()
+    await page.getByRole('button', { name: 'Try again' }).click()
+
+    await expect(page).toHaveURL(/\/en\/interview\/session$/)
+    expect(redeem.calls.map((call) => call.body)).toEqual([REDEEM_BODY, REDEEM_BODY, REDEEM_BODY])
+    await expectTokenNowhereInThePage(page)
+  })
+
+  test('a failure followed by Retry that finds a 409 returns to the form, prefilled', async ({
+    page,
+  }) => {
+    await mockRedeem(page, [503, { status: 409, body: { message: 'duplicate_enrolment' } }])
+
+    await openLinkAndSubmit(page)
+    await page.getByRole('button', { name: 'Try again' }).click()
+
+    await expect(page.getByText(DUPLICATE_COPY)).toBeVisible()
+    await expect(page.getByLabel(NAME_LABEL)).toHaveValue(VISITOR.name)
+    await expect(page.getByLabel(EMAIL_LABEL)).toHaveValue(VISITOR.email)
+  })
+
+  test('the typed name and email appear in no console output and in no request but the redemption body', async ({
+    page,
+  }) => {
+    const consoleLines: string[] = []
+    page.on('console', (message) => consoleLines.push(message.text()))
+    page.on('pageerror', (error) => consoleLines.push(error.message))
+    const seen: Request[] = []
+    page.on('request', (request) => seen.push(request))
+
+    const redeem = await mockRedeem(page, [429, 'ok'])
+    await mockCandidateSession(page)
+
+    await openLinkAndSubmit(page)
+    await page.getByRole('button', { name: 'Try again' }).click()
+    await expect(page).toHaveURL(/\/en\/interview\/session$/)
+    expect(redeem.calls).toHaveLength(2)
+
+    for (const secret of [VISITOR.name, VISITOR.email, encodeURIComponent(VISITOR.email)]) {
+      expect(consoleLines.join('\n'), `${secret} reached the console`).not.toContain(secret)
+    }
+
+    for (const request of seen) {
+      const label = `${request.method()} ${request.url()}`
+      const isRedeem = request.url().includes('/api/reusable-links/redeem')
+      const carriers = [request.url(), JSON.stringify(await request.allHeaders())]
+      if (!isRedeem) carriers.push(request.postData() ?? '')
+
+      for (const carrier of carriers) {
+        for (const secret of [VISITOR.name, VISITOR.email, encodeURIComponent(VISITOR.email)]) {
+          expect(carrier, `${secret} leaked in ${label}`).not.toContain(secret)
+        }
+      }
     }
   })
 })

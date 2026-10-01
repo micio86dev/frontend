@@ -56,6 +56,22 @@
       </template>
 
       <!--
+        `link_reopen`: the visitor reloaded `interview/reusable.vue` while its
+        identity form was on screen. The link token lives in page memory only, so
+        the reload lost it; the link itself is fine, so `link_invalid` would be
+        untrue. There is nothing to retry from here, only the visitor opening the
+        link again, so (like every terminal state) there is no button and no form.
+      -->
+      <template v-else-if="reason === 'link_reopen'">
+        <h1 id="terminal-page-heading" class="text-2xl font-semibold text-foreground">
+          {{ $t('interview.terminal.link_reopen.title') }}
+        </h1>
+        <p class="text-sm text-muted-foreground">
+          {{ $t('interview.terminal.link_reopen.body') }}
+        </p>
+      </template>
+
+      <!--
         Expired-session terminal: the stored candidate session is absent or
         expired (candidate-session middleware gate, D-E), or a candidate call
         returned 401 mid-session (D-D/D-F). Honest by design: a paused
@@ -104,8 +120,10 @@
  *   - `i/[token].vue` (hosted entry, `/api/embed/exchange`): `link_used` on a
  *     410, `link_invalid` on a 401, `403` on any other failure.
  *   - `interview/reusable.vue`: `link_invalid` on a redeem 404, on a malformed
- *     fragment, and when there is no fragment and no stored reusable session;
- *     `403` on a 403 without a usable `redirect_url`.
+ *     fragment, and when there is no fragment, no stored reusable session and no
+ *     "identity form shown" flag; `link_reopen` when that flag is set (a reload
+ *     while the form was on screen); `403` on a 403 without a usable
+ *     `redirect_url`.
  *   - `middleware/candidate-session.ts`: `session_expired` when no valid stored
  *     session exists.
  * `absent_phrase` has no navigating caller in `app/`; it renders only when the
@@ -120,12 +138,18 @@
 import { computed } from 'vue'
 
 definePageMeta({ ssr: false })
-useHead({ meta: [{ name: 'robots', content: 'noindex, nofollow' }] })
 
 const route = useRoute()
+const { t } = useI18n()
 
 type TerminalReason =
-  '403' | 'absent_phrase' | 'session_expired' | 'spent_link' | 'link_used' | 'link_invalid'
+  | '403'
+  | 'absent_phrase'
+  | 'session_expired'
+  | 'spent_link'
+  | 'link_used'
+  | 'link_invalid'
+  | 'link_reopen'
 
 const KNOWN_REASONS: readonly TerminalReason[] = [
   '403',
@@ -134,6 +158,7 @@ const KNOWN_REASONS: readonly TerminalReason[] = [
   'spent_link',
   'link_used',
   'link_invalid',
+  'link_reopen',
 ]
 
 // Reason can be passed as a route query or param
@@ -143,5 +168,16 @@ const reason = computed<TerminalReason>(() => {
     return r as TerminalReason
   }
   return '403' // Safe default
+})
+
+useHead({
+  // WCAG 2.4.2 (Page Titled). Set for `link_reopen` only: the visitor reaches it
+  // from a page that had its own title, and an untitled document is a Level A
+  // failure that axe reports on exactly this state. Every other reason keeps the
+  // document title it has always had.
+  title: computed(() =>
+    reason.value === 'link_reopen' ? t('interview.terminal.link_reopen.title') : undefined
+  ),
+  meta: [{ name: 'robots', content: 'noindex, nofollow' }],
 })
 </script>

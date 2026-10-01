@@ -11,6 +11,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { toValue } from 'vue'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -33,14 +34,28 @@ function translator(messages: Messages): (key: string) => string {
 }
 
 async function mountTerminal(locale: 'en' | 'it', query: Record<string, string>) {
+  const useHead = vi.fn()
   vi.stubGlobal('definePageMeta', vi.fn())
-  vi.stubGlobal('useHead', vi.fn())
+  vi.stubGlobal('useHead', useHead)
+  vi.stubGlobal(
+    'useI18n',
+    vi.fn(() => ({ t: translator(loadLocale(locale)) }))
+  )
   vi.stubGlobal(
     'useRoute',
     vi.fn(() => ({ query, params: {} }))
   )
   const { default: Page } = await import('~/app/pages/interview/terminal.vue')
-  return mount(Page, { global: { mocks: { $t: translator(loadLocale(locale)) } } })
+  const wrapper = mount(Page, { global: { mocks: { $t: translator(loadLocale(locale)) } } })
+  return Object.assign(wrapper, {
+    /** The document title the page asked `useHead` for, resolved. */
+    documentTitle: (): unknown => {
+      const input = useHead.mock.calls
+        .map((call) => call[0] as { title?: unknown })
+        .find((c) => 'title' in c)
+      return input === undefined ? undefined : toValue(input.title as never)
+    },
+  })
 }
 
 const EXPECTED: Record<'en' | 'it', { title: string; body: string }> = {
@@ -91,4 +106,80 @@ describe('terminal page — link_invalid copy', () => {
       })
     })
   }
+})
+
+/**
+ * `link_reopen` (reusable-link-visitor-identity): the visitor reloaded while the
+ * identity form was shown, so the link token (kept in memory only) is gone. The link
+ * itself is fine, so this must NOT be `link_invalid`, and there is nothing to retry
+ * from here: the visitor has to open the link again.
+ */
+const REOPEN: Record<'en' | 'it', { title: string; body: string }> = {
+  en: {
+    title: 'Please open the link again',
+    body: 'This page was reloaded, so your interview link is no longer here. Open the link again (scan the QR code or use the message you received) to start.',
+  },
+  it: {
+    title: 'Apri di nuovo il link',
+    body: 'Questa pagina è stata ricaricata, quindi il link del tuo colloquio non è più qui. Riapri il link (inquadra di nuovo il codice QR oppure usa il messaggio ricevuto) per iniziare.',
+  },
+}
+
+describe('terminal page: link_reopen copy', () => {
+  for (const locale of ['en', 'it'] as const) {
+    describe(`locale: ${locale}`, () => {
+      const query = { reason: 'link_reopen' }
+
+      it('shows the pinned reopen headline and body', async () => {
+        const wrapper = await mountTerminal(locale, query)
+
+        expect(wrapper.get('h1').text()).toBe(REOPEN[locale].title)
+        expect(wrapper.get('section p').text()).toBe(REOPEN[locale].body)
+      })
+
+      it('is not the link_invalid state, whose copy would be untrue here', async () => {
+        const wrapper = await mountTerminal(locale, query)
+
+        expect(wrapper.text()).not.toContain(EXPECTED[locale].title)
+        expect(wrapper.text()).not.toContain(EXPECTED[locale].body)
+      })
+
+      it('offers no retry, link or button: the visitor must open the link again', async () => {
+        const wrapper = await mountTerminal(locale, query)
+
+        expect(wrapper.find('a').exists()).toBe(false)
+        expect(wrapper.find('button').exists()).toBe(false)
+        expect(wrapper.find('form').exists()).toBe(false)
+        expect(wrapper.find('input').exists()).toBe(false)
+      })
+
+      it('is an accessible region labelled by the page heading', async () => {
+        const wrapper = await mountTerminal(locale, query)
+
+        expect(wrapper.get('h1').attributes('id')).toBe('terminal-page-heading')
+        expect(wrapper.get('section').attributes('aria-labelledby')).toBe('terminal-page-heading')
+      })
+
+      it('sets a localized document title (WCAG 2.4.2) that matches the heading', async () => {
+        const wrapper = await mountTerminal(locale, query)
+
+        expect(wrapper.documentTitle()).toBe(REOPEN[locale].title)
+      })
+    })
+  }
+
+  it('does not set a reopen title for any other reason', async () => {
+    for (const reason of ['link_invalid', '403', 'spent_link']) {
+      const wrapper = await mountTerminal('en', { reason })
+
+      expect(wrapper.documentTitle()).not.toBe(REOPEN.en.title)
+    }
+  })
+
+  it('an unknown reason keeps its existing fallback (the 403 copy), never the reopen copy', async () => {
+    const wrapper = await mountTerminal('en', { reason: 'definitely-not-a-reason' })
+
+    expect(wrapper.text()).not.toContain(REOPEN.en.title)
+    expect(wrapper.get('h1').text()).toBe('Session Not Authorized')
+  })
 })
