@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { checkA11y } from './fixtures/a11y'
+import { waitForHydration } from './fixtures/hydration'
 
 /**
  * The analytics consent banner, end to end (C13, task 5.6).
@@ -150,6 +151,11 @@ test.describe('Analytics consent', () => {
       await page.reload()
       await expect(page.getByTestId('analytics-consent')).toBeVisible()
     }
+
+    // The banner is server-rendered, so it is visible and focusable before Vue
+    // has attached its click handler. Enter on a not-yet-hydrated button does
+    // nothing, and that is a slow-runner failure, not a product one.
+    await waitForHydration(page)
 
     await page.getByTestId('analytics-consent-accept').focus()
     await page.keyboard.press('Enter')
