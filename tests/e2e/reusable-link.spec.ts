@@ -800,6 +800,26 @@ async function pasteIntoThisTab(page: Page, token: string): Promise<void> {
   await page.evaluate((value) => {
     window.location.hash = value
   }, token)
+
+  // `popstate` fires first, so vue-router starts a navigation to the pasted
+  // fragment while the plugin's `hashchange` strip runs. That navigation is
+  // asynchronous (the global middleware are awaited), and Nuxt's `navigateTo`
+  // called while one is in flight is taken for a middleware redirect and does
+  // nothing. The tests that go on to leave the entry route (the redeem is
+  // released, a soft navigation is made) would then lose that navigation about
+  // one run in three, depending on how fast the runner is.
+  //
+  // Waiting for the router to ADOPT the pasted fragment is the event that
+  // matters: it is what ends that navigation. No sleep, no longer timeout.
+  await page.waitForFunction((value) => {
+    const root = document.querySelector('#__nuxt') as unknown as {
+      __vue_app__: {
+        config: { globalProperties: { $router: { currentRoute: { value: { hash: string } } } } }
+      }
+    }
+
+    return root.__vue_app__.config.globalProperties.$router.currentRoute.value.hash === `#${value}`
+  }, token)
 }
 
 /** A second, well-formed token: what a visitor pastes over the first. */
