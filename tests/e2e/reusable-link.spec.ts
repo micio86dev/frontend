@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import type { Browser, Page, Request } from '@playwright/test'
 import { checkA11y } from './fixtures/a11y'
+import { injectDeviceMocks } from './fixtures/device-mocks'
 
 /**
  * Playwright E2E — the reusable entry route `/interview/reusable#beai_rl_<43>`
@@ -824,6 +825,94 @@ test.describe('reusable entry route — every state passes WCAG 2.1 AA', () => {
 
     await expect(consentScreen(page)).toBeVisible()
     await checkA11y(page)
+  })
+})
+
+test.describe('reusable entry route — the visitor session reaches the interview', () => {
+  // `required` by the contract, so the fixture sends it: a body without
+  // `audio_only` is a malformed response and ends in the terminal page.
+  const START_RESPONSE = {
+    session_id: 1,
+    provider: 'heygen',
+    provider_token: 'heygen-token-e2e',
+    audio_only: false,
+    question_context: {
+      question_index: 0,
+      total_questions: 1,
+      end_phrase: 'Let us move on to the next question.',
+      final_phrase: 'Thank you for your time.',
+      competency_code: 'COM',
+    },
+  }
+
+  test('the token the redeem returned is the credential on every candidate request, and the link token is on no request at all', async ({
+    page,
+  }) => {
+    await injectDeviceMocks(page)
+    const redeem = await mockRedeem(page)
+    await mockCandidateSession(page)
+
+    const seen: Request[] = []
+    page.on('request', (request) => seen.push(request))
+
+    await page.route('**/api/candidate/interview/start', (route) =>
+      route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(START_RESPONSE),
+      })
+    )
+    for (const path of ['utterance', 'integrity', 'snapshot']) {
+      await page.route(`**/api/candidate/interview/${path}`, (route) =>
+        route.fulfill({ status: 202, contentType: 'application/json', body: '{}' })
+      )
+    }
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+
+    // Consent -> device check -> the interview starts: the page the redeem
+    // landed on is the ordinary session route, with nothing reusable-specific left.
+    await page.getByRole('button', { name: /accept and continue/i }).click()
+    await expect(page.getByRole('button', { name: /start the interview/i })).toBeEnabled()
+    await page.getByRole('button', { name: /start the interview/i }).click()
+    // The mock provider reaching `live` proves /start was accepted.
+    await page.waitForFunction(() =>
+      Boolean((window as unknown as Record<string, unknown>)['__mockInterviewProvider'])
+    )
+
+    const [visitorToken] = redeem.minted as [string]
+    const candidateRequests = seen.filter((request) =>
+      new URL(request.url()).pathname.startsWith('/api/candidate/')
+    )
+    const paths = candidateRequests.map((request) => new URL(request.url()).pathname)
+
+    // The branding read and the start call are both authenticated requests.
+    expect(paths).toContain('/api/candidate/session')
+    expect(paths).toContain('/api/candidate/interview/start')
+
+    for (const request of candidateRequests) {
+      expect(await request.headerValue('authorization'), request.url()).toBe(
+        `Bearer ${visitorToken}`
+      )
+    }
+
+    // The link token goes to the redeem BODY and nowhere else: not a URL, a
+    // header (Referer included) or a body of any later request.
+    for (const request of seen) {
+      const label = `${request.method()} ${request.url()}`
+      const isRedeem = request.url().includes('/api/reusable-links/redeem')
+
+      expect(request.url(), label).not.toContain('beai_rl_')
+      expect(JSON.stringify(await request.allHeaders()), label).not.toContain('beai_rl_')
+
+      if (!isRedeem) {
+        expect(request.postData() ?? '', label).not.toContain('beai_rl_')
+      }
+    }
+
+    // The same stored record the requests were authorised from.
+    const stored = JSON.parse((await storedSession(page)) ?? '{}') as Record<string, unknown>
+    expect(stored).toMatchObject({ accessToken: visitorToken, entry: 'reusable' })
   })
 })
 
