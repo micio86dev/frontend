@@ -246,6 +246,32 @@ async function expectCountStays(
   } while (Date.now() < deadline)
 }
 
+/** Writes a stored candidate session before any page script runs. */
+async function seedStoredSession(
+  page: Page,
+  options: { entry?: 'reusable'; exp?: number; candidateRef?: string } = {}
+): Promise<string> {
+  const exp = options.exp ?? Math.floor(Date.now() / 1000) + 7200
+  const candidateRef = options.candidateRef ?? 'rlv_E2ESEEDED'
+  const accessToken = makeCandidateJwt(candidateRef, exp)
+  const record = JSON.stringify({
+    accessToken,
+    exp,
+    candidateRef,
+    projectId: 1,
+    ...(options.entry ? { entry: options.entry } : {}),
+  })
+
+  await page.addInitScript((value) => {
+    window.localStorage.setItem('beai_candidate_session', value)
+  }, record)
+
+  return accessToken
+}
+
+const storedSession = (page: Page) =>
+  page.evaluate(() => window.localStorage.getItem('beai_candidate_session'))
+
 async function expectTokenNowhereInThePage(page: Page): Promise<void> {
   const where = await page.evaluate(() => ({
     href: window.location.href,
@@ -573,6 +599,194 @@ test.describe('reusable entry route — a 403 and a dropped connection', () => {
       { link_token: LINK_TOKEN },
       { link_token: LINK_TOKEN },
     ])
+  })
+})
+
+test.describe('reusable entry route — fragments that are not a link', () => {
+  // The page strips ANY `#beai_rl_…` fragment, but only an exact 51-character
+  // token is handed over. Everything else is "a fragment was there, but it is
+  // not a link": terminal, and not one request to the api.
+  for (const [label, fragment] of [
+    ['too short', '#beai_rl_short'],
+    ['one character too long', `#${LINK_TOKEN}A`],
+    ['carrying a character outside base64url', `#beai_rl_${'a'.repeat(42)}!`],
+  ] as const) {
+    test(`a prefixed fragment that is ${label} is the terminal "link is no longer valid", stripped, with zero redeem requests`, async ({
+      page,
+    }) => {
+      const redeem = await mockRedeem(page)
+
+      await page.goto(`/en/interview/reusable${fragment}`)
+
+      await expectLinkInvalidTerminal(page)
+      // Terminal first, THEN the count: a request would have gone out before this point.
+      await expectCountStays(() => redeem.calls.length, 0, 500)
+      expect(page.url()).not.toContain('beai_rl_')
+      await expectTokenNowhereInThePage(page)
+    })
+  }
+
+  test('a fragment without the beai_rl_ prefix is not a link either: terminal, zero redeem requests', async ({
+    page,
+  }) => {
+    const redeem = await mockRedeem(page)
+
+    await page.goto('/en/interview/reusable#not_a_link_token')
+
+    await expectLinkInvalidTerminal(page)
+    await expectCountStays(() => redeem.calls.length, 0, 500)
+  })
+
+  test('opening a malformed link still discards the previous visitor: nothing is resumed, nothing is left stored', async ({
+    page,
+  }) => {
+    await seedStoredSession(page, { entry: 'reusable' })
+    const redeem = await mockRedeem(page)
+
+    await page.goto('/en/interview/reusable#beai_rl_short')
+
+    await expectLinkInvalidTerminal(page)
+    expect(await storedSession(page)).toBeNull()
+    await expectCountStays(() => redeem.calls.length, 0, 500)
+  })
+})
+
+test.describe('reusable entry route — a stored session without a fragment', () => {
+  test('a stored session that this route did not store is never resumed: terminal, zero redeem requests', async ({
+    page,
+  }) => {
+    // Valid and unexpired, but written by the single-use or hosted entry route:
+    // no `entry: 'reusable'` marker.
+    await seedStoredSession(page)
+    const redeem = await mockRedeem(page)
+
+    await page.goto('/en/interview/reusable')
+
+    await expectLinkInvalidTerminal(page)
+    await expectCountStays(() => redeem.calls.length, 0, 500)
+  })
+
+  test('an expired reusable session is not resumed and is purged: terminal, zero redeem requests', async ({
+    page,
+  }) => {
+    await seedStoredSession(page, { entry: 'reusable', exp: Math.floor(Date.now() / 1000) - 60 })
+    const redeem = await mockRedeem(page)
+
+    await page.goto('/en/interview/reusable')
+
+    await expectLinkInvalidTerminal(page)
+    expect(await storedSession(page)).toBeNull()
+    await expectCountStays(() => redeem.calls.length, 0, 500)
+  })
+})
+
+test.describe('reusable entry route — a failed redeem leaves no previous visitor behind', () => {
+  // A kiosk: the next person opens the link while the last person's session is
+  // still in localStorage. Whatever the redeem answers, that session is gone,
+  // so a failed attempt can never fall through to someone else's interview.
+  for (const [label, answer] of [
+    ['a 5xx', 503],
+    ['a 429', 429],
+    ['a 404', 404],
+    ['a dropped connection', 'abort'],
+  ] as const) {
+    test(`after ${label} no previous reusable visitor session is stored`, async ({ page }) => {
+      await seedStoredSession(page, { entry: 'reusable', candidateRef: 'rlv_PREVIOUSPERSON' })
+      await mockRedeem(page, [answer])
+
+      await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+
+      // Wait for a positive end state of each outcome, then read the storage.
+      if (answer === 404) {
+        await expectLinkInvalidTerminal(page)
+      } else {
+        await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible()
+      }
+
+      expect(await storedSession(page)).toBeNull()
+    })
+  }
+
+  test('a session stored by another entry route is discarded the same way', async ({ page }) => {
+    await seedStoredSession(page, { candidateRef: 'cand-from-the-sso-link' })
+    await mockRedeem(page, [503])
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+
+    await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible()
+    expect(await storedSession(page)).toBeNull()
+  })
+})
+
+test.describe('reusable entry route — Retry sends exactly one request', () => {
+  test('a real double click on Try again is one request', async ({ page }) => {
+    const redeem = await mockRedeem(page, [503, 'ok'])
+    await mockCandidateSession(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await page.getByRole('button', { name: 'Try again' }).dblclick()
+
+    await expect(page).toHaveURL(/\/en\/interview\/session$/)
+    // The first request failed; the double click made exactly one more.
+    await expectCountStays(() => redeem.calls.length, 2, 500)
+  })
+
+  test('two clicks delivered in the same task are one request: the in-flight guard, not the re-render, stops the second', async ({
+    page,
+  }) => {
+    const redeem = await mockRedeem(page, [503, 'ok'])
+    await mockCandidateSession(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+
+    // A real double click can only reach the second handler if the page has not
+    // re-rendered between the two clicks, and it normally has: the button is
+    // gone after the first. Dispatching both inside one task removes that help,
+    // so only the page's own in-flight guard can make this one request.
+    await page.getByRole('button', { name: 'Try again' }).evaluate((button: HTMLElement) => {
+      button.click()
+      button.click()
+    })
+
+    await expect(page).toHaveURL(/\/en\/interview\/session$/)
+    await expectCountStays(() => redeem.calls.length, 2, 500)
+  })
+})
+
+test.describe('reusable entry route — no history entry holds the token', () => {
+  test('after the redeem the visitor can go Back to where they came from, and no entry in between kept the link', async ({
+    page,
+  }) => {
+    await mockRedeem(page)
+    const atFetch = await watchRedeemFetch(page)
+    await mockCandidateSession(page)
+
+    // A known document before the link, so "Back" has somewhere definite to go
+    // and an extra entry in the chain would be visible as a different Back target.
+    await page.goto('/api/health')
+    const lengthBefore = await page.evaluate(() => window.history.length)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await expect(page).toHaveURL(/\/en\/interview\/session$/)
+
+    // The browser does not let a page read the URLs of earlier entries, so this
+    // is proven from two sides: how MANY entries exist (the link, the strip and
+    // the redirect together added exactly ONE: `replaceState` and `replace`
+    // never push) and WHERE Back lands (an entry that kept the fragment would be
+    // the first stop). `history.state` is read at the moment of the request.
+    expect(await page.evaluate(() => window.history.length)).toBe(lengthBefore + 1)
+    const records = await atFetch.read()
+    expect(records).toHaveLength(1)
+    expect((records[0] as FetchRecord).historyLength).toBe(lengthBefore + 1)
+
+    await page.goBack()
+    await expect(page).toHaveURL(/\/api\/health$/)
+    expect(page.url()).not.toContain('beai_rl_')
+
+    // And Forward returns to the token-free session route, not the entry route.
+    await page.goForward()
+    await expect(page).toHaveURL(/\/en\/interview\/session$/)
+    expect(page.url()).not.toContain('beai_rl_')
   })
 })
 
