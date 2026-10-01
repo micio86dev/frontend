@@ -791,6 +791,94 @@ test.describe('reusable entry route — no history entry holds the token', () =>
   })
 })
 
+/**
+ * Pastes a link into the address bar of the tab that is already open: the same
+ * document, only the fragment changes, so the browser fires `hashchange` and
+ * nothing reloads (the early plugin's `hashchange` listener, AD-16).
+ */
+async function pasteIntoThisTab(page: Page, token: string): Promise<void> {
+  await page.evaluate((value) => {
+    window.location.hash = value
+  }, token)
+}
+
+/** A second, well-formed token: what a visitor pastes over the first. */
+const PASTED_TOKEN = 'beai_rl_Zk3dQ8vL0mXaP-7sTuYhWnBc_E2oRgJf1iVxKq4NzMw'
+
+/**
+ * Soft navigation to the entry route, the way an in-app link would: the page
+ * mounts again WITHOUT a document load, which is what would hand a still-held
+ * token to the redeem if the plugin had not discarded it.
+ */
+async function softNavigateTo(page: Page, path: string): Promise<void> {
+  await page.evaluate(async (target) => {
+    const root = document.querySelector('#__nuxt') as unknown as {
+      __vue_app__: { config: { globalProperties: { $router: { push: (to: string) => unknown } } } }
+    }
+
+    await root.__vue_app__.config.globalProperties.$router.push(target)
+  }, path)
+}
+
+test.describe('reusable entry route — a link pasted into a tab that is already open', () => {
+  test('on the entry route itself: the pasted fragment is stripped at once and never redeemed from there', async ({
+    page,
+  }) => {
+    const redeem = await mockRedeem(page, ['pending'])
+    await mockCandidateSession(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await expect.poll(() => redeem.calls.length).toBe(1)
+    await expect(page.getByRole('main')).toHaveAttribute('aria-busy', 'true')
+
+    // The tab is still on the entry route (its redeem is in flight) when a second
+    // link is pasted over the address bar.
+    await pasteIntoThisTab(page, PASTED_TOKEN)
+
+    await expect.poll(() => page.evaluate(() => window.location.href)).not.toContain('beai_rl_')
+    await expectTokenNowhereInThePage(page)
+
+    redeem.release()
+    await expect(page).toHaveURL(/\/en\/interview\/session$/)
+
+    // One redeem, for the link that was opened: the pasted one never reached the api.
+    await expectCountStays(() => redeem.calls.length, 1)
+    expect((redeem.calls[0] as RedeemCall).body).toEqual({ link_token: LINK_TOKEN })
+    await expectTokenNowhereInThePage(page)
+  })
+
+  test('on another route: stripped, no history entry keeps it, and it is discarded so a later visit to the entry route cannot redeem it', async ({
+    page,
+  }) => {
+    const redeem = await mockRedeem(page)
+    await mockCandidateSession(page)
+
+    await page.goto('/en/interview/terminal?reason=403')
+    await expect(page).toHaveURL(/\/en\/interview\/terminal\?reason=403$/)
+
+    await pasteIntoThisTab(page, LINK_TOKEN)
+
+    await expect.poll(() => page.evaluate(() => window.location.href)).not.toContain('beai_rl_')
+    await expectTokenNowhereInThePage(page)
+
+    // Back must not land on an entry that kept the fragment either.
+    await page.goBack()
+    expect(page.url()).not.toContain('beai_rl_')
+    await page.goForward()
+    expect(page.url()).not.toContain('beai_rl_')
+    await expectTokenNowhereInThePage(page)
+
+    // The entry route, reached without a document load and without a fragment,
+    // finds nothing to redeem: the pasted token was dropped, not parked.
+    await softNavigateTo(page, '/en/interview/reusable')
+
+    await expectLinkInvalidTerminal(page)
+    await expectCountStays(() => redeem.calls.length, 0)
+    expect(redeem.calls).toHaveLength(0)
+    await expectTokenNowhereInThePage(page)
+  })
+})
+
 test.describe('reusable entry route — every state passes WCAG 2.1 AA', () => {
   test('the loading state (a redeem still in flight)', async ({ page }) => {
     const redeem = await mockRedeem(page, ['pending'])
