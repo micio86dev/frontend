@@ -25,6 +25,7 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { createRouter, toRouteMatcher } from 'radix3'
 
 /**
  * Rather than executing the module (which requires @tailwindcss/vite at module scope),
@@ -136,5 +137,59 @@ describe('nuxt.config.ts — Permissions-Policy routeRules (D6)', () => {
   it('has exactly one non-default-locale hosted-entry route entry per non-default locale', () => {
     const prefixedEntries = Array.from(configSource.matchAll(/'\/([a-z]{2})\/i\/\*\*'/g))
     expect(prefixedEntries.length).toBe(1)
+  })
+})
+
+/**
+ * reusable-interview-links: `/interview/reusable` and `/en/interview/reusable`
+ * are NOT given a route rule of their own. The existing `/interview/**` and
+ * `/en/interview/**` patterns already cover them, and that is the point: the
+ * camera/microphone Permissions-Policy and the other three interview headers
+ * apply to the new route because it sits under the same prefix, so no
+ * reusable-specific rule exists that could weaken them.
+ *
+ * Proven with the SAME matcher Nitro builds its route rules on (radix3), over
+ * the patterns actually declared in `nuxt.config.ts`, rather than by assuming
+ * that a glob means what it looks like it means. The headers a response really
+ * carries are asserted end to end by the Playwright spec.
+ */
+describe('nuxt.config.ts — the reusable entry route sits under the interview route rules', () => {
+  const source = readFileSync(CONFIG_PATH, 'utf-8')
+  const ruleBlock = source.slice(source.indexOf('routeRules: {'), source.indexOf('// i18n'))
+  const patterns = Array.from(ruleBlock.matchAll(/^\s{6}'(\/[^']*)': \{/gm)).map(
+    (match) => match[1] as string
+  )
+  const matcher = toRouteMatcher(
+    createRouter({
+      routes: Object.fromEntries(patterns.map((pattern) => [pattern, { pattern }])),
+    })
+  )
+
+  function patternsMatching(path: string): string[] {
+    return matcher.matchAll(path).map((rule) => (rule as { pattern: string }).pattern)
+  }
+
+  it('reads the declared patterns, including the blanket rule', () => {
+    expect(patterns).toContain('/**')
+    expect(patterns).toContain('/interview/**')
+    expect(patterns).toContain('/en/interview/**')
+  })
+
+  it('/interview/reusable is covered by /interview/**', () => {
+    expect(patternsMatching('/interview/reusable')).toContain('/interview/**')
+  })
+
+  it('/en/interview/reusable is covered by /en/interview/**', () => {
+    expect(patternsMatching('/en/interview/reusable')).toContain('/en/interview/**')
+  })
+
+  it('declares no rule specific to the reusable route', () => {
+    expect(patterns.filter((pattern) => pattern.includes('reusable'))).toEqual([])
+  })
+
+  it('does not pull the reusable route under the embed or hosted-entry rules', () => {
+    // Those carry different framing policies; only the interview rules apply.
+    expect(patternsMatching('/interview/reusable')).not.toContain('/embed/**')
+    expect(patternsMatching('/interview/reusable')).not.toContain('/i/**')
   })
 })

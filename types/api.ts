@@ -2361,6 +2361,97 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project}/reusable-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the reusable interview links of a project
+         * @description Returns every link of the project, disabled ones included, so the whole
+         *     set fits in one response. Active links come first, then the newest. A
+         *     link is described by its metadata only: the secret URL is never returned
+         *     again, and neither is the secret or anything derived from it.
+         */
+        get: operations["reusableInterviewLink.index"];
+        put?: never;
+        /**
+         * Create a reusable interview link
+         * @description Creates one non-expiring, revocable link for the project and returns its
+         *     entry URL. The URL is shown ONCE, in this response only: BEAI stores a
+         *     SHA-256 hash of the secret, never the secret, so it cannot be shown again
+         *     and a lost link means creating a new one. Each call creates a distinct
+         *     link. Every candidate who opens the URL starts their own interview in the
+         *     project, in the link's language, which is fixed at creation from the
+         *     project's language. Disable the link at any time to stop new interviews.
+         *
+         *     Refused with 403 `entry_link_project_closed` while the project is not
+         *     open for interviews (not active, not yet live, or past its deadline) and
+         *     with 422 `PROJECT_NOT_INTERVIEWABLE` while it has no question for a
+         *     selected competency.
+         */
+        post: operations["reusableInterviewLink.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project}/reusable-links/{link}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Disable a reusable interview link
+         * @description Stops the link from starting new interviews, immediately and for good: a
+         *     disabled link cannot be re-enabled, and anyone opening its URL is told it
+         *     does not exist. The link stays in the list, with its usage. Interviews
+         *     already started keep working until they finish, and the candidates who
+         *     took them are untouched. Responds 204 when the link is disabled, and also
+         *     when it already was: repeating the request changes nothing.
+         */
+        delete: operations["reusableInterviewLink.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reusable-links/redeem": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Redeem a reusable interview link
+         * @description Exchanges the secret of a reusable interview link for a candidate access
+         *     token. Every successful call starts a NEW anonymous candidate in the
+         *     link's project, in the link's language, so one link serves any number of
+         *     people. The link never expires: it works until it is disabled or its
+         *     project closes. The token comes only from the `link_token` body field.
+         *
+         *     A token that is unknown, malformed, or disabled is answered with the same
+         *     404, so a response never reveals whether a link exists. A 403 means the
+         *     link is valid but its project is not open for interviews right now.
+         */
+        post: operations["reusableLinkRedeem.redeem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/catalogue/revisions/current": {
         parameters: {
             query?: never;
@@ -3396,6 +3487,10 @@ export interface components {
             email: string;
             external_id: number | null;
             source: string | null;
+            reusable_link: {
+                id: string;
+                label: string | null;
+            } | null;
             role_code: string | null;
             language: string | null;
             /** @enum {string} */
@@ -3484,6 +3579,10 @@ export interface components {
             email: string;
             external_id: number | null;
             source: string | null;
+            reusable_link: {
+                id: string;
+                label: string | null;
+            } | null;
             role_code: string | null;
             language: string | null;
             /** @enum {string} */
@@ -3771,6 +3870,22 @@ export interface components {
             email: string;
             password: string;
             password_confirmation: string;
+        };
+        /** ReusableInterviewLinkResource */
+        ReusableInterviewLinkResource: {
+            id: string;
+            label: string | null;
+            token_prefix: string;
+            lang: string;
+            /** @enum {string} */
+            status: "active" | "disabled";
+            uses_count: number;
+            last_used_at: string | null;
+            created_by: {
+                name: string;
+            } | null;
+            created_at: string;
+            disabled_at: string | null;
         };
         /** RoleResource */
         RoleResource: {
@@ -9358,6 +9473,225 @@ export interface operations {
                 };
             };
             422: components["responses"]["ValidationException"];
+        };
+    };
+    "reusableInterviewLink.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The id of the project. */
+                project: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `ReusableInterviewLinkResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ReusableInterviewLinkResource"][];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            /** @description The project does not exist, was deleted, or belongs to another organization. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+        };
+    };
+    "reusableInterviewLink.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The id of the project. */
+                project: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description An operator-facing name for the link (for example the trade-fair
+                     *     stand it is meant for), shown in the link list and used to name the
+                     *     candidates who open it. Optional; blank means none.
+                     */
+                    label?: string | null;
+                };
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ReusableInterviewLinkResource"];
+                        /**
+                         * @description The one and only carrier of the raw token. Never a bare `token`
+                         *     field, never repeated by any later response.
+                         */
+                        entry_url: string;
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            /** @description The project does not exist, was deleted, or belongs to another organization. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            /** @description A superadmin must first select the organization to act for (`organization_context_required`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "reusableInterviewLink.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The id of the project. */
+                project: number;
+                /** @description The public id of the link (`rlk_` followed by 26 characters). */
+                link: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /**
+             * @description 204 whether this call disabled the link or it already was.
+             *
+             *
+             *
+             *     No content
+             */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            /** @description The project or the link does not exist, or belongs to another organization or project. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            /** @description A superadmin must first select the organization to act for (`organization_context_required`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+        };
+    };
+    "reusableLinkRedeem.redeem": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description The link token from the reusable link URL: `beai_rl_` followed by 43 URL-safe base64 characters (51 characters in all). */
+                    link_token: string;
+                };
+            };
+        };
+        responses: {
+            /** @description A candidate access token for a new anonymous candidate in the link's project. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        access_token: string;
+                    };
+                };
+            };
+            /** @description The link is valid but its project is not open for interviews. `redirect_url` is the project's error redirect, when it has one. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                        redirect_url: string | null;
+                    };
+                };
+            };
+            /** @description No such link: the token is unknown, malformed or disabled. The body is identical for every such case. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            /** @description Too many attempts. Retry after the number of seconds in the `Retry-After` header. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
         };
     };
     "revision.current": {

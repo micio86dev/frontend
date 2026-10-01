@@ -166,6 +166,23 @@ describe('interview/[token].vue — entry route (D-A, D1)', () => {
     expect(mockFetchImpl).toHaveBeenCalledTimes(1)
   })
 
+  it('a stored REUSABLE session is not matched by a single-use link for a different candidate_ref', async () => {
+    // reusable-interview-links: a kiosk visitor's session (`rlv_…`, entry:
+    // 'reusable') sits in storage and a normal sso-link is opened in the same
+    // browser. The existing claims match fails, the exchange proceeds, and the
+    // session it stores carries no reusable marker.
+    useCandidateSession().store(makeCandidateJwt({ candidate_ref: 'rlv_01HZKIOSK' }), {
+      entry: 'reusable',
+    })
+    mockFetchImpl.mockResolvedValueOnce({ access_token: makeCandidateJwt() })
+
+    await mountEntryPage(makeSsoLinkToken({ candidate_ref: 'cand-001' }))
+
+    expect(mockFetchImpl).toHaveBeenCalledTimes(1)
+    expect(useCandidateSession().read()?.candidateRef).toBe('cand-001')
+    expect(useCandidateSession().read()?.entry).toBeUndefined()
+  })
+
   it('no stored session → EXACTLY ONE GET /api/sso/exchange call', async () => {
     const ssoToken = makeSsoLinkToken()
     mockFetchImpl.mockResolvedValueOnce({ access_token: makeCandidateJwt() })

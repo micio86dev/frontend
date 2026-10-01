@@ -127,6 +127,90 @@ describe('useCandidateSession', () => {
     })
   })
 
+  describe('store() with extra.entry (reusable-interview-links, AD-16)', () => {
+    // The reusable entry route stores `entry: 'reusable'` so that a reload of
+    // `/interview/reusable` (which has no fragment any more) can tell its OWN
+    // session from a single-use one and resume only the former.
+    const STORAGE_KEY = 'beai_candidate_session'
+
+    it("persists entry: 'reusable' when passed, and read() returns it", () => {
+      const { store, read } = useCandidateSession()
+      const token = makeCandidateJwt(validClaims({ candidate_ref: 'rlv_01HZ' }))
+
+      store(token, { entry: 'reusable' })
+
+      expect(read()?.entry).toBe('reusable')
+      expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')).toMatchObject({
+        accessToken: token,
+        candidateRef: 'rlv_01HZ',
+        entry: 'reusable',
+      })
+    })
+
+    it('stores NO entry key for an sso-link session: the record is byte-identical to before', () => {
+      const { store } = useCandidateSession()
+      const token = makeCandidateJwt(validClaims())
+
+      store(token)
+
+      expect(localStorage.getItem(STORAGE_KEY)).toBe(
+        JSON.stringify({
+          accessToken: token,
+          exp: NOW_SECONDS + 3600,
+          candidateRef: 'cand-001',
+          projectId: 42,
+        })
+      )
+    })
+
+    it('stores NO entry key for a hosted-entry session either (interviewId only)', () => {
+      const { store, read } = useCandidateSession()
+      const token = makeCandidateJwt(validClaims())
+
+      store(token, { interviewId: 'int_abc123' })
+
+      expect(localStorage.getItem(STORAGE_KEY)).toBe(
+        JSON.stringify({
+          accessToken: token,
+          exp: NOW_SECONDS + 3600,
+          candidateRef: 'cand-001',
+          projectId: 42,
+          interviewId: 'int_abc123',
+        })
+      )
+      expect(read()?.entry).toBeUndefined()
+    })
+
+    it('the marker never turns up on a session stored without it, even after a reusable one', () => {
+      const { store, read } = useCandidateSession()
+
+      store(makeCandidateJwt(validClaims({ candidate_ref: 'rlv_a' })), { entry: 'reusable' })
+      store(makeCandidateJwt(validClaims({ candidate_ref: 'cand-9' })))
+
+      expect(read()?.candidateRef).toBe('cand-9')
+      expect(read()?.entry).toBeUndefined()
+    })
+
+    it('a reusable session is purged on read once expired, exactly like any other', () => {
+      const { store, read } = useCandidateSession()
+      store(makeCandidateJwt(validClaims({ exp: NOW_SECONDS - 1 })), { entry: 'reusable' })
+
+      expect(read()).toBeNull()
+      expect(localStorage.getItem(STORAGE_KEY)).toBeNull()
+    })
+
+    it('clear() removes a reusable session, exactly like any other', () => {
+      const { store, read, clear } = useCandidateSession()
+      store(makeCandidateJwt(validClaims()), { entry: 'reusable' })
+      expect(read()?.entry).toBe('reusable')
+
+      clear()
+
+      expect(read()).toBeNull()
+      expect(localStorage.getItem(STORAGE_KEY)).toBeNull()
+    })
+  })
+
   describe('clear()', () => {
     it('removes a stored session', () => {
       const { store, read, clear } = useCandidateSession()

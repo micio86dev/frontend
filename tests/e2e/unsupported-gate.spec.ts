@@ -90,6 +90,36 @@ test.describe('SA-11 — Unsupported experience gate', () => {
     })
   })
 
+  test.describe('SA-11 — Mobile: the reusable entry route redirects and never redeems', () => {
+    // reusable-interview-links: `/interview/reusable#<token>` redeems on mount,
+    // and a redemption creates a visitor nobody on a phone can interview. The
+    // SAME global gate turns the phone away first, and the browser carries the
+    // fragment across the server's 302 — so the early client plugin must strip
+    // it on `/unsupported`, where nothing ever asks for the token. Desktop
+    // projects cover the Firefox and narrow-window cases in reusable-link.spec.ts.
+    test('mobile viewport navigating to /interview/reusable#<token> ends on /unsupported with no fragment and ZERO redeem requests', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(!isMobile, 'the desktop cases live in reusable-link.spec.ts')
+
+      const redeemRequests: string[] = []
+      page.on('request', (request) => {
+        if (request.url().includes('/reusable-links/redeem')) {
+          redeemRequests.push(request.url())
+        }
+      })
+
+      await page.goto('/interview/reusable#beai_rl_9AuXUvnfk8dgg-mOHfBcWFbQ98k_MXZ5SChgVAqzCpY')
+
+      await expect(page).toHaveURL(/\/unsupported$/)
+      await expect(page.getByTestId('unsupported-gate')).toBeVisible()
+      expect(page.url()).not.toContain('#')
+      expect(page.url()).not.toContain('beai_rl_')
+      expect(redeemRequests).toEqual([])
+    })
+  })
+
   test.describe('SA-11 — Desktop: Firefox UA redirects to /unsupported', () => {
     // UA spoofing technique: use browser.newContext({ userAgent }) to correctly
     // override the User-Agent for the SSR request. page.setExtraHTTPHeaders()
