@@ -47,41 +47,77 @@ import {
  * A linear scan takes about `k` times longer at `k * n`, a quadratic one about `k^2`
  * times (8 -> 64), a cubic one about `k^3`. The bound is `3 * k`: well clear of the
  * noise a loaded machine adds to a ratio of about `k`, well under quadratic growth.
- * Each side is the FASTEST of a few runs after a warm-up run (regex compilation and
- * JIT are not what is measured), and the small side is floored so a sub-millisecond
- * timer reading cannot inflate the ratio.
+ *
+ * A ratio is only meaningful when the small side is long enough to be measured, and
+ * how long an operation takes is exactly what differs between machines. So each
+ * measurement is a SAMPLE: the operation repeated inside one timed block. The repeat
+ * count is calibrated ONCE, at the small size, until the sample takes at least
+ * `TARGET_SAMPLE_MS`, and the SAME count is then used at the large size, so the two
+ * sides do the same number of operations and only the input size differs. Each side
+ * is the FASTEST of a few samples after a warm-up, because interruptions (a busy host,
+ * a GC pause) only ever add time. There is no floor on the small side: it is
+ * measurable by construction.
  *
  * `build(size)` prepares the input and returns the operation to time, so building the
  * hostile input is never part of the measurement.
  */
 const GROWTH = 8
 const TIMING_RUNS = 5
-const MIN_MEASURABLE_MS = 1
+const CALIBRATION_RUNS = 3
+const TARGET_SAMPLE_MS = 5
+const MAX_REPEATS = 2 ** 20
 
-function fastestMs(operation: () => void): number {
-  operation()
+function sampleMs(operation: () => void, repeats: number): number {
+  const started = performance.now()
 
-  const timings: number[] = []
-
-  for (let run = 0; run < TIMING_RUNS; run += 1) {
-    const started = performance.now()
+  for (let i = 0; i < repeats; i += 1) {
     operation()
-    timings.push(performance.now() - started)
   }
 
-  // The FASTEST run: interruptions (a busy host, a GC pause) only ever add time, so the
-  // minimum is the least noisy estimate of what the code itself costs.
-  return Math.min(...timings)
+  return performance.now() - started
+}
+
+function fastestSampleMs(operation: () => void, repeats: number, runs: number): number {
+  let fastest = Infinity
+
+  for (let run = 0; run < runs; run += 1) {
+    fastest = Math.min(fastest, sampleMs(operation, repeats))
+  }
+
+  return fastest
+}
+
+/** The smallest power-of-two repeat count whose FASTEST sample reaches the target duration. */
+function calibrateRepeats(operation: () => void): number {
+  operation()
+
+  let repeats = 1
+
+  while (
+    repeats < MAX_REPEATS &&
+    fastestSampleMs(operation, repeats, CALIBRATION_RUNS) < TARGET_SAMPLE_MS
+  ) {
+    repeats *= 2
+  }
+
+  return repeats
 }
 
 function expectLinearGrowth(build: (size: number) => () => void, size: number): void {
-  const small = fastestMs(build(size))
-  const large = fastestMs(build(size * GROWTH))
-  const ratio = large / Math.max(small, MIN_MEASURABLE_MS)
+  const small = build(size)
+  const large = build(size * GROWTH)
+  const repeats = calibrateRepeats(small)
+
+  large()
+
+  const smallMs = fastestSampleMs(small, repeats, TIMING_RUNS)
+  const largeMs = fastestSampleMs(large, repeats, TIMING_RUNS)
+  const ratio = largeMs / smallMs
 
   expect(
     ratio,
-    `${GROWTH}x the input took ${ratio.toFixed(1)}x as long (${small.toFixed(2)} ms -> ${large.toFixed(2)} ms); ` +
+    `${GROWTH}x the input took ${ratio.toFixed(1)}x as long over ${repeats} repeat(s) ` +
+      `(${smallMs.toFixed(2)} ms -> ${largeMs.toFixed(2)} ms); ` +
       `linear is about ${GROWTH}x, quadratic about ${GROWTH * GROWTH}x`
   ).toBeLessThan(GROWTH * 3)
 }
