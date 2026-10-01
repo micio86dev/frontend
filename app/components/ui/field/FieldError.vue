@@ -8,42 +8,41 @@ const props = defineProps<{
   errors?: Array<string | { message: string | undefined } | undefined>
 }>()
 
-const content = computed(() => {
-  if (!props.errors || props.errors.length === 0) return null
+/**
+ * The distinct, non-empty messages, in order. Reading the message FIRST and dropping
+ * the falsy ones afterwards means an `errors` array whose entries carry nothing
+ * (`[undefined]`, `['']`, `[{ message: undefined }]`) yields no messages at all,
+ * so nothing is rendered: an empty `role="alert"` with an empty list is noise to a
+ * screen reader. De-duplicating by message also gives each list item a unique key.
+ */
+const messages = computed(() => {
+  const seen = new Set<string>()
 
-  const uniqueErrors = [
-    ...new Map(
-      props.errors.filter(Boolean).map((error) => {
-        const message = typeof error === 'string' ? error : error?.message
-        return [message, error]
-      })
-    ).values(),
-  ]
-
-  if (uniqueErrors.length === 1 && uniqueErrors[0]) {
-    return typeof uniqueErrors[0] === 'string' ? uniqueErrors[0] : uniqueErrors[0].message
+  for (const error of props.errors ?? []) {
+    const message = typeof error === 'string' ? error : error?.message
+    if (message) seen.add(message)
   }
 
-  return uniqueErrors.map((error) => (typeof error === 'string' ? error : error?.message))
+  return [...seen]
 })
 </script>
 
 <template>
   <div
-    v-if="$slots.default || content"
+    v-if="$slots.default || messages.length > 0"
     role="alert"
     data-slot="field-error"
     :class="cn('text-destructive text-sm font-normal', props.class)"
   >
     <slot v-if="$slots.default" />
 
-    <template v-else-if="typeof content === 'string'">
-      {{ content }}
+    <template v-else-if="messages.length === 1">
+      {{ messages[0] }}
     </template>
 
-    <ul v-else-if="Array.isArray(content)" class="ml-4 flex list-disc flex-col gap-1">
-      <li v-for="(error, index) in content" :key="index">
-        {{ error }}
+    <ul v-else class="ml-4 flex list-disc flex-col gap-1">
+      <li v-for="message in messages" :key="message">
+        {{ message }}
       </li>
     </ul>
   </div>

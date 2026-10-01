@@ -185,6 +185,11 @@ let heldToken: string | null = null
 let heldIdentity: VisitorIdentityInput | null = null
 let started = false
 let inFlight = false
+// Set when the page is unmounted. A redemption already on the wire cannot be cancelled,
+// and its continuation holds the token and identity as locals, so dropping the held
+// variables is not enough: every continuation checks this before it stores a session or
+// navigates anywhere.
+let left = false
 
 /** Prefill for a form that is mounted again after a busy or failed state, so nothing is retyped. */
 function initialValue(field: 'displayName' | 'email'): string {
@@ -234,6 +239,12 @@ async function redeemHeld(): Promise<void> {
 
   try {
     const outcome = await redeem(token, identity)
+
+    // The visitor left while the request was in flight: nobody is looking at this page,
+    // so storing the session or navigating would act for a visitor who is gone.
+    if (left) {
+      return
+    }
 
     switch (outcome.kind) {
       case 'ok': {
@@ -371,6 +382,7 @@ function start(): void {
 onMounted(start)
 
 onBeforeUnmount(() => {
+  left = true
   dropHeld()
   clearIdentityPending()
 })
