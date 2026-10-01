@@ -106,7 +106,8 @@
  *     `/api/embed/exchange` 401 `token_invalid`, G-32 — or a reusable link
  *     that is unknown, malformed or disabled), 'session_expired' (stored
  *     candidate session absent/expired — candidate-session middleware gate,
- *     D-E), or 'absent_phrase' (service unavailable, fallback default).
+ *     D-E), or 'absent_phrase' (service unavailable). A missing or unknown
+ *     reason falls back to '403'.
  *
  * Reached from three places:
  *   1. The sso-link entry route (`interview/[token].vue`) on an exchange
