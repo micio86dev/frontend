@@ -122,9 +122,8 @@
  *   - `interview/reusable.vue`: `link_invalid` on a redeem 404, on a malformed
  *     fragment, and when there is no fragment, no stored reusable session and no
  *     "identity form shown" flag; `link_reopen` when that flag is set (a reload
- *     while the form was on screen; the page sets and reads the flag from the
- *     identity-form slice, fe-2b, so nothing navigates here with it yet); `403`
- *     on a 403 without a usable `redirect_url`.
+ *     while the form was on screen); `403` on a 403 without a usable
+ *     `redirect_url`.
  *   - `middleware/candidate-session.ts`: `session_expired` when no valid stored
  *     session exists.
  * `absent_phrase` has no navigating caller in `app/`; it renders only when the

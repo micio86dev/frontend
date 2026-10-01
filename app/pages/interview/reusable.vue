@@ -13,6 +13,28 @@
     </div>
   </main>
 
+  <!--
+    The identity step. Rendered in the shell's default slot so the form is the page's
+    first non-terminal state (DESIGN.md 16.19); the heading and intro are the shell's
+    title and message.
+  -->
+  <NoticeShell
+    v-else-if="state === 'identity'"
+    tone="info"
+    test-id="reusable-identity"
+    heading-id="reusable-identity-heading"
+    :title="$t('interview.reusable.identity.title')"
+    :message="$t('interview.reusable.identity.intro')"
+  >
+    <ReusableIdentityForm
+      :submitting="submitting"
+      :server-errors="serverErrors"
+      :initial-display-name="initialValue('displayName')"
+      :initial-email="initialValue('email')"
+      @submit="onIdentitySubmit"
+    />
+  </NoticeShell>
+
   <NoticeShell
     v-else-if="state === 'busy'"
     tone="warning"
@@ -47,65 +69,88 @@
 <script setup lang="ts">
 /**
  * Reusable interview entry route — ssr:false container
- * (reusable-interview-links, AD-16).
+ * (reusable-interview-links AD-16; reusable-link-visitor-identity VD-12).
  *
  * `/interview/reusable#beai_rl_<43>` is the URL of a reusable link: ONE url, many
- * people (demos, trade-fair kiosks, testing). Every visit creates a NEW anonymous
- * visitor in the link's project and ends on the ordinary interview session route.
- * The token is a live, non-expiring credential, so this page is mostly a list of
- * places it must not end up. On mount, in order:
+ * people (demos, trade-fair kiosks, testing). A visitor gives a name and an email
+ * on this page, and each submit creates a NEW visitor in the link's project and
+ * ends on the ordinary interview session route. The token is a live, non-expiring
+ * credential and the identity is personal data, so this page is mostly a list of
+ * places neither may end up. On mount, in order:
  *
  *   1. The fragment is stripped from the address bar (`history.replaceState`, no
- *      new entry, no navigation) BEFORE any network call. The early client
- *      plugin has normally done it already and left the token in module memory;
- *      doing it here too means the page does not depend on the plugin's timing.
+ *      new entry, no navigation) BEFORE anything else. The early client plugin has
+ *      normally done it already and left the token in module memory; doing it here
+ *      too means the page does not depend on the plugin's timing.
  *   2. If a fragment was present, any stored session is cleared FIRST: a kiosk is
- *      not the previous person, and a link never resumes anyone. A fragment that
- *      is not a well-formed token is the terminal `link_invalid`, with no request.
- *      Otherwise `POST /api/reusable-links/redeem` runs exactly once per mount
- *      (token in the JSON body, through `useReusableLinkRedeem`), the returned
- *      candidate JWT is stored with `entry: 'reusable'`, and the visitor is sent
- *      to the token-free session route with `replace: true`.
+ *      not the previous person, and a link never resumes anyone. A fragment that is
+ *      not a well-formed token is the terminal `link_invalid`, with no form and no
+ *      request. Otherwise the identity form is shown and NO request is made. One
+ *      `POST /api/reusable-links/redeem` runs per submit (token, name and email in
+ *      the JSON body, through `useReusableLinkRedeem`); the returned candidate JWT
+ *      is stored with `entry: 'reusable'` and the visitor is sent to the
+ *      token-free session route.
  *   3. With NO fragment (a reload after the strip) the page resumes ONLY a stored,
- *      unexpired session that this route itself stored. Anything else — a
- *      single-use session, a hosted session, nothing — is `link_invalid`, with no
- *      request: there is no token left to redeem, and that is by design.
+ *      unexpired session that this route itself stored. Otherwise, if the
+ *      non-secret "form shown" flag is set, the token was lost with the reload and
+ *      the visitor is told to open the link again (`link_reopen`); with no flag it
+ *      is `link_invalid`. There is no token left to redeem, by design.
  *
  * Outcomes: 404 is `link_invalid` (unknown, malformed and disabled links are one
  * answer, so there is no retry); 403 is handled exactly as the single-use route
  * handles an exchange 403 (a validated https `redirect_url`, else the generic
- * terminal) so no gate is ever disclosed; 429, a 5xx and a dropped connection are
- * RETRYABLE and never claim the link is bad. Retry re-posts the token held in this
- * component's memory. `/interview/error` cannot do that: it goes `router.back()`
- * to a URL that no longer carries the token.
+ * terminal) so no gate is ever disclosed; 422 and 409 keep the visitor on the form
+ * with the app's own message on the field (the token is kept, the visitor corrects
+ * and submits again); 429, a 5xx and a dropped connection are RETRYABLE and never
+ * claim the link is bad. Retry re-posts the token and the identity held in this
+ * component's memory. `/interview/error` cannot do that: it goes `router.back()` to
+ * a URL that no longer carries the token.
  *
- * The token lives in one plain variable and nowhere else — not a ref (so it is
- * not part of any reactive state), not storage, not the URL, not the router, not
- * the DOM, not a log line — and is dropped as soon as the outcome is final.
+ * The token and the typed identity live in plain variables and nowhere else: not a
+ * ref (so neither is part of any reactive state), not storage, not the URL, not the
+ * router, not the DOM beyond the inputs the visitor is typing into, not a log line
+ * — and are dropped as soon as the outcome is final or the page is left.
+ *
+ * LEAVING THE PAGE. `leaveTo` uses `router.replace`, not `navigateTo`. Inside an
+ * in-flight router navigation (a pasted fragment fires popstate before hashchange,
+ * so the router is mid-navigation when the redeem answer returns) Nuxt treats a
+ * `navigateTo` as a middleware redirect: it RETURNS a route object instead of
+ * navigating, and a caller that ignores the return value strands the visitor on
+ * this page. `router.replace` is the supported call that supersedes a pending
+ * navigation, and awaiting it keeps the form disabled until the router has left.
  *
  * The browser gate (a phone or Firefox must not redeem, because that would create
  * a visitor nobody can interview) is the global route middleware: it redirects to
- * `/unsupported` before this page ever mounts.
+ * `/unsupported` before this page ever mounts, so the form is never shown there.
  *
  * noindex + no-referrer: session-gated, and the address bar briefly held a
  * credential.
  */
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import NoticeShell from '~/components/molecules/NoticeShell.vue'
+import ReusableIdentityForm from '~/components/molecules/ReusableIdentityForm.vue'
 import { Button } from '~/components/ui/button'
 import { Skeleton } from '~/components/ui/skeleton'
 import { useCandidateSession } from '~/app/composables/useCandidateSession'
 import {
   useReusableLinkRedeem,
+  type RedeemInvalidField,
   type VisitorIdentityInput,
 } from '~/app/composables/useReusableLinkRedeem'
+import {
+  clearIdentityPending,
+  consumeIdentityPending,
+  markIdentityPending,
+} from '~/app/utils/reusable-identity-pending'
 import { safeExternalRedirect } from '~/app/utils/safe-redirect'
 import {
   captureReusableLinkFragment,
   takeReusableLinkToken,
 } from '~/app/utils/reusable-link-fragment'
+import type { IdentityErrorKey } from '~/app/utils/visitor-identity'
 
-type ViewState = 'loading' | 'busy' | 'failed'
+type ViewState = 'loading' | 'identity' | 'busy' | 'failed'
+type FieldErrors = Partial<Record<'displayName' | 'email', IdentityErrorKey>>
 
 definePageMeta({ ssr: false })
 
@@ -113,7 +158,7 @@ const { t } = useI18n()
 
 useHead({
   // WCAG 2.4.2 (Page Titled): this page is what a visitor sees first, in the
-  // loading, busy and failed states, and an untitled document is a Level A
+  // form, loading, busy and failed states, and an untitled document is a Level A
   // failure that axe reports on exactly those states.
   title: t('interview.document_title'),
   meta: [
@@ -123,40 +168,72 @@ useHead({
 })
 
 const localePath = useLocalePath()
+const router = useRouter()
 const session = useCandidateSession()
 const { redeem } = useReusableLinkRedeem()
 
 const state = ref<ViewState>('loading')
-
-// INTERIM (reusable-link-visitor-identity fe-2a): the composable now requires the
-// visitor's name and email, but the identity form is wired into this page by the
-// next slice (fe-2b). Until then the page keeps its automatic redeem and sends an
-// empty identity, which the api refuses with a 422; nothing is released in between.
-const IDENTITY_NOT_COLLECTED_YET: VisitorIdentityInput = { displayName: '', email: '' }
+/** True while the form's own request is in flight: the form stays on screen, disabled. */
+const submitting = ref(false)
+/** What the api refused, as message keys for the form (never server text). */
+const serverErrors = ref<FieldErrors>({})
 
 // Plain variables on purpose: not reactive, so nothing can render or serialise
-// them. `heldToken` is only ever non-null while a retry could still be needed.
+// them. They are only ever non-null while a retry or a correction could still be
+// needed.
 let heldToken: string | null = null
+let heldIdentity: VisitorIdentityInput | null = null
 let started = false
 let inFlight = false
 
-async function leaveTo(path: string): Promise<void> {
-  await navigateTo(localePath(path), { replace: true })
+/** Prefill for a form that is mounted again after a busy or failed state, so nothing is retyped. */
+function initialValue(field: 'displayName' | 'email'): string {
+  return heldIdentity?.[field] ?? ''
 }
 
-async function redeemHeldToken(): Promise<void> {
+function dropHeld(): void {
+  heldToken = null
+  heldIdentity = null
+}
+
+async function leaveTo(path: string): Promise<void> {
+  // `router.replace`, never `navigateTo`: see "LEAVING THE PAGE" in the docblock. A
+  // navigation that ends in a vue-router failure (superseded by a later one, or
+  // aborted by a guard) resolves rather than rejects, and in both cases whoever
+  // superseded or refused it owns where the visitor goes next.
+  await router.replace(localePath(path))
+}
+
+const FIELD_ERROR: Record<RedeemInvalidField, ['displayName' | 'email', IdentityErrorKey]> = {
+  display_name: ['displayName', 'nameInvalid'],
+  email: ['email', 'emailInvalid'],
+}
+
+async function redeemHeld(): Promise<void> {
   const token = heldToken
+  const identity = heldIdentity
 
   // One request at a time: a second click while one is in flight is a no-op.
-  if (token === null || inFlight) {
+  if (token === null || identity === null || inFlight) {
     return
   }
 
   inFlight = true
-  state.value = 'loading'
+  serverErrors.value = {}
+
+  // From the form the visitor stays on it (disabled); from a retry the page shows
+  // its loading state, as it always has.
+  if (state.value === 'identity') {
+    submitting.value = true
+  } else {
+    state.value = 'loading'
+  }
+
+  // Whether the page is staying: false once a terminal outcome starts leaving it.
+  let staying = true
 
   try {
-    const outcome = await redeem(token, IDENTITY_NOT_COLLECTED_YET)
+    const outcome = await redeem(token, identity)
 
     switch (outcome.kind) {
       case 'ok': {
@@ -170,16 +247,22 @@ async function redeemHeldToken(): Promise<void> {
           return
         }
 
-        heldToken = null
+        staying = false
+        dropHeld()
+        clearIdentityPending()
         await leaveTo('/interview/session')
         return
       }
       case 'not_found':
-        heldToken = null
+        staying = false
+        dropHeld()
+        clearIdentityPending()
         await leaveTo('/interview/terminal?reason=link_invalid')
         return
       case 'forbidden':
-        heldToken = null
+        staying = false
+        dropHeld()
+        clearIdentityPending()
 
         // Same rule as the single-use route: a validated https `redirect_url`
         // navigates away; a missing or refused one falls back to the generic
@@ -190,14 +273,25 @@ async function redeemHeldToken(): Promise<void> {
 
         await leaveTo('/interview/terminal?reason=403')
         return
+      case 'invalid': {
+        // The form stays, with the app's own message on each field the api named.
+        const errors: FieldErrors = {}
+        for (const field of outcome.fields) {
+          const [formField, key] = FIELD_ERROR[field]
+          errors[formField] = key
+        }
+        serverErrors.value = errors
+        state.value = 'identity'
+        return
+      }
+      case 'duplicate':
+        // The token is kept: the visitor may correct the email and submit again.
+        serverErrors.value = { email: 'emailTaken' }
+        state.value = 'identity'
+        return
       case 'busy':
         state.value = 'busy'
         return
-      // INTERIM (fe-2b maps these onto the identity form's fields): until the form
-      // exists they are shown as the retryable failed state, so a 422 or a 409 can
-      // never leave the visitor on a loading skeleton that does not end.
-      case 'invalid':
-      case 'duplicate':
       case 'failed':
         state.value = 'failed'
         return
@@ -209,11 +303,23 @@ async function redeemHeldToken(): Promise<void> {
     }
   } finally {
     inFlight = false
+    if (staying) {
+      submitting.value = false
+    }
   }
 }
 
+function onIdentitySubmit(identity: VisitorIdentityInput): void {
+  if (inFlight || heldToken === null) {
+    return
+  }
+
+  heldIdentity = identity
+  void redeemHeld()
+}
+
 function retry(): void {
-  void redeemHeldToken()
+  void redeemHeld()
 }
 
 function start(): void {
@@ -229,23 +335,33 @@ function start(): void {
   const { present, token } = takeReusableLinkToken()
 
   if (present) {
-    // A link was opened: a new visitor, never the previous one.
+    // A link was opened: a new visitor, never the previous one, and no stale flag.
     session.clear()
+    clearIdentityPending()
 
     if (token === null) {
       void leaveTo('/interview/terminal?reason=link_invalid')
       return
     }
 
+    // The form, and NO request: one is made per submit.
     heldToken = token
-    void redeemHeldToken()
+    markIdentityPending()
+    state.value = 'identity'
     return
   }
 
   // A reload: the fragment is gone, so there is nothing to redeem. Resume only
   // what this route stored itself.
   if (session.read()?.entry === 'reusable') {
+    clearIdentityPending()
     void leaveTo('/interview/session')
+    return
+  }
+
+  // The form was on screen: the token went with the reload. Say so truthfully.
+  if (consumeIdentityPending()) {
+    void leaveTo('/interview/terminal?reason=link_reopen')
     return
   }
 
@@ -255,6 +371,7 @@ function start(): void {
 onMounted(start)
 
 onBeforeUnmount(() => {
-  heldToken = null
+  dropHeld()
+  clearIdentityPending()
 })
 </script>
