@@ -35,14 +35,17 @@ function base64url(input: string): string {
 }
 
 /** A candidate JWT shaped closely enough for useCandidateSession to decode client-side. */
-function makeCandidateJwt(candidateRef: string): string {
+function makeCandidateJwt(
+  candidateRef: string,
+  exp: number = Math.floor(Date.now() / 1000) + 7200
+): string {
   const header = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
   const payload = base64url(
     JSON.stringify({
       typ: 'candidate',
       candidate_ref: candidateRef,
       project_id: 1,
-      exp: Math.floor(Date.now() / 1000) + 7200,
+      exp,
     })
   )
 
@@ -53,8 +56,24 @@ interface RedeemCall {
   method: string
   url: string
   body: unknown
-  /** `page.url()` at the moment the request left the browser. */
-  pageUrlAtRequest: string
+}
+
+/**
+ * One scripted answer of the redeem endpoint:
+ *   - `'ok'`      200 with a fresh visitor's candidate token;
+ *   - a number    that status with a bare `{ message }` body (429 adds `Retry-After`);
+ *   - an object   that status with exactly that JSON body (the 403 `redirect_url` shape);
+ *   - `'abort'`   the connection drops, so the browser never gets a response;
+ *   - `'pending'` the request is held until `release()`, then answered `'ok'`.
+ */
+type RedeemAnswer = number | 'ok' | 'abort' | 'pending' | { status: number; body: unknown }
+
+interface RedeemMock {
+  calls: RedeemCall[]
+  /** The candidate tokens handed out, in order: what the page must have stored and sent. */
+  minted: string[]
+  /** Lets every `'pending'` request through. */
+  release: () => void
 }
 
 /**
@@ -62,30 +81,48 @@ interface RedeemCall {
  * one repeats, so a test can say "429 once, then 200". Every 200 mints a
  * DIFFERENT visitor, like the real api does.
  */
-async function mockRedeem(
-  page: Page,
-  answers: Array<number | 'ok'> = ['ok']
-): Promise<{ calls: RedeemCall[] }> {
+async function mockRedeem(page: Page, answers: RedeemAnswer[] = ['ok']): Promise<RedeemMock> {
   const calls: RedeemCall[] = []
-  let visitors = 0
+  const minted: string[] = []
+  let release: () => void = () => {}
+  const released = new Promise<void>((resolve) => {
+    release = resolve
+  })
 
-  await page.route(REDEEM, (route) => {
+  await page.route(REDEEM, async (route) => {
     const request = route.request()
-    const answer = answers[Math.min(calls.length, answers.length - 1)] as number | 'ok'
+    const answer = answers[Math.min(calls.length, answers.length - 1)] as RedeemAnswer
 
     calls.push({
       method: request.method(),
       url: request.url(),
       body: request.postDataJSON() as unknown,
-      pageUrlAtRequest: page.url(),
     })
 
-    if (answer === 'ok') {
-      visitors += 1
+    if (answer === 'abort') {
+      return route.abort('connectionreset')
+    }
+
+    if (answer === 'ok' || answer === 'pending') {
+      if (answer === 'pending') {
+        await released
+      }
+
+      const token = makeCandidateJwt(`rlv_E2EVISITOR${minted.length + 1}`)
+      minted.push(token)
+
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ access_token: makeCandidateJwt(`rlv_E2EVISITOR${visitors}`) }),
+        body: JSON.stringify({ access_token: token }),
+      })
+    }
+
+    if (typeof answer === 'object') {
+      return route.fulfill({
+        status: answer.status,
+        contentType: 'application/json',
+        body: JSON.stringify(answer.body),
       })
     }
 
@@ -97,7 +134,62 @@ async function mockRedeem(
     })
   })
 
-  return { calls }
+  return { calls, minted, release }
+}
+
+/** What the page itself saw at the instant `fetch` was called on the redeem endpoint. */
+interface FetchRecord {
+  url: string
+  /** `location.href`: the address bar, fragment included. */
+  href: string
+  /** `JSON.stringify(history.state)`: the router's entry, where a token once lingered. */
+  historyState: string
+  historyLength: number
+}
+
+/**
+ * Records, INSIDE the page and synchronously at the moment `fetch` is invoked
+ * for the redeem endpoint, what the address bar and the history entry hold.
+ *
+ * Reading `page.url()` from a route handler is not the same claim: the handler
+ * runs in the test process after the request has left, and Playwright's URL can
+ * lag or lead `history.replaceState` (WebKit most of all). This wrapper has no
+ * such gap: `href` is what the browser held when the request was made.
+ *
+ * `window.fetch` is wrapped because `ofetch` resolves `globalThis.fetch` per
+ * call. The record lives in the document, so a navigation to another document
+ * (an external redirect, a reload) starts it empty; every test that reads it
+ * stays on the SPA.
+ */
+async function watchRedeemFetch(page: Page): Promise<{ read: () => Promise<FetchRecord[]> }> {
+  await page.addInitScript(() => {
+    const records: unknown[] = []
+    ;(window as unknown as Record<string, unknown>)['__redeemFetches'] = records
+
+    const original = window.fetch.bind(window)
+
+    window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input)
+
+      if (url.includes('/api/reusable-links/redeem')) {
+        records.push({
+          url,
+          href: window.location.href,
+          historyState: JSON.stringify(window.history.state),
+          historyLength: window.history.length,
+        })
+      }
+
+      return original(input, init)
+    }
+  })
+
+  return {
+    read: () =>
+      page.evaluate(
+        () => (window as unknown as Record<string, unknown>)['__redeemFetches'] as FetchRecord[]
+      ),
+  }
 }
 
 /** GET /api/candidate/session — the branding / exit-redirect read the session route makes. */
@@ -127,6 +219,33 @@ function watchSsoExchange(page: Page): { calls: Request[] } {
 const consentScreen = (page: Page) =>
   page.getByRole('region', { name: /privacy notice and consent/i })
 
+/** The terminal page for a link that is not valid, reached by `replace`. */
+async function expectLinkInvalidTerminal(page: Page): Promise<void> {
+  await expect(page).toHaveURL(/\/en\/interview\/terminal\?reason=link_invalid$/)
+  await expect(page.getByText('This Link Is No Longer Valid')).toBeVisible()
+  await expect(page.getByRole('button', { name: /try again|retry/i })).toHaveCount(0)
+}
+
+/**
+ * Asserts a counter does NOT move for a while. A request that must never happen
+ * cannot be proven by looking once: the page would still be mid-flight. So every
+ * "no request" and "exactly one request" claim in this file first waits for a
+ * positive end state, then holds the number steady across a window long enough
+ * to cover a retry honouring the mock's `Retry-After: 1`.
+ */
+async function expectCountStays(
+  read: () => number,
+  expected: number,
+  windowMs = 1_500
+): Promise<void> {
+  const deadline = Date.now() + windowMs
+
+  do {
+    expect(read(), 'the number of redeem requests moved').toBe(expected)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  } while (Date.now() < deadline)
+}
+
 async function expectTokenNowhereInThePage(page: Page): Promise<void> {
   const where = await page.evaluate(() => ({
     href: window.location.href,
@@ -146,6 +265,7 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
     page,
   }) => {
     const redeem = await mockRedeem(page)
+    const atFetch = await watchRedeemFetch(page)
     const exchange = watchSsoExchange(page)
     await mockCandidateSession(page)
 
@@ -160,10 +280,17 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
     expect(call.url).not.toContain('beai_rl_')
     expect(call.url).not.toContain('?')
 
-    // The fragment was already gone when the request left the browser.
-    expect(call.pageUrlAtRequest).toContain('/interview/reusable')
-    expect(call.pageUrlAtRequest).not.toContain('#')
-    expect(call.pageUrlAtRequest).not.toContain('beai_rl_')
+    // The fragment was already gone when the request left the browser: read
+    // from INSIDE the page, at the moment `fetch` was called, so no ordering
+    // between the test process and `history.replaceState` can fake it.
+    const records = await atFetch.read()
+    expect(records).toHaveLength(1)
+
+    const [record] = records as [FetchRecord]
+    expect(record.href).toContain('/interview/reusable')
+    expect(record.href).not.toContain('#')
+    expect(record.href).not.toContain('beai_rl_')
+    expect(record.historyState).not.toContain('beai_rl_')
 
     // The static route outranks `interview/[token]`: no single-use exchange.
     expect(exchange.calls).toHaveLength(0)
@@ -191,6 +318,7 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
     page,
   }) => {
     const redeem = await mockRedeem(page)
+    const atFetch = await watchRedeemFetch(page)
     await mockCandidateSession(page)
 
     await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
@@ -198,7 +326,11 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
     await expect(page).toHaveURL(/\/en\/interview\/session$/)
     await expect(consentScreen(page)).toBeVisible()
     expect(redeem.calls).toHaveLength(1)
-    expect((redeem.calls[0] as RedeemCall).pageUrlAtRequest).not.toContain('beai_rl_')
+
+    const records = await atFetch.read()
+    expect(records).toHaveLength(1)
+    expect((records[0] as FetchRecord).href).not.toContain('beai_rl_')
+    expect((records[0] as FetchRecord).href).not.toContain('#')
     await expectTokenNowhereInThePage(page)
   })
 
@@ -207,10 +339,9 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
 
     await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
 
-    await expect(page).toHaveURL(/\/en\/interview\/terminal\?reason=link_invalid$/)
-    await expect(page.getByText('This Link Is No Longer Valid')).toBeVisible()
-    await expect(page.getByRole('button', { name: /try again|retry/i })).toHaveCount(0)
-    expect(redeem.calls).toHaveLength(1)
+    await expectLinkInvalidTerminal(page)
+    // Terminal means one request and no second try, however long it is left.
+    await expectCountStays(() => redeem.calls.length, 1)
     await expectTokenNowhereInThePage(page)
   })
 
@@ -218,6 +349,7 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
     page,
   }) => {
     const redeem = await mockRedeem(page, [429, 'ok'])
+    const atFetch = await watchRedeemFetch(page)
     await mockCandidateSession(page)
 
     await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
@@ -231,23 +363,34 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
     await expectTokenNowhereInThePage(page)
     await checkA11y(page)
 
+    // A 429 is ONE request. The mock sends `Retry-After: 1`; the window below is
+    // longer than that, so a page that retried on its own would be caught here.
+    await expectCountStays(() => redeem.calls.length, 1)
+
     await page.getByRole('button', { name: 'Try again' }).click()
 
     await expect(page).toHaveURL(/\/en\/interview\/session$/)
-    expect(redeem.calls).toHaveLength(2)
+    // Retry is exactly one more request, not a burst.
+    await expectCountStays(() => redeem.calls.length, 2, 500)
     expect(redeem.calls.map((call) => call.body)).toEqual([
       { link_token: LINK_TOKEN },
       { link_token: LINK_TOKEN },
     ])
-    // The retry never put the token back in the address bar.
-    expect((redeem.calls[1] as RedeemCall).pageUrlAtRequest).not.toContain('beai_rl_')
+    // The retry never put the token back in the address bar either.
+    const records = await atFetch.read()
+    expect(records).toHaveLength(2)
+    for (const record of records) {
+      expect(record.href).not.toContain('beai_rl_')
+      expect(record.href).not.toContain('#')
+      expect(record.historyState).not.toContain('beai_rl_')
+    }
     await expectTokenNowhereInThePage(page)
   })
 
   test('a 5xx shows the generic failed state with Retry, never "link is no longer valid"', async ({
     page,
   }) => {
-    await mockRedeem(page, [503])
+    const redeem = await mockRedeem(page, [503])
 
     await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
 
@@ -257,6 +400,8 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
     await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible()
     await expect(page.getByText('This Link Is No Longer Valid')).toHaveCount(0)
     await checkA11y(page)
+    // A failure is one request, not an automatic retry loop.
+    await expectCountStays(() => redeem.calls.length, 1)
   })
 
   test('a reload with a stored reusable session resumes it WITHOUT a second redemption', async ({
@@ -335,6 +480,99 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
       'noindex, nofollow'
     )
     await expect(page.locator('meta[name="referrer"]')).toHaveAttribute('content', 'no-referrer')
+  })
+})
+
+test.describe('reusable entry route — a 403 and a dropped connection', () => {
+  const EXTERNAL_PAGE = 'https://hr.acme.example.com/beai/closed?ref=acme-672'
+
+  test('a 403 with an https redirect_url sends the visitor away to it, and nowhere else', async ({
+    page,
+  }) => {
+    const redeem = await mockRedeem(page, [
+      { status: 403, body: { message: 'e2e', redirect_url: EXTERNAL_PAGE } },
+    ])
+    // The external page is fulfilled locally: the suite never leaves its sandbox.
+    await page.route('https://hr.acme.example.com/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<html><body>External closed page</body></html>',
+      })
+    )
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+
+    await page.waitForURL(EXTERNAL_PAGE)
+    await expect(page.getByText('External closed page')).toBeVisible()
+    // One request, and no gate was disclosed on the way out.
+    expect(redeem.calls).toHaveLength(1)
+    expect(page.url()).not.toContain('beai_rl_')
+  })
+
+  // The redirect target is operator-supplied data returned on a pre-session
+  // route: only a validated https URL may ever be navigated to.
+  for (const [label, redirectUrl] of [
+    ['an http (downgrade) URL', 'http://hr.acme.example.com/beai/closed'],
+    ['a javascript: URL', 'javascript:alert(1)'],
+    ['a malformed URL', 'not a url'],
+    ['no redirect_url at all', null],
+  ] as const) {
+    test(`a 403 with ${label} is the generic terminal page, with no navigation away and no retry`, async ({
+      page,
+    }) => {
+      const redeem = await mockRedeem(page, [
+        { status: 403, body: { message: 'e2e', redirect_url: redirectUrl } },
+      ])
+      const leftTheApp: string[] = []
+      page.on('request', (request) => {
+        if (new URL(request.url()).hostname === 'hr.acme.example.com') {
+          leftTheApp.push(request.url())
+        }
+      })
+
+      await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+
+      await expect(page).toHaveURL(/\/en\/interview\/terminal\?reason=403$/)
+      await expect(page.getByRole('heading', { name: 'Session Not Authorized' })).toBeVisible()
+      // The token is spent for this outcome: nothing to retry, so no control for it.
+      await expect(page.getByRole('button', { name: /try again|retry/i })).toHaveCount(0)
+      // Neither "this link is bad" nor a hint of which gate closed.
+      await expect(page.getByText('This Link Is No Longer Valid')).toHaveCount(0)
+      await expectCountStays(() => redeem.calls.length, 1)
+      expect(leftTheApp).toEqual([])
+      await expectTokenNowhereInThePage(page)
+      await checkA11y(page)
+    })
+  }
+
+  test('a dropped connection is the retryable failed state, never "link is no longer valid", and Retry succeeds', async ({
+    page,
+  }) => {
+    const redeem = await mockRedeem(page, ['abort', 'ok'])
+    await mockCandidateSession(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+
+    await expect(
+      page.getByRole('heading', { name: 'We could not start your interview' })
+    ).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible()
+    await expect(page.getByText('This Link Is No Longer Valid')).toHaveCount(0)
+    await expect(page).toHaveURL(/\/en\/interview\/reusable$/)
+    await expectCountStays(() => redeem.calls.length, 1)
+    await expectTokenNowhereInThePage(page)
+
+    await page.getByRole('button', { name: 'Try again' }).click()
+
+    await expect(page).toHaveURL(/\/en\/interview\/session$/)
+    await expect(consentScreen(page)).toBeVisible()
+    await expectCountStays(() => redeem.calls.length, 2, 500)
+    // The retry re-posts the SAME token, from the page's memory.
+    expect(redeem.calls.map((call) => call.body)).toEqual([
+      { link_token: LINK_TOKEN },
+      { link_token: LINK_TOKEN },
+    ])
   })
 })
 
