@@ -68,6 +68,30 @@ describe('analyticsPlan — the interview is off limits to session replay', () =
     }
   })
 
+  it('never loads Clarity on the reusable entry route, which now shows a name and email form', () => {
+    // reusable-link-visitor-identity: `/interview/reusable` renders an identity form
+    // and takes the visitor's name and address. A session recorder replays exactly
+    // that DOM, so the route is replay-unsafe in every spelling a visitor can open:
+    // localized or not, with or without the link fragment, query string or trailing
+    // slash. The path GA receives carries neither the fragment nor a query.
+    const token = 'beai_rl_9AuXUvnfk8dgg-mOHfBcWFbQ98k_MXZ5SChgVAqzCpY'
+
+    for (const path of [
+      '/interview/reusable',
+      '/en/interview/reusable',
+      `/interview/reusable#${token}`,
+      `/en/interview/reusable#${token}`,
+      '/interview/reusable?x=1',
+      '/interview/reusable/',
+    ]) {
+      const plan = analyticsPlan({ ...ids, consentGranted: true, path })
+
+      expect(plan.loadClarity, path).toBe(false)
+      expect(plan.pagePath, path).toMatch(/^(\/en)?\/interview\/reusable$/)
+      expect(plan.pagePath, path).not.toMatch(/[?#]|beai_rl_/)
+    }
+  })
+
   it('still counts the interview in GA, but only as a redacted path', () => {
     const plan = analyticsPlan({ ...ids, consentGranted: true, path: '/interview/eyJ.LEAK.sig' })
 
