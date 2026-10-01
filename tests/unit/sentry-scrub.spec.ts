@@ -4,6 +4,7 @@ import {
   DENIED_KEYS,
   HANDLED_EVENT_FIELDS,
   redactFreeText,
+  redactReusableLinkTokens,
   redactUrl,
   scrubBreadcrumb,
   scrubSentryEvent,
@@ -12,6 +13,8 @@ import {
 import { sentryPosture } from '~/app/utils/sentry-init'
 import {
   REUSABLE_LINK_HASH,
+  REUSABLE_LINK_REDACTED,
+  REUSABLE_LINK_REDACTION_CASES,
   REUSABLE_LINK_SCRUB_CASES,
   REUSABLE_LINK_SECRET,
   REUSABLE_LINK_TOKEN,
@@ -4620,6 +4623,34 @@ describe('scrubSentryEvent — the reusable link token', () => {
 
     expect(encoded).toContain(testCase.survives)
   })
+
+  it('pins the redaction marker the fixture expects', () => {
+    expect(redactReusableLinkTokens(REUSABLE_LINK_TOKEN)).toBe(REUSABLE_LINK_REDACTED)
+  })
+
+  it.each(REUSABLE_LINK_REDACTION_CASES)(
+    'the value pattern gives the exact output: $name',
+    ({ input, expected }) => {
+      expect(redactReusableLinkTokens(input)).toBe(expected)
+    }
+  )
+
+  it.each(REUSABLE_LINK_REDACTION_CASES.filter((testCase) => testCase.leaked.length > 0))(
+    'the whole scrubber leaves no part of the token behind: $name',
+    ({ input, leaked }) => {
+      const encoded = JSON.stringify(
+        scrubSentryEvent({
+          message: input,
+          extra: { note: input },
+          breadcrumbs: [{ category: 'console', message: input }],
+        } as ScrubbableEvent)
+      )
+
+      for (const fragment of leaked) {
+        expect(encoded).not.toContain(fragment)
+      }
+    }
+  )
 
   it('cuts the token out of free text and keeps the sentence readable', () => {
     const scrubbed = redactFreeText(`could not open ${REUSABLE_LINK_TOKEN} in a tab`)
