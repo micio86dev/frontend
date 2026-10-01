@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import {
   REUSABLE_TOKEN_FORMAT,
   captureReusableLinkFragment,
@@ -218,7 +220,10 @@ describe('the early client plugin', () => {
   const registered: Array<[string, EventListenerOrEventListenerObject]> = []
 
   async function loadPlugin(): Promise<() => void> {
-    vi.stubGlobal('defineNuxtPlugin', (setup: () => void) => setup)
+    // The object syntax, because that is the only form Nuxt reads static
+    // metadata (`order`) from. The real `defineNuxtPlugin` returns the plugin;
+    // here the setup function is all the test needs.
+    vi.stubGlobal('defineNuxtPlugin', (plugin: { setup: () => void }) => plugin.setup)
     const original = window.addEventListener.bind(window)
 
     vi.spyOn(window, 'addEventListener').mockImplementation((type, listener, options) => {
@@ -274,5 +279,44 @@ describe('the early client plugin', () => {
     window.dispatchEvent(new Event('hashchange'))
 
     expect(window.location.href).not.toContain('beai_rl_')
+  })
+})
+
+describe('the early client plugin runs BEFORE the router plugin', () => {
+  // The finding behind this block, from the real app: Nuxt's router plugin
+  // (`nuxt:router`, order -20) captures `window.location`, hash included, while
+  // it sets up, and `app:created` then replays that location with
+  // `router.replace`. A default-order plugin strips the fragment AFTER that
+  // capture, so the router wrote it straight back: `/unsupported#beai_rl_…`
+  // stayed in the address bar, and `history.state.current` held the token.
+  // The plugin therefore has to run first, and Nuxt reads that from a STATIC
+  // `order` in the object-syntax plugin, which is what this pins.
+  // Comments stripped: the plugin's own docblock quotes `order: -50`, and a
+  // pin that reads its own explanation instead of the code cannot fail.
+  const rawSource = readFileSync(
+    resolve(__dirname, '../../app/plugins/00.reusable-link-fragment.client.ts'),
+    'utf-8'
+  )
+  const source = rawSource.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const ROUTER_PLUGIN_ORDER = -20
+
+  it('uses the object syntax, the only form Nuxt extracts static metadata from', () => {
+    expect(source).toMatch(/defineNuxtPlugin\(\s*\{/)
+  })
+
+  it('has no text, comments included, that makes Nuxt skip its metadata', () => {
+    // Nuxt's `extractMetadata` runs `/defineNuxtPlugin\s*\([\w(]/` over the RAW
+    // file, comments included, and returns NO metadata on a hit: it takes the
+    // text for a function-syntax plugin. This plugin's own docblock once
+    // contained exactly that text, and `order: -50` was silently ignored — the
+    // router still ran first and wrote the fragment back.
+    expect(rawSource).not.toMatch(/defineNuxtPlugin\s*\([\w(]/)
+  })
+
+  it('declares an order strictly lower than the router plugin', () => {
+    const match = /order:\s*(-\d+)/.exec(source)
+
+    expect(match, 'the plugin must declare a numeric `order`').not.toBeNull()
+    expect(Number(match?.[1])).toBeLessThan(ROUTER_PLUGIN_ORDER)
   })
 })

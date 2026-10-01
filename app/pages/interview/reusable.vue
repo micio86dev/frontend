@@ -105,7 +105,14 @@ import {
 type ViewState = 'loading' | 'busy' | 'failed'
 
 definePageMeta({ ssr: false })
+
+const { t } = useI18n()
+
 useHead({
+  // WCAG 2.4.2 (Page Titled): this page is what a visitor sees first, in the
+  // loading, busy and failed states, and an untitled document is a Level A
+  // failure that axe reports on exactly those states.
+  title: t('interview.document_title'),
   meta: [
     { name: 'robots', content: 'noindex, nofollow' },
     { name: 'referrer', content: 'no-referrer' },

@@ -110,6 +110,12 @@ beforeEach(() => {
   visit('/')
 
   vi.stubGlobal('navigateTo', mockNavigateTo)
+  // Re-stubbed here because `afterEach` below unstubs every global, the one
+  // `tests/unit/setup.ts` installs included.
+  vi.stubGlobal(
+    'useI18n',
+    vi.fn(() => ({ t: (key: string) => key }))
+  )
   vi.stubGlobal('definePageMeta', vi.fn())
   vi.stubGlobal('useHead', vi.fn())
   vi.stubGlobal(
@@ -270,12 +276,24 @@ describe('interview/reusable.vue — first visit with a fragment', () => {
 
     await openLink()
 
-    expect(useHead).toHaveBeenCalledWith({
-      meta: [
-        { name: 'robots', content: 'noindex, nofollow' },
-        { name: 'referrer', content: 'no-referrer' },
-      ],
-    })
+    expect(useHead).toHaveBeenCalledWith(
+      expect.objectContaining({
+        meta: [
+          { name: 'robots', content: 'noindex, nofollow' },
+          { name: 'referrer', content: 'no-referrer' },
+        ],
+      })
+    )
+  })
+
+  it('has a localized document title (WCAG 2.4.2), in every state including busy and failed', async () => {
+    mockFetchImpl.mockResolvedValueOnce({ access_token: makeCandidateJwt() })
+
+    await openLink()
+
+    expect(useHead).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'interview.document_title' })
+    )
   })
 
   it('is a client-only page', async () => {
