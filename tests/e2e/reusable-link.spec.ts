@@ -3,6 +3,7 @@ import type { Browser, Page, Request } from '@playwright/test'
 import { checkA11y } from './fixtures/a11y'
 import { injectDeviceMocks } from './fixtures/device-mocks'
 import { waitForHydration } from './fixtures/hydration'
+import { startRouterPush, waitForRouterBusy, waitForRouterIdle } from './fixtures/nuxt-router-state'
 
 /**
  * Playwright E2E — the reusable entry route `/interview/reusable#beai_rl_<43>`
@@ -881,13 +882,11 @@ async function pasteIntoThisTab(page: Page, token: string): Promise<void> {
   // start of a navigation to its `afterEach`, and that is reached whatever the
   // order of the events: it is not "the router adopted the pasted hash", which
   // never happens when the strip wins. No sleep, no longer timeout.
-  await page.waitForFunction(() => {
-    const nuxt = (
-      window as unknown as { useNuxtApp?: () => { _processingMiddleware?: unknown } | undefined }
-    ).useNuxtApp?.()
-
-    return nuxt?._processingMiddleware === undefined
-  })
+  //
+  // That flag is a Nuxt internal, and "it is gone" is vacuously true once Nuxt stops
+  // using it, so the helper first checks the installed Nuxt still works that way and
+  // fails loudly, naming the assumption, when it does not.
+  await waitForRouterIdle(page)
 }
 
 /** A second, well-formed token: what a visitor pastes over the first. */
@@ -996,26 +995,12 @@ test.describe('reusable entry route — leaving while a router navigation is in 
 
     // Start a navigation to a route that has to fetch its chunk, and do not wait for it.
     holding = true
-    await page.evaluate(() => {
-      const root = document.querySelector('#__nuxt') as unknown as {
-        __vue_app__: {
-          config: { globalProperties: { $router: { push: (to: string) => unknown } } }
-        }
-      }
-      void root.__vue_app__.config.globalProperties.$router.push(
-        '/en/interview/terminal?reason=403'
-      )
-    })
+    await startRouterPush(page, '/en/interview/terminal?reason=403')
     await expect.poll(() => held.length).toBeGreaterThan(0)
     // Precondition: Nuxt is mid-navigation (`_processingMiddleware`), the state that
-    // makes `navigateTo` a no-op.
-    await page.waitForFunction(() => {
-      const nuxt = (
-        window as unknown as { useNuxtApp?: () => { _processingMiddleware?: unknown } | undefined }
-      ).useNuxtApp?.()
-
-      return nuxt?._processingMiddleware !== undefined
-    })
+    // makes `navigateTo` a no-op. A Nuxt internal: this throws a named error, rather
+    // than timing out obscurely, if an upgrade changes it.
+    await waitForRouterBusy(page)
 
     // The redeem answer arrives NOW, with the navigation still pending.
     holding = false
@@ -1312,12 +1297,30 @@ test.describe('reusable entry route — the identity form', () => {
     await expect(identityForm(page).getByRole('checkbox')).toHaveCount(0)
     await expect(identityForm(page).getByRole('link')).toHaveCount(0)
     await expect(identityForm(page).getByRole('textbox')).toHaveCount(2)
-    await expect(
-      identityForm(page).getByText(
-        'Your name and email are shared with the organization running this interview so your interview can be identified and requests about your data can be handled.'
-      )
-    ).toBeVisible()
+    const notice = identityForm(page).getByText(
+      'Your name and email are shared with the organization running this interview so your interview can be identified and requests about your data can be handled.'
+    )
+    await expect(notice).toBeVisible()
     await expect(submitButton(page)).toHaveAccessibleDescription(/shared with the organization/)
+
+    // ABOVE the button, proved two ways: document order, and where it is painted.
+    const follows = await notice.evaluate(
+      (noticeElement, button) =>
+        Boolean(
+          button && noticeElement.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING
+        ),
+      await submitButton(page).elementHandle()
+    )
+    expect(follows, 'the submit button must come AFTER the privacy notice in the DOM').toBe(true)
+
+    const noticeBox = await notice.boundingBox()
+    const buttonBox = await submitButton(page).boundingBox()
+    expect(noticeBox, 'the notice has a box once visible').not.toBeNull()
+    expect(buttonBox, 'the button has a box once visible').not.toBeNull()
+    expect(
+      (noticeBox?.y ?? Infinity) + (noticeBox?.height ?? 0),
+      'the notice must end above the top of the button'
+    ).toBeLessThanOrEqual(buttonBox?.y ?? -Infinity)
   })
 
   test('sends a body of exactly {link_token, display_name, email} with TRIMMED values', async ({
@@ -1392,6 +1395,44 @@ test.describe('reusable entry route — the identity form', () => {
       'aria-describedby',
       'reusable-identity-email-error'
     )
+    await expectCountStays(() => redeem.calls.length, 0, 500)
+  })
+
+  test('a blank NAME with the email filled shows only the name message, focuses the name and sends nothing', async ({
+    page,
+  }) => {
+    const redeem = await mockRedeem(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await expect(identityForm(page)).toBeVisible()
+    await page.getByLabel(EMAIL_LABEL).fill(VISITOR.email)
+    await submitIdentity(page)
+
+    await expect(page.getByText('Enter your name.')).toBeVisible()
+    await expect(page.getByText('Enter your email.')).toHaveCount(0)
+    await expect(page.getByLabel(NAME_LABEL)).toBeFocused()
+    await expect(page.getByLabel(NAME_LABEL)).toHaveAttribute('aria-invalid', 'true')
+    await expect(page.getByLabel(EMAIL_LABEL)).not.toHaveAttribute('aria-invalid', 'true')
+    await expect(page.getByLabel(EMAIL_LABEL)).not.toHaveAttribute('aria-describedby', /.+/)
+    await expectCountStays(() => redeem.calls.length, 0, 500)
+  })
+
+  test('a blank EMAIL with the name filled shows only the email message, focuses the email and sends nothing', async ({
+    page,
+  }) => {
+    const redeem = await mockRedeem(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+    await expect(identityForm(page)).toBeVisible()
+    await page.getByLabel(NAME_LABEL).fill(VISITOR.name)
+    await submitIdentity(page)
+
+    await expect(page.getByText('Enter your email.')).toBeVisible()
+    await expect(page.getByText('Enter your name.')).toHaveCount(0)
+    await expect(page.getByLabel(EMAIL_LABEL)).toBeFocused()
+    await expect(page.getByLabel(EMAIL_LABEL)).toHaveAttribute('aria-invalid', 'true')
+    await expect(page.getByLabel(NAME_LABEL)).not.toHaveAttribute('aria-invalid', 'true')
+    await expect(page.getByLabel(NAME_LABEL)).not.toHaveAttribute('aria-describedby', /.+/)
     await expectCountStays(() => redeem.calls.length, 0, 500)
   })
 
