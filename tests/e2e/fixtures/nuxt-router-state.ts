@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { createRequire } from 'node:module'
+import { dirname, resolve } from 'node:path'
 import type { Page } from '@playwright/test'
 
 /**
@@ -29,13 +30,31 @@ import type { Page } from '@playwright/test'
 /** The Nuxt major.minor this file was written against (the pinned `nuxt` is ^4.4). */
 const ASSUMED_NUXT = '4.4.x'
 
-const NUXT_ROOT = resolve(process.cwd(), 'node_modules/nuxt')
+/**
+ * The installed Nuxt's directory, found by module resolution from THIS file, so the
+ * current working directory and a non-hoisted layout (a workspace, pnpm-style links)
+ * do not matter. Resolution failing is itself a named error.
+ */
+function resolveNuxtRoot(): string {
+  try {
+    return dirname(createRequire(import.meta.url).resolve('nuxt/package.json'))
+  } catch (error) {
+    throw new Error(
+      `E2E router helpers cannot resolve the installed Nuxt (assumed ${ASSUMED_NUXT}): ${String(error)}. ` +
+        'Install dependencies, or revisit tests/e2e/fixtures/nuxt-router-state.ts.',
+      { cause: error }
+    )
+  }
+}
 
 let checked = false
 
 function readNuxtFile(relative: string): string {
+  // Resolved before the try: a failure to find Nuxt at all is already a named error.
+  const root = resolveNuxtRoot()
+
   try {
-    return readFileSync(resolve(NUXT_ROOT, relative), 'utf-8')
+    return readFileSync(resolve(root, relative), 'utf-8')
   } catch (error) {
     throw new Error(
       `E2E router helpers cannot read ${relative} from the installed Nuxt (assumed ${ASSUMED_NUXT}): ${String(error)}. ` +
