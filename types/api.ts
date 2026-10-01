@@ -84,17 +84,8 @@ export interface paths {
         };
         /**
          * List M2M API clients for the authenticated admin's organization
-         * @description GET /api/m2m/clients
-         *     Auth: auth:api (admin only via ApiClientPolicy)
-         *
-         *     Unpaginated (generated-client-truth-and-session-safety D5) — the panel
-         *     answers a whole-set question: what can authenticate against my org,
-         *     and what did I revoke. Not a page-at-a-time one; `UserController::index`
-         *     already returns an unpaginated org-scoped `->get()` for the same class
-         *     of operator-managed collection. `is_active` first so the rows that
-         *     matter most stay first even at unusual scale.
-         *
-         *     Never returns key_hash or raw api_key.
+         * @description Admin only. The whole set is returned, not a page, with the active clients first. The key hash and
+         *     the raw API key are never returned.
          */
         get: operations["apiClient.index"];
         put?: never;
@@ -175,11 +166,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Refresh the access token via the httpOnly refresh cookie
-         * @description POST /api/auth/refresh
-         *     PUBLIC — authenticated by cookie + RequireRefreshCsrfHeader, NEVER
-         *     auth:api (D8): an expired access token is exactly when this endpoint
-         *     must still work.
+         * Refresh the access token
+         * @description Authenticated by the refresh cookie and the refresh CSRF header rather than by an access
+         *     token, so it still works once the access token has expired. A missing, unknown, revoked,
+         *     expired or reused refresh token answers `401` with the matching `refresh_token_*` code.
          */
         post: operations["auth.refresh"];
         delete?: never;
@@ -318,18 +308,11 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A provider's real inventory for one resource type — the picker's data
-         *     source (avatar-template-catalogue PR1, design D1/D3/D4)
-         * @description Gated by the SAME `viewAny` ability as `fieldSpecs()` above: this
-         *     endpoint proxies a platform-level provider account (no tenant data of
-         *     its own), but it carries provider-side identifiers the picker will let
-         *     an admin select — the same "closer to credentials than to settings"
-         *     reasoning `AvatarTemplatePolicy` already applies to `config`.
-         *
-         *     Never a 500: `AvatarProviderCatalogue::fetch()` degrades a provider
-         *     failure to `{status: 'unavailable', items: []}` on its own (D3); this
-         *     action's only failure mode is a 422 for an unrecognized
-         *     `provider`/`resource` pair, checked BEFORE ever calling the provider.
+         * List a provider's catalogue
+         * @description Returns what the provider offers for one resource type (voices, avatars, replicas or
+         *     personas), as the data source of the template picker. A provider failure is reported as
+         *     `{status: "unavailable", items: []}`, not as an error; an unrecognized `provider`/`resource`
+         *     pair answers `422`.
          */
         get: operations["avatarTemplate.catalogue"];
         put?: never;
@@ -669,10 +652,9 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Never opens a draft (gga review finding on the sibling controllers,
-         *     applied here from the start) — the target `$defaultQuestion` either
-         *     already belongs to an existing open draft or it does not exist to
-         *     update at all
+         * Update a default question
+         * @description Only a question that belongs to the open draft can be updated; with no open draft, or for
+         *     an unknown question, the response is `404`.
          */
         patch: operations["defaultQuestion.update"];
         trace?: never;
@@ -717,10 +699,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * GET /api/evaluations/summary
-         * @description Aggregates over the identical filter set, sourced from the SAME
-         *     `EvaluationIndexQuery::build()` call as the index — so the summary
-         *     can never describe a different population than the table above it.
+         * Summarize evaluations
+         * @description Returns the mean score per competency and the number of evaluations per status, over the same
+         *     filtered set of evaluations as the list, so the summary never describes a different population.
          */
         get: operations["evaluationIndex.summary"];
         put?: never;
@@ -739,12 +720,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * GET /api/evaluations
-         * @description Two queries total, never per row (D6): the paginated page (via
-         *     `simplePaginate()` — no separate COUNT query, matching design D6's
-         *     "two queries per request, never per row"), plus ONE grouped query
-         *     over `competency_results` for the page's ids to attach each row's
-         *     mean reliability.
+         * List evaluations
+         * @description Returns evaluations 20 to a page, each with its mean reliability.
          */
         get: operations["evaluationIndex.index"];
         put?: never;
@@ -763,32 +740,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * `?token=` documented as REQUIRED (step 5 review follow-up, Part B
-         *     item 5) — Scramble's own inference read
-         *     `$request->query('token', '')`'s literal default and rendered the
-         *     parameter as optional with a `""` default, which is accurate about
-         *     this METHOD'S defensive handling of a missing value (never a 500)
-         *     but not about the CONTRACT: SPEC.md §3.5 names `token` as the one
-         *     parameter this operation accepts, and a caller who omits it always
-         *     gets `401 token_invalid`, never a meaningful 200 — the same
-         *     "required in the contract, defended in code" distinction
-         *     `CreateInterviewRequest`'s own required fields already draw
-         * @description `#[Response(200, type: 'array{access_token: string}')]` (step 6
-         *     review follow-up, Part A item 5) — `$accessToken` starts its life
-         *     assigned a literal `null` below (so it has a value for the
-         *     `$raceLost` early-return branch, which never reads it), and is only
-         *     ever reassigned inside the `DB::transaction()` closure it is passed
-         *     into BY REFERENCE. Scramble's static inference does not follow a
-         *     by-reference mutation through a closure call boundary, so without
-         *     this attribute it read only the INITIAL `null` assignment and
-         *     exported this operation's `200` body as `{access_token: null}` —
-         *     true about the variable's DECLARED starting value, never about what
-         *     a real response actually contains: every code path that reaches
-         *     `response()->json(['access_token' => $accessToken], 200)` below has
-         *     already returned early (`$this->invalid()`/`$this->consumed()`) for
-         *     every case where a candidate JWT was NOT minted, so `$accessToken`
-         *     is always the `string` `CandidateTokenFactory::mintCandidateToken()`
-         *     returns by the time this line runs.
+         * Exchange a session token
+         * @description Exchanges the single-use session token of an interview for a short-lived access token for the
+         *     candidate. A missing, malformed, mis-signed or expired token answers `401 token_invalid`;
+         *     a token that was already used, or superseded by a later one, answers `410 token_consumed`.
          */
         get: operations["exchange.exchange"];
         put?: never;
@@ -807,24 +762,11 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * `GET /api/embed/frame-policy?token=<session_token>` — read-only
-         *     `allowed_domains` lookup for the embed page's `Content-Security-Policy:
-         *     frame-ancestors` header (public-api step 10, SPEC.md §4.4)
-         * @description PUBLIC, deliberately NOT `exchange()` reused: `exchange()` atomically
-         *     CONSUMES the session token (the compare-and-clear UPDATE against
-         *     `session_token_jti`) — calling it from `frontend`'s per-request Nitro
-         *     CSP middleware, ahead of the candidate's OWN later `/embed/exchange`
-         *     call, would burn the single-use token before the candidate ever
-         *     reaches it, or race it into a `410` the candidate never caused. This
-         *     action reads only the token's OWN claims and the organization they
-         *     resolve to — no participant lookup, no write, callable any number of
-         *     times without affecting the token's single-use state.
-         *
-         *     Same `401 token_invalid` shape as `exchange()` for a malformed,
-         *     expired, mis-signed, wrong-audience, or unresolvable-organization
-         *     token — the caller (the CSP middleware) treats ANY non-200 as "cannot
-         *          * resolve a policy", which is the trigger for its own fail-safe
-         *     `frame-ancestors 'none'` default (never "no restriction").
+         * Get the frame policy
+         * @description Read-only lookup of the organization's allowed domains for the embed page's
+         *     `frame-ancestors` policy. Unlike the exchange, it does not consume the session token, so it
+         *     can be called any number of times. A missing, malformed or expired token, or one that names
+         *     no organization, answers `401 token_invalid`.
          */
         get: operations["exchange.framePolicy"];
         put?: never;
@@ -987,12 +929,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * GET /api/framework/versions
-         * @description Returns all FrameworkVersions belonging to the authenticated org.
-         *     TenantScoped global scope limits results to own-org versions only.
-         *     Used by clients when creating a Project to choose which FV to pin.
-         *
-         *     Added by C4.
+         * List framework versions
+         * @description Returns the organization's framework versions, to choose the one to pin when creating a project.
          */
         get: operations["framework.versions"];
         put?: never;
@@ -1011,9 +949,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Return a machine-readable health status
-         * @description This endpoint is NOT localized — it returns the literal string "ok" in every locale.
-         *     Machine-readable status payloads are exempt from the i18n mandate (D31).
+         * Check the platform health
+         * @description Answers `200` with `{"status":"ok"}`, or `503` when the platform is misconfigured. The
+         *     payload is machine-readable and is not localized.
          */
         get: operations["health"];
         put?: never;
@@ -1032,9 +970,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Return the literal, non-localized `{"status":"ok"}` body the contract requires
-         * @description Machine-readable status payloads are exempt from the i18n mandate (D31,
-         *     wrapper CLAUDE.md "Machine-facing responses are not localized").
+         * Check that the API answers
+         * @description Unauthenticated liveness check for client monitors. It always answers `200` with the
+         *     literal body `{"status":"ok"}`, whatever the locale.
          */
         get: operations["public-api.health"];
         put?: never;
@@ -1075,48 +1013,17 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * `data[]` documented as a list of `PublicInterview` objects, and
-         *     `next_cursor` as the nullable string it genuinely is (step 5 review
-         *     follow-up, Part B item 2) — `CursorPage::paginate()`'s own
-         *     `next_cursor: string|null` PHPDoc did not survive being returned
-         *     through `response()->json($rawPage)`, so the exported spec
-         *     previously typed it as a non-nullable `string` and `data[]`'s items
-         *     as untyped. `#[IgnoreResponse]`/`#[Response(400, ...)]` (Part B item
-         *     6) replace the incorrect auto-inferred `422 {message, errors}` this
-         *     method's own `QueryValidationException` throw produced — see
-         *     `Problem::PROBLEM_SHAPE`'s own docblock (step 6 review follow-up,
-         *     Part A item 6: now shared from `App\Support\PublicApi\Problem`
-         *     rather than a copy of the constant declared on this class)
-         * @description `created_after`/`created_before` documented explicitly (step 6 review
-         *     follow-up, Part A item 8) — without a `#[QueryParameter]` override,
-         *     Scramble's own inference picked up the nearest preceding CODE COMMENT
-         *     above `$request->query('created_after')` below as this parameter's
-         *     description (an internal implementation note about
-         *     `validateFilterFormats()`/`Validator::validated()`, meaningless to an
-         *     API consumer, and `created_before` got no description at all). These
-         *     two attributes describe the accepted FORMAT and the `400` a caller
-         *     actually gets on a malformed value, the same contract
-         *     `App\Rules\PublicApi\Iso8601DateTime` enforces.
+         * List interviews
+         * @description Returns the organization's interviews for the mode of the API key, newest first, in
+         *     cursor-paginated pages. Every filter is optional: a filter sent with an empty value is
+         *     treated as not provided, and the unfiltered list is returned.
          */
         get: operations["public-api.interviews.index"];
         put?: never;
         /**
-         * `interview` documented as the `PublicInterview` object it always is
-         *     (step 5 review follow-up, Part B item 1) — `response()->json([...])`'s
-         *     own inferred type only ever saw `InterviewResource::resolve()`'s
-         *     loose `array<string, mixed>` return type, so the exported spec
-         *     previously carried an untyped array here instead of a `$ref`.
-         *     `#[Response(201, ...)]` (not a bare `@response` PHPDoc tag) — the
-         *     PHPDoc form replaces Scramble's ENTIRE inferred response, collapsing
-         *     the real `201` this method actually returns down to a default `200`;
-         *     the attribute form names the status explicitly and overlays onto
-         *     the response Scramble already inferred at it, leaving the other
-         *     auto-inferred statuses (`404`, `409`, `422`) untouched. `metadata`'s
-         *     accepted shape (Part B item 3) is corrected at its source —
-         *     `App\Rules\PublicApi\Metadata::docs()` — rather than here, so
-         *     `CreateInterviewRequest`'s own named schema carries the fix
-         *     directly instead of an `allOf` overlay fighting the same property's
-         *     wrong type inside it
+         * Create an interview
+         * @description Enrols a candidate on an active project. The response carries the new interview, a
+         *     short-lived session token and the URL of the hosted interview.
          */
         post: operations["public-api.interviews.store"];
         delete?: never;
@@ -1149,9 +1056,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * `GET /v1/interviews/{id}/transcript` — SPEC.md §3.3, gate: status
-         *     `under_evaluation` or `completed`, else `409 transcript_not_ready`
-         *     (`error` included — G-15)
+         * Get the transcript
+         * @description Readable once the interview is under evaluation or completed. Before that, and for an
+         *     interview that ended in error, the response is `409 transcript_not_ready`.
          */
         get: operations["public-api.interviews.transcript"];
         put?: never;
@@ -1170,8 +1077,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * `GET /v1/interviews/{id}/answers` — SPEC.md §3.3, same read gate as
-         *     the transcript
+         * Get the answers
+         * @description Readable under the same conditions as the transcript: once the interview is under
+         *     evaluation or completed, otherwise `409 transcript_not_ready`.
          */
         get: operations["public-api.interviews.answers"];
         put?: never;
@@ -1190,8 +1098,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * `GET /v1/interviews/{id}/scoring` — SPEC.md §3.3, gate: status
-         *     `completed` only, else `409 scoring_not_ready`
+         * Get the scoring
+         * @description Readable only once the interview is completed, otherwise `409 scoring_not_ready`.
          */
         get: operations["public-api.interviews.scoring"];
         put?: never;
@@ -1210,20 +1118,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * `GET /v1/interviews/{id}/events` — SPEC.md §3.3, `App\Support\
-         *     PublicApi\CursorPage` in its ASCENDING form (G-12: the one documented
-         *     exception to `created_at desc`). `InterviewEvent.public_id` (`evt_`)
-         *     is what every real row already carries — see that model's own
-         *     docblock; no participant special-cases its absence
-         * @description `cursor`/`limit` documented explicitly (step 6 review follow-up,
-         *     finding 14) — `CursorPage::paginateAscending()` reads both directly
-         *     off `$request` from INSIDE `App\Support\PublicApi\CursorPage`, one
-         *     call frame away from this method's own body, which is why
-         *     Scramble's own static-analysis auto-detection (which scans a
-         *     controller method's own body for `$request->query()`/`$request->
-         *     integer()` calls) never picked them up — the exported spec
-         *     previously documented only the `interview` path parameter for this
-         *     operation.
+         * List interview events
+         * @description Returns the events of one interview in cursor-paginated pages, oldest first. This is the
+         *     one list ordered ascending, by the time each event occurred, rather than newest first.
          */
         get: operations["public-api.interviews.events"];
         put?: never;
@@ -1245,39 +1142,11 @@ export interface paths {
         put?: never;
         /**
          * Create or resume a provider session for the next competency interview
-         * @description Sequence (from design data flow — CRITICAL: provider call is OUTSIDE any DB txn):
-         *     (1) Resolve next competency by project_competencies.position ASC.
-         *     (1b) `ProjectInterviewability` gate (framework-catalogue-authoring PR6,
-         *          D5/D6) — 422 `project_not_interviewable`, skipped when a session
-         *          already exists for THIS competency; see the gate's own inline
-         *          comment for the whole-project vs. per-competency distinction.
-         *     (2) Create-or-RESUME: INSERT or catch UniqueConstraintViolationException → re-query.
-         *     (3) ProviderSessionService.issue() — OUTSIDE any DB transaction.
-         *     (4a) Provider success → short DB txn: UPDATE session + participant (FIX-8).
-         *     (4b) Provider 5xx → session error + participant errore + 502.
-         *     (4c) Provider 429 → session stays pending + 429 provider_busy (NOT errore).
-         *     (4d) DB failure after provider success → teardown(in-memory token) + 500.
-         *
-         *     RESUME in_corso:
-         *       - Harvest the outgoing transcript, then compose: the opening re-asks the
-         *         pending primary verbatim. A composition failure answers 422, as on a
-         *         fresh start, and ends the outgoing provider session on its way out —
-         *         nothing else would, and it bills until the provider's own ceiling.
-         *       - issue() FRESH token.
-         *       - Teardown OLD session via ProviderToken::fromRef($session->provider, $session->provider_session_ref).
-         *       - Persist new ref.
-         *
-         *     RESUME pending:
-         *       - Retry issue(). On success, persist ref and flip to in_corso.
-         *
-         *     FIX-8: both session UPDATE and participant UPDATE are inside ONE short transaction.
-         *
-         *     The 201 shape is spelled out for Scramble because it cannot follow
-         *     `buildSuccessResponse()` — a private helper two call sites deep, whose
-         *     fields come from method calls on `$this`. Left inferred, it produced a
-         *     shape MISSING `audio_only` entirely, and the candidate app generates its
-         *     client from this spec: the field existed on the wire, was absent from the
-         *     type, and reading it was a compile error in the app that needs it.
+         * @description Starts the interview of the next competency, or resumes it: the provider session is created, or,
+         *     for an interview already in progress, replaced by a fresh one. The response carries the session and
+         *     the context of its first question. `422 project_not_interviewable` means the project cannot be
+         *     interviewed, `429 provider_busy` means the provider is busy and the call can be retried, and `502`
+         *     means the provider failed.
          */
         post: operations["interview.start"];
         delete?: never;
@@ -1354,38 +1223,10 @@ export interface paths {
         put?: never;
         /**
          * End a provider session, reconcile the transcript, and (on last question) dispatch scoring
-         * @description Sequence (CRITICAL-3 atomicity boundary = steps 3–6 in ONE explicit txn):
-         *     (1) resolveOwnedSession → 404 if not owned.
-         *     (2) Validate ended_reason ∈ {completed, timeout, skipped}; reject 'error' → 422 (FIX-11).
-         *     (3) BEGIN EXPLICIT DB TRANSACTION + SELECT FOR UPDATE on session.
-         *     (4) FIX-3 guard: if session.status !== 'in_corso' → ROLLBACK → 409.
-         *     (5) HeyGen: replaceUtterances inside txn. Tavus: no reconcile.
-         *     (6) UPDATE session status = ended_reason, ended_at = now().
-         *     (7) Count ended sessions for this participant+project, via CompetencyTally::ended():
-         *         status ∈ {completed, timeout, skipped}, OR status = 'error' with
-         *         error_count >= MAX_ERROR_ATTEMPTS. That last disjunct is not optional —
-         *         settleCompletionIfFinished()'s docblock below explains at length that a
-         *         tally disagreeing with resolveNextCompetency() is what stranded participants.
-         *     (8) Last-question CAS: Participant::where(id, status=in_corso)->update(in_valutazione).
-         *         Only if $won === 1: dispatch FinalizeInterview::dispatch($pid)->afterCommit().
-         *     (9) COMMIT. Return 200.
-         *
-         *     PR4 (design D7, F1 fix): step (5)'s `reconcileTranscript()` now THROWS
-         *     `ProviderTranscriptShapeException` on a shape-mismatched transcript response
-         *     instead of silently degrading to `[]`. Because the throw happens BEFORE
-         *     `replaceUtterances()` runs its DELETE, and propagates out of THIS transaction
-         *     closure, `DB::transaction()` rolls back the ENTIRE txn automatically — the
-         *     DELETE never commits, ended_at is never stamped, and FinalizeInterview is
-         *     never dispatched. Caught below and surfaced as 502 (Upstream classification).
-         *
-         *     The 200 body is spelled out for Scramble, which could not follow it
-         *     through `buildDirective()` and therefore published this endpoint as
-         *     returning NOTHING. That is not a cosmetic gap: the candidate app's whole
-         *     directive state machine — continue / pause / done — plus the progress
-         *     readout on the end-of-question and transition screens all read these three
-         *     fields, so the generated client said the body was empty while the app
-         *     depended on it. The drift check stayed green because it compares the spec
-         *     to the generated types and cannot see a hand-written inline generic.
+         * @description Ends the current competency with an `ended_reason` of `completed`, `timeout` or `skipped` (`error`
+         *     is refused with `422`). The response says whether the interview continues, pauses or is done.
+         *     `404` means the session does not belong to the candidate, `409` that it is no longer in progress,
+         *     and `502` that the provider returned a transcript in an unexpected shape.
          */
         post: operations["interview.end"];
         delete?: never;
@@ -1485,10 +1326,9 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * PATCH /api/organization
-         * @description `slug` is intentionally never read from the request — only()
-         *     whitelists the writable fields, so a `slug` key in the body is
-         *     silently dropped rather than validated-then-rejected (D2).
+         * Update the organization
+         * @description Accepts `name`, the default webhook settings and `primary_color`. Any other field in the body is
+         *     ignored.
          */
         patch: operations["organization.update"];
         trace?: never;
@@ -1505,9 +1345,7 @@ export interface paths {
         post: operations["organizationLogo.store"];
         /**
          * Remove the logo, returning the organization to the product's own mark
-         * @description Absent is a supported state, not a broken one — DESIGN.md's Quint logo is
-         *     what renders when none is configured — so this is a legitimate action
-         *     rather than an undo.
+         * @description Having no logo is a supported state: the product logo is shown when none is configured.
          */
         delete: operations["organizationLogo.destroy"];
         options?: never;
@@ -1561,15 +1399,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * GET /api/participants
-         * @description Server-paginated (D5 — a fresh authorized query per page, never
-         *     fetch-all + client filter). Sort is fixed (created_at desc, id desc):
-         *     no client-specified sort column reaches the query builder.
-         *
-         *     `q` matches `candidate_ref`, `display_name` and `source` as a
-         *     case-insensitive substring, taking `%`, `_` and `\` literally, and the
-         *     candidate's `external_id` by exact equality, only when the trimmed term
-         *     is a whole number from 1 to 9007199254740991.
+         * List participants
+         * @description Paginated on the server, newest first. The `q` filter matches `candidate_ref`, `display_name` and
+         *     `source` as a case-insensitive substring, and the candidate's `external_id` by exact equality when
+         *     the trimmed term is a whole number from 1 to 9007199254740991.
          */
         get: operations["participant.index"];
         put?: never;
@@ -1588,8 +1421,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * GET /api/participants/{id}
-         * @description Summary scope (D2) — RBAC only, readable regardless of lifecycle status.
+         * Get a participant
+         * @description Readable whatever the participant's lifecycle status.
          */
         get: operations["participant.show"];
         put?: never;
@@ -1608,10 +1441,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * GET /api/participants/{id}/transcript
-         * @description Transcript scope (D2) — requires lifecycle >= in_corso, OR errore
-         *     (operator-participant-visibility D1); a pre-threshold status (in_attesa)
-         *     raises LifecycleNotReadyException -> 409 (D4).
+         * Get a participant's transcript
+         * @description Available once the interview is in progress, and for an interview that ended in error; before
+         *     that the response is `409`.
          */
         get: operations["participant.transcript"];
         put?: never;
@@ -1630,9 +1462,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * GET /api/participants/{id}/evaluation
-         * @description Evaluation scope (D2) — requires lifecycle === completato; anything
-         *     else raises LifecycleNotReadyException -> 409 (D4).
+         * Get a participant's evaluation
+         * @description Available only once the interview is completed; otherwise the response is `409`.
          */
         get: operations["participant.evaluation"];
         put?: never;
@@ -1701,19 +1532,17 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Cancel a participant's scheduled interview (interview-scheduling,
-         *     design AD-7, tasks T-E4)
-         * @description DELETE /api/m2m/participants/{id}/schedule
-         *     Auth: auth:api-m2m + ability:participants:schedule
+         * Cancel a participant's scheduled interview
+         * @description Requires the `participants:schedule` ability.
          */
         delete: operations["participant.cancelSchedule"];
         options?: never;
         head?: never;
         /**
-         * Reschedule a participant's scheduled interview (interview-scheduling,
-         *     design AD-7, tasks T-E4)
-         * @description PATCH /api/m2m/participants/{id}/schedule
-         *     Auth: auth:api-m2m + ability:participants:schedule
+         * Reschedule a participant's scheduled interview
+         * @description Requires the `participants:schedule` ability. `scheduled_at` is an ISO 8601 date-time with an
+         *     explicit offset, in the future and at least the minimum lead time ahead. A refusal answers with
+         *     a `reason`.
          */
         patch: operations["participant.updateSchedule"];
         trace?: never;
@@ -1835,10 +1664,9 @@ export interface paths {
         head?: never;
         /**
          * Edit a platform avatar template
-         * @description An edit reaches EVERY project that pins this template, in every
-         *     organization, on the next read (live edit, design D1) — which is why the
-         *     audit row carries the usage at edit time: the reach of the change is part
-         *     of what happened. It records field NAMES, never config values.
+         * @description An edit reaches every project that pins this template, in every organization, on the next read.
+         *     The audit trail records the usage at edit time and the names of the changed fields, never the
+         *     config values.
          */
         patch: operations["platformAvatarTemplate.update"];
         trace?: never;
@@ -2013,11 +1841,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * PATCH /api/profile
-         * @description `role`, `organization_id`, `is_superadmin`, `deactivated_at` are
-         *     never read from the request at all — `only()` whitelists the writable
-         *     fields, so any of those keys in the body is silently dropped rather
-         *     than validated-then-rejected (design D2).
+         * Update the profile
+         * @description Accepts `name`, `email` and `locale`. Any other field in the body is ignored.
          */
         patch: operations["profile.update"];
         trace?: never;
@@ -2031,18 +1856,9 @@ export interface paths {
         };
         get?: never;
         /**
-         * PUT /api/profile/password
-         * @description The acting session survives by RE-MINTING, not by exemption (design
-         *     D3): sets the password and `password_changed_at`, then
-         *     `$guard->logout()` denylists the ACTING jti (the SAME mechanism
-         *     AuthController::logout() uses), then `$guard->login($user)` mints a
-         *     brand-new token whose `iat >= password_changed_at`, returned in the
-         *     body — the same {access_token, token_type} shape as
-         *     AuthController::refresh().
-         *
-         *     `iat` is second-precision (design D3): `startOfSecond()` here pairs
-         *     with RejectStaleCredentials's strict `<` comparison, so a token minted
-         *     in the same wall-clock second as this change is not born dead.
+         * Change the password
+         * @description Sets the new password and returns a new access token (`access_token`, `token_type`); the token
+         *     used for the request stops working.
          */
         put: operations["profile.updatePassword"];
         post?: never;
@@ -2062,34 +1878,15 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * POST /api/profile/photo
-         * @description Validation order matters (design D3b) — the first four steps touch
-         *     only the PHP temp file, so a rejected upload NEVER reaches the disk:
-         *       1. UpdateProfilePhotoRequest (required|file|max:2048 KB, shape only
-         *          — a fast pre-check against a hardcoded literal, NOT itself
-         *          config-driven; step 2 below is the real enforcement point).
-         *       2. Magic-byte verdict (content, never the declared type)
-         *       3. $file->getSize() > config('profile.photo.max_bytes') — the ACTUAL
-         *          byte cap (post-apply verification finding: this step was
-         *          missing; the FormRequest literal merely coincided with the
-         *          config default and could not be overridden).
-         *       4. getimagesize() — false, or over the configured dimension cap
-         *       5. Storage::putFileAs(...) — no disk() argument (SingleStorageDiskArchTest)
-         *       6. $user->profile_photo_path = $newKey; $user->save();
-         *          throws → delete the NEW key in the catch, then re-throw — never
-         *          orphan the object the row-write that just failed never pointed to.
-         *       7. After the row commits, delete the OLD key. Logged, never fatal:
-         *          at most one stale object per user is preferable to failing a
-         *          request over a change that already succeeded.
+         * Upload the profile photo
+         * @description The upload is checked by its content rather than its declared type, and against the configured
+         *     size and dimension limits; a rejected upload is never stored. Errors are returned as codes, for
+         *     example `photo_invalid_image`.
          */
         post: operations["profilePhoto.store"];
         /**
-         * DELETE /api/profile/photo
-         * @description Object-first, then null the column — exactly purgeSnapshots()'s
-         *     ordering (design D5): a failed object delete leaves the row intact
-         *     for a retryable second call, and S3/R2 deletes are idempotent, so a
-         *     second DELETE with nothing left to remove still succeeds (design
-         *     spec: "Removing a photo twice ... still 200").
+         * Remove the profile photo
+         * @description Removing a photo that is already gone still succeeds.
          */
         delete: operations["profilePhoto.destroy"];
         options?: never;
@@ -2105,20 +1902,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * SPEC.md §3.2 "Filtering on list endpoints: `status`, ...". `role_code`
-         *     and `assessment_type` are Public-API-specific additions this
-         *     operation's own contract entry lists (`openapi.yaml` `listProjects`
-         *     parameters). An unrecognised value for any of the three answers `400
-         *     validation_failed` via `QueryValidationException` (G-28) — a
-         *     malformed QUERY PARAMETER, never `422`
-         * @description `data[]` documented as a list of `PublicProject` objects and
-         *     `next_cursor` as nullable (step 5 review follow-up, Part B item 2) —
-         *     same fix, same reasoning, as `InterviewController::index()`'s own
-         *     docblock. `#[IgnoreResponse]`/`#[Response(400, ...)]` (Part B item 6)
-         *     replace the incorrect auto-inferred `422` this method's own
-         *     `QueryValidationException` throw produced — the shape now shared
-         *     from `Problem::PROBLEM_SHAPE` (step 6 review follow-up, Part A item
-         *     6) rather than a copy of the constant this class used to declare.
+         * List projects
+         * @description Returns the organization's projects in cursor-paginated pages, newest first. The `status`,
+         *     `role_code` and `assessment_type` filters are optional: an empty value is treated as not
+         *     provided, and an unrecognised value answers `400 validation_failed`.
          */
         get: operations["public-api.projects.index"];
         put?: never;
@@ -2137,19 +1924,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * `$project` is the RAW path segment (`prj_...`), resolved manually
-         *     rather than through implicit Eloquent route-model binding: the
-         *     existing admin `Route::apiResource('projects', ProjectController::class)`
-         *     already binds the SAME `{project}` route parameter name to an
-         *     integer id, and a second, public-id-based binding registered on the
-         *     same parameter name would either collide with it or require touching
-         *     `App\Models\Project::resolveRouteBinding()` globally — which the
-         *     admin surface must never see (it keeps using integer ids). Resolving
-         *     by hand here keeps the two surfaces fully independent, and
-         *     `PublicId::decode()` returning `null` on ANY malformed/mismatched-
-         *     prefix input, funnelled into the exact same "no row" 404 branch as a
-         *     syntactically valid but unknown id, is what guarantees a mismatched
-         *     prefix answers `404 not_found`, never `400` (SPEC.md §3.2)
+         * Get a project
+         * @description A project id that is malformed or unknown answers `404 not_found`.
          */
         get: operations["public-api.projects.show"];
         put?: never;
@@ -2524,8 +2300,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * `422` with the FULL violations list on a failing sweep — one response
-         *     naming every problem, `state` left `draft` (design D3)
+         * Publish the draft revision
+         * @description Publishes the open draft of the catalogue. A failing check answers `422` with the full list of
+         *     violations and the draft stays a draft. With no open draft the response is `404`.
          */
         post: operations["revision.publish"];
         delete?: never;
@@ -2577,11 +2354,9 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Never opens a draft (gga review finding) — the target `$role` either
-         *     already belongs to an existing open draft or it does not exist to
-         *     update at all; opening a fresh clone here would copy ~450 rows only
-         *     to 404 immediately after, since a freshly-cloned row's id can never
-         *     equal the id named in the URL
+         * Update a role
+         * @description Only a role that belongs to the open draft can be updated; with no open draft, or for an unknown
+         *     role, the response is `404`.
          */
         patch: operations["role.update"];
         trace?: never;
@@ -2595,12 +2370,10 @@ export interface paths {
         };
         get?: never;
         /**
-         * `PUT /catalogue/roles/{role}/competencies` (framework-catalogue-authoring
-         *     PR8b). Replaces the role's ENTIRE competency set in one locked write —
-         *     attach, detach and reorder are the same `sync()` call against a pivot
-         *     that already carries a `position` column, never three endpoints. Never
-         *     auto-opens a draft — see `UpdateRoleCompetenciesRequest`'s own
-         *     no-auto-open rationale, identical to `update()` above
+         * Replace a role's competencies
+         * @description Replaces the role's whole competency set in one write, so attaching, detaching and reordering are
+         *     the same operation. Only a role that belongs to the open draft can be updated; with no open draft,
+         *     or for an unknown role, the response is `404`.
          */
         put: operations["role.updateCompetencies"];
         post?: never;
@@ -2761,16 +2534,8 @@ export interface paths {
         };
         /**
          * Every client, with the platform-wide statistics the console renders
-         * @description Reachable ONLY by a superadmin. `ClientOverviewReader` strips the
-         *     tenant scope itself — an "Act as" selection MUST NOT narrow this
-         *     estate to one client (design D2 Trap 1): the superadmin's own ambient
-         *     bypass goes OFF the moment they act as somebody, and a scoped read
-         *     would then return one organization instead of every client the page
-         *     exists to show.
-         *
-         *     The shape is declared for Scramble for the same reason `organizations()`
-         *     and `settings()` already are: `app(ClientOverviewReader::class)->all()`
-         *     is a container call it cannot follow.
+         * @description Reachable only by a superadmin. The list is never narrowed by an "Act as" selection: it always
+         *     covers every client.
          */
         get: operations["superadmin.clients"];
         put?: never;
@@ -2918,19 +2683,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * POST /api/users/{id}/deactivate
-         * @description The guard refusal is RETURNED, not left to `UserGuardException::render()`.
-         *     Scramble infers error responses from what a controller visibly answers,
-         *     so a globally-rendered 422 never reached the generated client — and the
-         *     backoffice reads `{error}` off exactly this rejection to explain the
-         *     refusal. A contract the client depends on and the spec does not declare
-         *     is one rename away from silently degrading.
-         *
-         *     The 422 body is `{error, message}`: `last_admin` when refusing for a
-         *     peer, `self_deactivation` when the caller is the last one.
-         *
-         *     204 No Content. Soft deactivation only — the row survives so
-         *     audit-relevant authorship survives (D5).
+         * Deactivate a user
+         * @description Soft deactivation: the user's record is kept so that authorship in the audit trail survives.
+         *     Answers `204` on success, or `422` with `{error, message}` when refused: `error` is `last_admin`
+         *     or `self_deactivation`.
          */
         post: operations["user.deactivate"];
         delete?: never;
@@ -3000,7 +2756,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** `GET /v1/webhooks/deliveries` — SPEC.md §3.6 "Delivery log" */
+        /**
+         * List webhook deliveries
+         * @description Returns the delivery attempts of the organization's webhooks, newest first, in
+         *     cursor-paginated pages. The `status`, `event_type` and `interview_id` filters are
+         *     optional: an empty value is treated as not provided, and an unrecognised `status` or
+         *     `event_type` answers `400 validation_failed`.
+         */
         get: operations["public-api.webhooks.deliveries.index"];
         put?: never;
         post?: never;
@@ -3020,9 +2782,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * `POST /v1/webhooks/deliveries/{id}/redeliver` — re-queues one
-         *     delivery for immediate re-send. Allowed only from a terminal
-         *     `delivered`/`failed_permanent`/`dead` state
+         * Redeliver a webhook delivery
+         * @description Re-queues one delivery for immediate re-send. Allowed only from a terminal state:
+         *     `delivered`, `failed_permanent` or `dead`.
          */
         post: operations["public-api.webhooks.deliveries.redeliver"];
         delete?: never;
@@ -3072,7 +2834,7 @@ export interface components {
         };
         /**
          * ApiKeyMode
-         * @description `live`/`test` mode of a BEAI M2M / public-API key (C5, public-api step 2 — SPEC.md §3.7 "Test mode"). Review follow-up on step 2: the marker string (`beai_live_`/`beai_test_`), the DB column value (`live`/`test`) and the mode literal used across `App\Services\ApiKeyGenerator`, `App\Support\PublicApi\ApiMode`, `App\Http\Middleware\PublicApi\AuthenticatePublicApi`, `App\Http\Controllers\M2m\ApiClientController` and `App\Models\ApiClient` used to be five independent string literals that happened to agree. This enum is the single source of truth all of them now read from.
+         * @description The mode of an API key: `live` or `test`. A key only ever reads and writes data of its own mode, so live and test data are kept apart.
          * @enum {string}
          */
         ApiKeyMode: "live" | "test";
@@ -3147,13 +2909,12 @@ export interface components {
          * AvatarVoicePreviewRequest
          * @description Body of `POST /api/avatar-templates/voice-preview`.
          *
-         *     There is deliberately NO free-text field: the sample sentence lives in
-         *     `config/avatar_preview.php`, so an unknown key such as `text` is simply never
-         *     read. `voice_id` is format-restricted because it is interpolated into a
-         *     provider URL path (ElevenLabs, LiveAvatar).
+         *     There is deliberately no free-text field: the sample sentence is fixed by the platform, so an
+         *     unknown key such as `text` is simply never read. `voice_id` is format-restricted because it is
+         *     interpolated into a provider URL path (ElevenLabs, LiveAvatar).
          *
-         *     Authorization is done in the controller with the same `create` ability as
-         *     authoring a template, like the sibling export/import actions.
+         *     Authorization is done in the controller with the same `create` ability as authoring a template,
+         *     like the sibling export/import actions.
          */
         AvatarVoicePreviewRequest: {
             /** @enum {string} */
@@ -3255,17 +3016,8 @@ export interface components {
         };
         /**
          * CreateExportRequest
-         * @description `POST /v1/exports` request validation (public-api step 8, SPEC.md §3.3
-         *     "Exports", `openapi.yaml`'s `CreateExportRequest` schema).
-         *
-         *     FORMAT only — the "one active export per organization" concurrency gate
-         *     needs the resolved `Organization` and lives in
-         *     `App\Http\Controllers\PublicApi\ExportController::store()`, mirroring
-         *     `CreateInterviewRequest`'s own division of labour.
-         *
-         *     `authorize()` returns `true` unconditionally — scope enforcement
-         *     (`scope:exports:write`) is `App\Http\Middleware\PublicApi\RequireScope`'s
-         *     job, applied per-route in `routes/api.php`.
+         * @description The body of `POST /v1/exports`: what to export, in which format, and an optional
+         *     time window.
          */
         CreateExportRequest: {
             /** @enum {string} */
@@ -3280,21 +3032,8 @@ export interface components {
         };
         /**
          * CreateInterviewRequest
-         * @description `POST /v1/interviews` request validation (public-api step 5, SPEC.md §3.3
-         *     "Create interview — request", `CreateInterviewRequest` schema).
-         *
-         *     FORMAT only — `project_id`'s prefix/existence/tenancy, the project-active
-         *     gate, the `exit_redirect_url` allowed-domain check and the duplicate-
-         *     enrolment check all need the resolved `Project`/`Organization` and live
-         *     in `App\Http\Controllers\PublicApi\InterviewController::store()` and
-         *     `App\Actions\PublicApi\EnrolCandidate` — mirroring
-         *     `App\Http\Controllers\PublicApi\ProjectController::show()`'s own "decode,
-         *      * never bind" discipline for a public-id path/body field (G-36).
-         *
-         *     `authorize()` returns `true` unconditionally: scope enforcement is
-         *     `App\Http\Middleware\PublicApi\RequireScope`'s job, applied per-route in
-         *     `routes/api.php` (`scope:interviews:write`) — the SAME division of labour
-         *     every other `/v1` write endpoint follows.
+         * @description The body of `POST /v1/interviews`: the candidate to enrol, the project to
+         *     enrol them on, and optional metadata and redirect URL.
          */
         CreateInterviewRequest: {
             project_id: string;
@@ -3302,22 +3041,11 @@ export interface components {
                 candidate_ref: string;
                 /**
                  * Format: email
-                 * @description max:255 (gga round 3 finding 2) — matches participants.email's
-                 *     own column width; without it a caller-supplied value long
-                 *     enough to overflow that column reaches the database as a
-                 *     truncation error (500) instead of the intended 422 here.
+                 * @description Valid email address, at most 255 characters.
                  */
                 email: string;
                 display_name: string;
-                /**
-                 * @description ISO 639-1, matching `openapi.yaml`'s `Language` schema pattern
-                 *     exactly (`^[a-z]{2}$`) — no further allow-list check: the
-                 *     contract does not restrict `candidate.language` to a
-                 *     per-project or per-platform locale set, and this endpoint has
-                 *     no such catalogue to validate against (unlike
-                 *     `config/translatable.php`'s `supported_locales`, which is a
-                 *     BACKOFFICE UI concept).
-                 */
+                /** @description ISO 639-1 language code: two lowercase letters, for example `it`. */
                 language?: string | null;
                 external_id?: number | null;
                 source?: string | null;
@@ -3328,12 +3056,7 @@ export interface components {
             } | null;
             /**
              * Format: uri
-             * @description https-only (SPEC.md §3.3 "It must be https") — `url` alone
-             *     accepts http too, so the scheme is checked separately.
-             *     max:2048 (gga round 3 finding 2) — matches the migration's own
-             *     `varchar(2048)` column width for this field, and the admin
-             *     `StoreProjectRequest`/`UpdateProjectRequest` validation rule
-             *     for the same-shaped `exit_redirect_url` field.
+             * @description Must be an https URL of at most 2048 characters.
              */
             exit_redirect_url?: string | null;
         };
@@ -3409,15 +3132,8 @@ export interface components {
         };
         /**
          * ForgotPasswordRequest
-         * @description Validates `POST /api/auth/forgot-password` (self-service-password-reset AD-3).
-         *
-         *     `exists:users,email` is DELIBERATELY ABSENT and must never be added. It would
-         *     make the validator itself the account-enumeration oracle this whole flow is
-         *     built to avoid — a 422 for "unknown" and a 202 for "known" is a cleaner
-         *     signal than any timing difference.
-         *
-         *     Only the FORMAT is validated. That is safe: it says something about the
-         *     string the caller typed, never about whether an account exists behind it.
+         * @description The body of `POST /api/auth/forgot-password`. Only the format of the email address is
+         *     validated, so the response never reveals whether an account exists.
          */
         ForgotPasswordRequest: {
             /** Format: email */
@@ -3727,15 +3443,7 @@ export interface components {
             livemode: boolean;
             metadata: unknown[];
             exit_redirect_url: string | null;
-            /**
-             * @description ALWAYS null here — a plain read never has a fresh session
-             *     token to embed one for. Exported as `string|null` (not the
-             *     literal `null` this line alone would infer) by
-             *     `App\Support\Scramble\InterviewHostedUrlNullableExtension` —
-             *     see that class's own docblock; step 6 review follow-up, Part
-             *     A item 4 removed the runtime config hack this used to
-             *     route through.
-             */
+            /** @description Always `null` on a read: the hosted interview URL is returned only together with a freshly issued session token. */
             hosted_url: string | null;
             progress: string | {
                 competency_code: string;
@@ -3748,22 +3456,7 @@ export interface components {
             completed_at: string | null;
             transcript_ready: boolean;
             scoring_ready: boolean;
-            /**
-             * @description G-01: true iff an `interview_recordings` row exists for this
-             *     participant (audio only — video is never exposed, see
-             *     `App\Http\Controllers\PublicApi\RecordingController`'s own
-             *     docblock). gga review, step 6 follow-up, finding 5: this used
-             *     to be a hardcoded `false` left over from before step 6 built
-             *     the recording pipeline.
-             *     (bool) cast — `self::recordingReady()`'s return flows through
-             *     a loop-populated array (`recordingReadyForMany()`'s own
-             *     `$result[...] = true;`), which Scramble's export could not
-             *     narrow precisely and rendered as `anyOf: [string, boolean]`
-             *     without this cast, despite the method's own native `: bool`
-             *     return type. Caught via the `scramble:export` diff, not a
-             *     test — same class of fix as
-             *     `App\Support\Scramble\InterviewHostedUrlNullableExtension`.
-             */
+            /** @description `true` when an audio recording of the interview is available. Audio only: video is never exposed. */
             recording_ready: boolean;
             created_at: string;
             updated_at: string;
@@ -3780,15 +3473,7 @@ export interface components {
                 language: string;
                 status: string;
                 framework_version: {
-                    /**
-                     * @description `framework_version_id` is NOT NULL, but the relation
-                     *     accessor's static type is still nullable (an unloaded
-                     *     relation renders null rather than fatal, the same
-                     *     discipline `Project::avatarTemplate()`'s own docblock
-                     *     documents) — an empty string/null pair is the honest
-                     *     answer when the caller forgot to eager-load it, never a
-                     *     fatal error on a read-only endpoint.
-                     */
+                    /** @description The version of the framework the project is pinned to. */
                     version: string;
                     label: string | null;
                 };
@@ -3805,12 +3490,7 @@ export interface components {
         PublicOrganization: {
             id: string;
             name: string;
-            /**
-             * @description "mode (of the key)" — SPEC.md §3.3 — the AUTHENTICATED KEY's
-             *     mode, never an organization column (there isn't one): the
-             *     same organization answers `live` through a live key and
-             *     `test` through a test key.
-             */
+            /** @description The mode of the API key making the request, not a property of the organization: the same organization answers `live` through a live key and `test` through a test key. */
             mode: string;
             allowed_domains: unknown[];
             created_at: string;
@@ -3825,15 +3505,7 @@ export interface components {
             language: string;
             status: string;
             framework_version: {
-                /**
-                 * @description `framework_version_id` is NOT NULL, but the relation
-                 *     accessor's static type is still nullable (an unloaded
-                 *     relation renders null rather than fatal, the same
-                 *     discipline `Project::avatarTemplate()`'s own docblock
-                 *     documents) — an empty string/null pair is the honest
-                 *     answer when the caller forgot to eager-load it, never a
-                 *     fatal error on a read-only endpoint.
-                 */
+                /** @description The version of the framework the project is pinned to. */
                 version: string;
                 label: string | null;
             };
@@ -3847,22 +3519,9 @@ export interface components {
         };
         /**
          * ResetPasswordRequest
-         * @description Validates `POST /api/auth/reset-password` (self-service-password-reset AD-2).
-         *
-         *     Validation runs BEFORE the token is presented to the broker, so a typo in the
-         *     new password — a mismatched confirmation, one character short — does NOT burn
-         *     the single-use token. A locked-out user gets one link; spending it on a typo
-         *     would send them back to the start.
-         *
-         *     `min:8` matches the floor the admin path (`UpdateUserRequest`) and the
-         *     self-service path (`UpdatePasswordRequest`) already use. A stricter floor
-         *     here would be theatre: the same account can be given a shorter password
-         *     through either of those two routes.
-         *
-         *     `exists:users,email` is absent here for the same reason as in
-         *     `ForgotPasswordRequest`, though the exposure is smaller — a caller must also
-         *     hold a valid token. The controller answers unknown-user, deactivated-user and
-         *     bad-token with ONE generic failure.
+         * @description The body of `POST /api/auth/reset-password`: the reset token, the account email address and the
+         *     new password. The password is validated before the single-use token is used, so a typo does not
+         *     spend the reset link.
          */
         ResetPasswordRequest: {
             token: string;
@@ -3906,10 +3565,7 @@ export interface components {
             ended_reason: string | null;
             started_at: string | null;
             ended_at: string | null;
-            /**
-             * @description (interview-session-started-at, D3) Accumulated LIVE time, never
-             *     the wall-clock span. The caller MUST eager-load `livePeriods`.
-             */
+            /** @description Accumulated live time of the session in seconds, not the wall-clock span between start and end. */
             duration_seconds: number | null;
             integrity: {
                 score: number;
@@ -3931,20 +3587,7 @@ export interface components {
                 events: unknown[];
             };
             snapshots: unknown[];
-            /**
-             * @description TWO SEPARATE labelled lines, never one combined total — the
-             *     same refusal already ratified at `SessionCostEstimator.php:20-22`
-             *     for avatar-vs-LLM spend: different vendors, different meters. `avatar`: minutes only. `ai_requests` has no interview_session_id,
-             *     so LLM spend cannot be attributed to one session without
-             *     inventing the link — and a plausible number with no basis is
-             *     worse than an absent one (D5).
-             *
-             *     `llm`: null when the session was never billed (unbound/degraded —
-             *     no vendor default is priced). When present, `actual_usd`
-             *     renders ONLY when non-null (pluggable-conversation-llm PR P6b,
-             *     design D5: permanently null in managed mode, reserved for a
-             *     future native_duplex change).
-             */
+            /** @description Cost of the session as two separate lines, never one combined total: `avatar` is in minutes only, and `llm` is `null` when the session was never billed. */
             cost: {
                 avatar: {
                     provider: string;
@@ -4002,23 +3645,13 @@ export interface components {
             ended_at: string | null;
             duration_seconds: number | null;
             integrity_event_count: string | 0;
-            /**
-             * @description (pluggable-conversation-llm PR P6b) A separate line, never
-             *     combined with any avatar-minute figure. `actual_cost_usd` is
-             *     preferred when non-null (permanently null in managed mode;
-             *     reserved for a future native_duplex change). `null` — never
-             *     `0` — when the session was never billed (no usage row: it
-             *     resolved unbound/degraded).
-             */
+            /** @description Language model cost of the session, in USD, as a line separate from any avatar figure; `null` when the session was never billed. */
             llm_cost_usd: number | null;
         };
         /**
          * StoreBarsIndicatorRequest
-         * @description `POST /api/catalogue/bars-indicators` (framework-catalogue-authoring
-         *     PR3, D3). Refuses a 4th indicator for `(revision, role, competency)` —
-         *     `catalogue-authoring` spec: "Each BARS indicator write MUST enforce
-         *      * exactly 3 indicators per role×competency pair ... at the FormRequest and
-         *      * DB-constraint layer, not only at seed time."
+         * @description The body of `POST /api/catalogue/bars-indicators`. A role and competency pair holds exactly three
+         *     indicators, so a fourth one is refused.
          */
         StoreBarsIndicatorRequest: {
             text: {
@@ -4039,17 +3672,12 @@ export interface components {
             };
             competency_id: number;
             position: number;
-            /**
-             * @description Nullable: a `potential` competency's indicators MUST carry
-             *     `role_id = null` (PublishRevision's own sweep, D3) — the
-             *     FormRequest does not refuse null here, only validates the
-             *     value's shape when present.
-             */
+            /** @description Nullable: the indicators of a `potential` competency carry no role. */
             role_id?: number | null;
         };
         /**
          * StoreCompetencyRequest
-         * @description `POST /api/catalogue/competencies` (framework-catalogue-authoring PR3).
+         * @description The body of `POST /api/catalogue/competencies`.
          */
         StoreCompetencyRequest: {
             name: {
@@ -4066,19 +3694,7 @@ export interface components {
         };
         /**
          * StoreDefaultQuestionRequest
-         * @description `POST /api/catalogue/default-questions` (framework-catalogue-authoring
-         *     PR4, catalogue-authoring spec — "Catalogue-Level Default Questions Per
-         *      * Competency").
-         *
-         *     Both `en` AND `it` are mandatory here — deliberately stricter than every
-         *     other catalogue FormRequest's `localeMapRules()` default (`en` mandatory,
-         *     `it` optional-but-non-blank-when-present, `StoreRoleRequest`/
-         *     `StoreCompetencyRequest`/`StoreBarsIndicatorRequest`'s own shape). A
-         *     default question is a TEMPLATE `ApplyCompetencySelection` (PR5) copies
-         *     verbatim into `project_questions` the moment a project first selects the
-         *     competency, in whatever language that project runs in — an operator
-         *     authoring one in `en` only would silently ship an Italian project a blank
-         *     question the day it is first selected, with no later gate to catch it.
+         * @description The body of `POST /api/catalogue/default-questions`. The question is required in both `en` and `it`.
          */
         StoreDefaultQuestionRequest: {
             text: {
@@ -4102,12 +3718,8 @@ export interface components {
         };
         /**
          * StorePlatformUserRequest
-         * @description Validates POST /api/admin/platform-users (platform-user-management D2).
-         *
-         *     There is no `role` rule and no `organization_id` rule, and their absence is
-         *     the point rather than an omission: both are DECIDED by the surface, exactly
-         *     as `/api/users` decides them for an organization's people. A field that is
-         *     never read cannot be crafted.
+         * @description The body of `POST /api/admin/platform-users`. The role and the organization are decided by the
+         *     endpoint, not by the caller, so they are not accepted here.
          */
         StorePlatformUserRequest: {
             name: string;
@@ -4122,45 +3734,12 @@ export interface components {
         };
         /**
          * StoreProjectQuestionRequest
-         * @description Validates a predefined question
-         *     (potential-competencies-and-authored-questions, AD-4).
-         *
-         *     HOW MANY questions are allowed is a function of the project's assessment
-         *     type, and that rule lives HERE rather than in the model or the table: it is
-         *     the same kind of invariant as `competencies ⊆ {MTG, LAT}` and `role_code
-         *     must be null`, which already live in the project FormRequests.
-         *
-         *       standard  — at most ONE per competency by default
-         *                   ("the first question per competency may be predefined")
-         *       potential — at most FOUR per competency by default
-         *                   ("4 predefined questions per competency", SA-08)
-         *
-         *     Those two numbers are now PLATFORM SETTINGS (`App\Support\Settings\
-         *     PlatformSettings`) rather than a constant here, so a superadmin can move
-         *     them without a release. They remain platform-level and not tenant-level:
-         *     the cap describes the assessment method, not a client's preference.
-         *
-         *     The cap is a maximum, never a minimum. A `standard` project with no authored
-         *     question is the normal case — the AI opens the competency itself, exactly as
-         *     it does today — and a half-configured `potential` project must be savable
-         *     while the operator is still writing the other three.
+         * @description A predefined question for a competency of a project. How many questions a competency may have
+         *     depends on the project's assessment type and is a platform setting: by default at most one for
+         *     `standard` and at most four for `potential`. The cap is a maximum, never a minimum.
          */
         StoreProjectQuestionRequest: {
-            /**
-             * @description Scoped to the catalogue, not to the project's own SELECTED
-             *     competencies: the cross-check that the competency actually
-             *     belongs to this project's type happens below, where the reason
-             *     can be stated. Scoped to the PROJECT'S OWN pinned revision,
-             *     though (framework-catalogue-authoring PR3b, H1) — an unscoped
-             *     `exists` would accept a competency id from an open draft's
-             *     clone of the same catalogue, letting an operator author a
-             *     question against content nobody has published yet.
-             *     `tryForProject()`, never `forProject()`: this runs inside
-             *     `rules()`, before validation — an unresolvable pin must
-             *     degrade to "match nothing" (`null` → `whereNull`), never an
-             *     uncaught 500 (gga review finding, same doctrine as
-             *     `StoreProjectRequest`/`UpdateProjectRequest`).
-             */
+            /** @description A competency the project has selected, from the catalogue revision the project is pinned to. */
             competency_id: number;
             text: {
                 /**
@@ -4174,17 +3753,9 @@ export interface components {
         };
         /**
          * StoreProjectRequest
-         * @description StoreProjectRequest (C4 Project Configuration).
-         *
-         *     Validates POST /api/projects payload.
-         *
-         *     Validation layers:
-         *     1. Basic rules (assessment_type, framework_version_id org-scoped, slug unique per org,
-         *        language ∈ supported_locales, webhook_url url)
-         *     2. withValidator cross-field (assessment_type invariants + gap 422):
-         *        a. For potential: POTENTIAL_CATALOG_INCOMPLETE check FIRST, then subset validation
-         *        b. For standard: role_code ∈ {ICO,FLL,MLL,BUL,SRX}, competencies ⊆ role's pivot, all type=standard
-         *        c. For potential: role_code must be null, competencies ⊆ {MTG,LAT}, all type=potential
+         * @description The body of `POST /api/projects`. Which competencies, and which role, a project may have depends on
+         *     its assessment type: a `standard` project takes a role and competencies of that role, a `potential`
+         *     project takes no role and only the `MTG` and `LAT` competencies.
          */
         StoreProjectRequest: {
             framework_version_id: number;
@@ -4210,10 +3781,7 @@ export interface components {
              */
             avatar_template_id: number;
             webhook_secret?: string | null;
-            /**
-             * @description Closed event-type set (C10 D10) — not env-overridable, so Rule::in reads
-             *     the config, never a hardcoded list.
-             */
+            /** @description The webhook events the project subscribes to, from the closed set of event types. */
             webhook_events?: ("progress" | "evaluation")[];
             /** Format: date-time */
             deadline_at?: string | null;
@@ -4222,14 +3790,8 @@ export interface components {
         };
         /**
          * StoreRoleRequest
-         * @description `POST /api/catalogue/roles` (framework-catalogue-authoring PR3, D3/D12).
-         *
-         *     The five roles are a closed set (ICO/FLL/MLL/BUL/SRX) — `catalogue-
-         *     authoring` spec: "Creating a sixth role MUST be rejected". `authorize()`
-         *     still repeats the superadmin check (`StorePlatformUserRequest`'s own
-         *     precedent): a FormRequest validates BEFORE the controller runs, so an
-         *     unauthorized caller must get 403 before 422 enumerates this endpoint's
-         *     field rules.
+         * @description The body of `POST /api/catalogue/roles`. The five roles are a closed set, so creating another one
+         *     is refused.
          */
         StoreRoleRequest: {
             name: {
@@ -4244,21 +3806,8 @@ export interface components {
         };
         /**
          * StoreUserRequest
-         * @description StoreUserRequest (backoffice-missing-pages D4).
-         *
-         *     Validates POST /api/users. `organization_id` and `is_superadmin` are
-         *     deliberately NOT rules here — they are never read from the request at
-         *     all (the controller only ever passes $request->safe()->only([...]) the
-         *     four whitelisted fields to User::create()), so a crafted value in either
-         *     key is ignored, never validated-then-rejected.
-         *
-         *     `role` validates against the code-level OrgRole::values() allow-list —
-         *     NEVER `Rule::exists('roles', 'name')`, which would make the assignable
-         *     set DATA (any seeder/migration/future feature that inserts a `roles` row
-         *     would instantly make it grantable, and it would also accept another
-         *     tenant's role name). `role_code` is never a rule here at all: it is
-         *     ignored, not validated-then-rejected — this surface governs authorization
-         *     roles only, never the BEAI organizational role_code.
+         * @description The body of `POST /api/users`. The organization and superadmin flag are decided by the endpoint,
+         *     not by the caller, so they are not accepted here; `role` must be one of the assignable roles.
          */
         StoreUserRequest: {
             name: string;
@@ -4284,11 +3833,8 @@ export interface components {
         };
         /**
          * UpdateBarsIndicatorRequest
-         * @description `PATCH /api/catalogue/bars-indicators/{indicator}` (framework-catalogue-
-         *     authoring PR3). No 4th-indicator check here — editing text/anchors on an
-         *     EXISTING row never changes the count for its pair. Reassigning
-         *     `role_id`/`competency_id` on an existing indicator is out of scope for
-         *     this PR (D3's twin scopes the count check to creation).
+         * @description The body of `PATCH /api/catalogue/bars-indicators/{indicator}`: edits the text and anchors of an
+         *     existing indicator.
          */
         UpdateBarsIndicatorRequest: {
             text?: {
@@ -4311,8 +3857,7 @@ export interface components {
         };
         /**
          * UpdateCompetencyRequest
-         * @description `PATCH /api/catalogue/competencies/{competency}` (framework-catalogue-
-         *     authoring PR3).
+         * @description The body of `PATCH /api/catalogue/competencies/{competency}`.
          */
         UpdateCompetencyRequest: {
             name?: {
@@ -4329,11 +3874,8 @@ export interface components {
         };
         /**
          * UpdateDefaultQuestionRequest
-         * @description `PATCH /api/catalogue/default-questions/{defaultQuestion}` (framework-
-         *     catalogue-authoring PR4). No `competency_id` re-scoping on PATCH — moving
-         *     an existing default to another competency is out of scope for this PR,
-         *     same doctrine as `UpdateBarsIndicatorRequest`'s own note about
-         *     reassigning `role_id`/`competency_id`.
+         * @description The body of `PATCH /api/catalogue/default-questions/{defaultQuestion}`. The question cannot be
+         *     moved to another competency.
          */
         UpdateDefaultQuestionRequest: {
             text?: {
@@ -4356,28 +3898,15 @@ export interface components {
         };
         /**
          * UpdateOrganizationRequest
-         * @description UpdateOrganizationRequest (backoffice-missing-pages D2/D3).
-         *
-         *     Validates PATCH /api/organization. Accepts `name` and the three
-         *     `default_webhook_*` fields; `slug` is deliberately NOT a rule here — it is
-         *     a tenancy identifier, never editable, and the controller only ever writes
-         *     `$request->safe()->only([...])`, so a `slug` key in the body is silently
-         *     dropped rather than validated-then-rejected.
-         *
-         *     `allowed_domains` (public-api step 4) is likewise absent here on purpose
-         *     — step 11 adds its backoffice editor; until then it is read-only,
-         *     exposed on `GET /v1/organization` but writable through no endpoint at
-         *     all.
+         * @description The body of `PATCH /api/organization`: the organization name, the default webhook settings and
+         *     the primary colour. Any other field is ignored.
          */
         UpdateOrganizationRequest: {
             name?: string;
             /** Format: uri */
             default_webhook_url?: string | null;
             default_webhook_secret?: string | null;
-            /**
-             * @description Closed event-type set — mirrors UpdateProjectRequest.php:94's
-             *     config-driven Rule::in (never a hardcoded list, never env-overridable).
-             */
+            /** @description The webhook events to subscribe to, from the closed set of event types. */
             default_webhook_events?: ("progress" | "evaluation")[] | null;
             /**
              * @description The primary colour is CSS, and is validated as CSS rather than as
@@ -4406,20 +3935,7 @@ export interface components {
         };
         /**
          * UpdatePasswordRequest
-         * @description UpdatePasswordRequest (user-profile-self-service, design D4).
-         *
-         *     Validates PUT /api/profile/password. Its OWN request — the admin
-         *     `UpdateUserRequest` (`['sometimes','string','min:8']`, no current-password
-         *     check) MUST NOT be reused for this route.
-         *
-         *     `current_password:api` is not decoration: the rule resolves
-         *     `auth()->guard($param)`, and the default guard is `env('AUTH_GUARD', 'api')`
-         *     (config/auth.php:19) — an env change would make the rule read the wrong
-         *     guard and fail closed on every request. `min:8` deliberately matches the
-         *     admin path floor — a stricter self-service floor would be theatre.
-         *
-         *     REQ: Password Change Requires The Current Password
-         *     (openspec/changes/user-profile-self-service/specs/user-self-service/spec.md)
+         * @description The body of `PUT /api/profile/password`: the current password and the new one.
          */
         UpdatePasswordRequest: {
             current_password: string;
@@ -4428,11 +3944,8 @@ export interface components {
         };
         /**
          * UpdatePlatformUserRequest
-         * @description Validates PATCH /api/admin/platform-users/{id} (platform-user-management D2).
-         *
-         *     Every field is `sometimes`: a partial update must not blank what it does not
-         *     mention. `role` and `organization_id` are absent for the same reason as on
-         *     the store request — they are the surface's to decide, not the caller's.
+         * @description The body of `PATCH /api/admin/platform-users/{id}`. Every field is optional, so a partial update
+         *     leaves what it does not mention untouched. The role and the organization cannot be changed here.
          */
         UpdatePlatformUserRequest: {
             name?: string;
@@ -4446,39 +3959,8 @@ export interface components {
         };
         /**
          * UpdateProfilePhotoRequest
-         * @description UpdateProfilePhotoRequest (user-avatar-image, design D3/D3b).
-         *
-         *     Validates POST /api/profile/photo. `max:2048` (KB) is the SHAPE check —
-         *     `ValidatePostSize` already returns 413 for anything past nginx's
-         *     `client_max_body_size 8m` / PHP's `post_max_size=8M` before this even
-         *     runs. The REAL enforcement is `config('profile.photo.max_bytes')`
-         *     (2 MiB), checked in ProfilePhotoController against the real byte count,
-         *     never this literal.
-         *
-         *     What this rule does NOT do, stated plainly, per design D3 — the residual
-         *     is documented in code, not just in design.md:
-         *
-         *     - No re-encode: EXIF (including GPS coordinates, camera serial, capture
-         *       timestamp, and any embedded thumbnail) survives verbatim into every
-         *       presigned URL served from the stored object.
-         *     - Polyglots and trailing payloads pass every check here — bytes appended
-         *       after valid image data are never inspected, so the object is
-         *       effectively a byte-capped arbitrary-content store keyed to a user id.
-         *     - A 4096×4096 PNG (the dimension cap's own ceiling) is roughly 64 MB
-         *       decompressed once a browser renders it — the cap bounds the spike, it
-         *       does not remove it.
-         *     - Nothing decodes server-side, so a header-valid file crafted to crash a
-         *       specific image decoder is not detected.
-         *
-         *     The only route to closing any of the above is re-encoding, which needs
-         *     `ext-gd` or `ext-imagick` — neither is installed in either Dockerfile
-         *     stage, and adding one is explicitly out of scope for this change.
-         *     Client-side canvas re-encoding is a UX convenience, never a control: it
-         *     makes honest uploads fit the cap and incidentally drops EXIF, but an
-         *     attacker posts the multipart request directly and skips it entirely.
-         *
-         *     REQ: Upload Is Validated By Content, Not By Declared Type
-         *     (openspec/changes/user-avatar-image/specs/user-self-service/spec.md)
+         * @description The body of `POST /api/profile/photo`: an image file, checked by its content rather than its
+         *     declared type.
          */
         UpdateProfilePhotoRequest: {
             /**
@@ -4489,18 +3971,7 @@ export interface components {
         };
         /**
          * UpdateProfileRequest
-         * @description UpdateProfileRequest (user-profile-self-service, design D2/D8).
-         *
-         *     Validates PATCH /api/profile. Declares ONLY `name`, `email`, `locale` —
-         *     `role`, `organization_id`, `is_superadmin`, `deactivated_at` are NEVER
-         *     declared here, so a FormRequest alone does not strip them (D2 layer 1);
-         *     ProfileController's `$request->safe()->only([...])` (D2 layer 2) and
-         *     User::$fillable (D2 layer 3) are what actually drop them, silently rather
-         *     than a validated-then-rejected `prohibited` 422 (same discipline as
-         *     UpdateOrganizationRequest.php's `slug`).
-         *
-         *     REQ: Editable Fields Are An Allow-List; Email Uniqueness On Self-Update
-         *     (openspec/changes/user-profile-self-service/specs/user-self-service/spec.md)
+         * @description The body of `PATCH /api/profile`: `name`, `email` and `locale`. Any other field is ignored.
          */
         UpdateProfileRequest: {
             name?: string;
@@ -4536,23 +4007,9 @@ export interface components {
         };
         /**
          * UpdateProjectRequest
-         * @description UpdateProjectRequest (C4 Project Configuration).
-         *
-         *     Validates PATCH /api/projects/{id} payload.
-         *
-         *     Key invariants:
-         *     - framework_version_id: blanket-prohibited in ALL PATCH requests (immutable from creation).
-         *       Any PATCH that includes this field is rejected with 422 — even the same value, even on draft.
-         *     - slug: self-ignoring unique rule (->ignore) with soft-delete exclusion
-         *     - Immutability: changing assessment_type or role_code when the resulting status is 'active' or
-         *       'archived' → 422
-         *     - Lifecycle: allowed transitions are draft→active and active→archived only.
-         *       Forbidden (active→draft, archived→active, archived→draft) → 422.
-         *
-         *     SubstituteBindings note: the route parameter 'project' is an int (no implicit model binding —
-         *     SubstituteBindings runs BEFORE TenantContext in the api middleware group, so route model binding
-         *     would resolve Project before the tenant scope is set). Manual findOrFail() inside controller
-         *     and FormRequest methods ensures the TenantScoped global scope is active at resolution time.
+         * @description The body of `PATCH /api/projects/{id}`. The framework version can never be changed. The assessment
+         *     type and role code cannot change once the project is `active` or `archived`, and the status moves
+         *     only from `draft` to `active` and from `active` to `archived`; anything else answers `422`.
          */
         UpdateProjectRequest: {
             slug?: string;
@@ -4579,10 +4036,7 @@ export interface components {
             /** @description `sometimes` WITHOUT `nullable`: see `avatarTemplateRule()`. */
             avatar_template_id?: number;
             webhook_secret?: string | null;
-            /**
-             * @description Closed event-type set (C10 D10) — not env-overridable, so Rule::in reads
-             *     the config, never a hardcoded list.
-             */
+            /** @description The webhook events the project subscribes to, from the closed set of event types. */
             webhook_events?: ("progress" | "evaluation")[];
             /** Format: date-time */
             deadline_at?: string | null;
@@ -4591,23 +4045,9 @@ export interface components {
         };
         /**
          * UpdateRoleCompetenciesRequest
-         * @description `PUT /api/catalogue/roles/{role}/competencies` (framework-catalogue-authoring
-         *     PR8b, `catalogue-authoring/spec.md`'s pivot CRUD requirement — PR3 shipped
-         *     role/competency/indicator CRUD with no way to change a role's competency
-         *     SET, so a newly created role could never be made usable).
-         *
-         *     ONE idempotent PUT replaces the whole set — attach, detach and reorder are
-         *     the same operation on a pivot that already carries a `position` column
-         *     (D1's `framework_role_competency` shape: PK `(revision_id, role_id,
-         *     competency_id)` + `position`), not three endpoints that could each apply
-         *     only partially and leave the set in a state no single request asked for.
-         *
-         *     Read-only draft resolution (`existingOpenDraftRevisionId()`), matching
-         *     `UpdateRoleRequest`'s own no-auto-open rationale: the role named in the
-         *     URL either already belongs to an existing open draft or it does not exist
-         *     to update at all — auto-opening a fresh clone here would copy ~450 rows
-         *     only to 404 immediately after, since a freshly-cloned role's id can never
-         *     equal the id in the URL.
+         * @description The body of `PUT /api/catalogue/roles/{role}/competencies`: the whole, ordered set of competencies
+         *     of the role. One idempotent request replaces the set, so attaching, detaching and reordering are
+         *     the same operation.
          */
         UpdateRoleCompetenciesRequest: {
             /**
@@ -4621,9 +4061,7 @@ export interface components {
         };
         /**
          * UpdateRoleRequest
-         * @description `PATCH /api/catalogue/roles/{role}` (framework-catalogue-authoring PR3).
-         *     No sixth-role check here — that only applies to creating a NEW role;
-         *     renaming an existing one never changes the count.
+         * @description The body of `PATCH /api/catalogue/roles/{role}`.
          */
         UpdateRoleRequest: {
             name?: {
@@ -4638,13 +4076,7 @@ export interface components {
         };
         /**
          * UpdateUserRequest
-         * @description UpdateUserRequest (backoffice-missing-pages D4).
-         *
-         *     Validates PATCH /api/users/{id}. The target is resolved through
-         *     UserAdminReader (D4) — the org filter runs BEFORE authorization, so a
-         *     cross-org id 404s before any role is even evaluated (mirrors
-         *     UpdateProjectRequest.php's SubstituteBindings-runs-before-TenantContext
-         *     discipline).
+         * @description The body of `PATCH /api/users/{id}`.
          */
         UpdateUserRequest: {
             name?: string;
@@ -5220,13 +4652,7 @@ export interface operations {
     "avatarTemplate.catalogue": {
         parameters: {
             query: {
-                /**
-                 * @description Literal 'in:' list, not 'in:'.implode(',', self::PROVIDERS) — Scramble's
-                 *     static analyzer cannot evaluate implode() over a class constant and was
-                 *     emitting an empty-string-only enum for `provider` in openapi.json, making
-                 *     the documented endpoint unreachable and poisoning the generated TS client
-                 *     with `provider: ""` (avatar-template-catalogue, caught by native review).
-                 */
+                /** @description The provider to query: `heygen`, `tavus`, `cartesia` or `elevenlabs`. */
                 provider: "heygen" | "tavus" | "cartesia" | "elevenlabs";
                 resource: "voice" | "avatar" | "replica" | "pal";
                 /**
@@ -5354,11 +4780,7 @@ export interface operations {
                      */
                     provider: "heygen" | "tavus";
                     config: string[];
-                    /**
-                     * @description Both-or-neither is enforced by the DB CHECK (I1) and by
-                     *     AvatarTemplate::booted()'s I2/I3/I4 guards — never re-checked
-                     *     here (pluggable-conversation-llm PR P3a, design D4).
-                     */
+                    /** @description Bind a language model to the template. `llm_model_id` and `llm_credential_id` are both set or both null. */
                     llm_model_id?: number | null;
                     llm_credential_id?: number | null;
                 };
@@ -5468,13 +4890,7 @@ export interface operations {
                     name?: string;
                     description?: string | null;
                     config?: string[];
-                    /**
-                     * @description Both-or-neither is enforced by the DB CHECK (I1) and by
-                     *     AvatarTemplate::booted()'s I2/I3/I4 guards — never re-checked
-                     *     here (pluggable-conversation-llm PR P3a, design D4). Both null
-                     *     clears the binding (see "Unbinding a template clears only
-                     *      that template's binding").
-                     */
+                    /** @description Bind a language model to the template. `llm_model_id` and `llm_credential_id` are both set or both null; sending both as null clears the binding. */
                     llm_model_id?: number | null;
                     llm_credential_id?: number | null;
                 };
@@ -5559,11 +4975,7 @@ export interface operations {
                             config: unknown[];
                             /** @description Persona is optional: a template may be pure provider config. */
                             persona: unknown[] | null;
-                            /**
-                             * @description The binding travels by NAME, never by id or key material
-                             *     (design D13) — an id is meaningless in another org, and a
-                             *     fingerprint is key-derived material with no import use.
-                             */
+                            /** @description The language model binding, by model key and credential name; `null` when the template has none. */
                             llm: {
                                 model_key: string;
                                 credential_name: string;
@@ -6305,13 +5717,7 @@ export interface operations {
                     display_name: string;
                     role_code?: string | null;
                     lang?: string | null;
-                    /**
-                     * @description interview-scheduling (design AD-2/AD-3): optional future start
-                     *     time. The rule object owns the explicit-offset check, the
-                     *     future check, and the minimum-lead-time check — the SAME rule
-                     *     object the M2M create and the reschedule endpoint use, never
-                     *     re-typed as inline logic three times.
-                     */
+                    /** @description Optional start time of a scheduled interview: an ISO 8601 date-time with an explicit offset, in the future and at least the minimum lead time ahead. */
                     scheduled_at?: string;
                     /**
                      * @description Defaults to TRUE. The operator pressed "invite a candidate";
@@ -6345,14 +5751,7 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
-            /**
-             * @description `message` carries the CODE, not a sentence — same
-             *     convention this file already documents a few lines below
-             *     for EntryLinkRefusalReason::Completed/Failed: the response
-             *     body is machine-facing (CLAUDE.md "machine-facing
-             *      responses are not localized"), and the backoffice already
-             *     translates codes through `translateServerCode`.
-             */
+            /** @description The candidate is already enrolled in this project. `message` is `entry_link_participant_duplicate_email` or `entry_link_participant_duplicate_candidate_ref`, and `reason` names the duplicated field. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6403,11 +5802,7 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
-            /**
-             * @description Redis unavailable -> refuse, not proceed (design D7). Fail
-             *     CLOSED: the cheaper mistake here is a refused request, not a
-             *     duplicate vendor charge for the same evaluation.
-             */
+            /** @description The audit cannot start. `reason` is `audit_lock_unavailable` when the lock cannot be taken, or `audit_already_running` when an audit of this evaluation is in progress. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6526,7 +5921,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description No `Set-Cookie` — G-32/T-TOK-008. */
+            /** @description The access token for the candidate. No cookie is set. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7795,9 +7190,7 @@ export interface operations {
                 "multipart/form-data": {
                     /**
                      * Format: binary
-                     * @description Shape only. `mimes` checks the CLAIM — a browser sends whatever
-                     *     MIME type it likes — so it is a cheap first filter, never the
-                     *     decision. Step 2 is the decision.
+                     * @description A JPEG or PNG image of at most 2 MB.
                      */
                     logo: string;
                 };
@@ -8052,22 +7445,13 @@ export interface operations {
                     candidate_ref: string;
                     /**
                      * Format: email
-                     * @description Required: the email IS the candidate's identity across projects
-                     *     and organizations (CLAUDE.md ruling 8, reversed 2026-09-01), and
-                     *     the column is NOT NULL. There is no legacy contract to keep —
-                     *     this product is greenfield by ruling.
+                     * @description Required. The candidate's email address.
                      */
                     email: string;
                     display_name: string;
                     role_code?: string | null;
                     language?: string | null;
-                    /**
-                     * @description interview-scheduling (design AD-2/AD-3, T-C1): optional future
-                     *     start time, validated by the SAME rule object PR-B's
-                     *     `EntryLinkController` already uses — the explicit-offset
-                     *     check, the future check, and the minimum-lead-time check all
-                     *     live in ONE place, never re-typed per surface.
-                     */
+                    /** @description Optional start time of a scheduled interview: an ISO 8601 date-time with an explicit offset, in the future and at least the minimum lead time ahead. */
                     scheduled_at?: string;
                     external_id?: number | null;
                     source?: string | null;
@@ -8373,11 +7757,7 @@ export interface operations {
                      */
                     provider: "heygen" | "tavus";
                     config: string[];
-                    /**
-                     * @description Both-or-neither is enforced by the DB CHECK (I1) and by
-                     *     AvatarTemplate::booted()'s I2/I3/I4 guards — never re-checked
-                     *     here (pluggable-conversation-llm PR P3a, design D4).
-                     */
+                    /** @description Bind a language model to the template. `llm_model_id` and `llm_credential_id` are both set or both null. */
                     llm_model_id?: number | null;
                     llm_credential_id?: number | null;
                 };
@@ -8480,13 +7860,7 @@ export interface operations {
                     name?: string;
                     description?: string | null;
                     config?: string[];
-                    /**
-                     * @description Both-or-neither is enforced by the DB CHECK (I1) and by
-                     *     AvatarTemplate::booted()'s I2/I3/I4 guards — never re-checked
-                     *     here (pluggable-conversation-llm PR P3a, design D4). Both null
-                     *     clears the binding (see "Unbinding a template clears only
-                     *      that template's binding").
-                     */
+                    /** @description Bind a language model to the template. `llm_model_id` and `llm_credential_id` are both set or both null; sending both as null clears the binding. */
                     llm_model_id?: number | null;
                     llm_credential_id?: number | null;
                 };
@@ -9453,14 +8827,7 @@ export interface operations {
             };
         };
         responses: {
-            /**
-             * @description A CODE, not a sentence. A response body is machine-facing (CLAUDE.md:
-             *     machine-readable values "are NOT user-facing and are returned
-             *      literally in every locale"), and only the UI knows the reader's
-             *     locale. The English prose that used to be here was rendered verbatim
-             *     by the backoffice, so an Italian operator on an Italian page read
-             *     English.
-             */
+            /** @description The password was reset. `message` is the code `password_reset`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10590,15 +9957,7 @@ export interface operations {
                         };
                         evaluations: {
                             completed: number;
-                            /**
-                             * @description 'processing' folded into 'pending' — see class doc, point 2. The
-                             *     outer cast is not redundant: Scramble's static analyzer typed
-                             *     this `+` expression's result as `string` in the exported
-                             *     OpenAPI schema (`pending` documented `int` everywhere in this
-                             *     file, but shipped `string` to every SDK) despite both operands
-                             *     already being cast — wrapping the whole sum is what actually
-                             *     fixed the export.
-                             */
+                            /** @description Evaluations that have not completed yet: those pending and those being processed. */
                             pending: number;
                         };
                         completion_rate: number;
