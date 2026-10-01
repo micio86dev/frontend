@@ -95,7 +95,10 @@ import NoticeShell from '~/components/molecules/NoticeShell.vue'
 import { Button } from '~/components/ui/button'
 import { Skeleton } from '~/components/ui/skeleton'
 import { useCandidateSession } from '~/app/composables/useCandidateSession'
-import { useReusableLinkRedeem } from '~/app/composables/useReusableLinkRedeem'
+import {
+  useReusableLinkRedeem,
+  type VisitorIdentityInput,
+} from '~/app/composables/useReusableLinkRedeem'
 import { safeExternalRedirect } from '~/app/utils/safe-redirect'
 import {
   captureReusableLinkFragment,
@@ -125,6 +128,12 @@ const { redeem } = useReusableLinkRedeem()
 
 const state = ref<ViewState>('loading')
 
+// INTERIM (reusable-link-visitor-identity fe-2a): the composable now requires the
+// visitor's name and email, but the identity form is wired into this page by the
+// next slice (fe-2b). Until then the page keeps its automatic redeem and sends an
+// empty identity, which the api refuses with a 422; nothing is released in between.
+const IDENTITY_NOT_COLLECTED_YET: VisitorIdentityInput = { displayName: '', email: '' }
+
 // Plain variables on purpose: not reactive, so nothing can render or serialise
 // them. `heldToken` is only ever non-null while a retry could still be needed.
 let heldToken: string | null = null
@@ -147,7 +156,7 @@ async function redeemHeldToken(): Promise<void> {
   state.value = 'loading'
 
   try {
-    const outcome = await redeem(token)
+    const outcome = await redeem(token, IDENTITY_NOT_COLLECTED_YET)
 
     switch (outcome.kind) {
       case 'ok': {
@@ -184,9 +193,19 @@ async function redeemHeldToken(): Promise<void> {
       case 'busy':
         state.value = 'busy'
         return
+      // INTERIM (fe-2b maps these onto the identity form's fields): until the form
+      // exists they are shown as the retryable failed state, so a 422 or a 409 can
+      // never leave the visitor on a loading skeleton that does not end.
+      case 'invalid':
+      case 'duplicate':
       case 'failed':
         state.value = 'failed'
         return
+      default: {
+        // A new outcome kind must be handled above: this stops compiling without it.
+        const unhandled: never = outcome
+        return unhandled
+      }
     }
   } finally {
     inFlight = false

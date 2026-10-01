@@ -51,6 +51,11 @@ import {
 // eslint-disable-next-line import/first
 import { REUSABLE_LINK_TOKEN } from './fixtures/reusable-link-scrub-cases'
 
+// Until the identity form is wired in (reusable-link-visitor-identity fe-2b) the page
+// still redeems on mount; the composable now requires an identity, so the page sends
+// an empty one. This is the interim body; fe-2b rewrites this spec around the form.
+const REDEEM_BODY = { link_token: REUSABLE_LINK_TOKEN, display_name: '', email: '' }
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
@@ -233,7 +238,7 @@ describe('interview/reusable.vue — first visit with a fragment', () => {
 
     await mountPage()
 
-    expect(fetchBodies()).toEqual([{ link_token: REUSABLE_LINK_TOKEN }])
+    expect(fetchBodies()).toEqual([REDEEM_BODY])
   })
 
   it('makes EXACTLY ONE POST /reusable-links/redeem with the token in the JSON body', async () => {
@@ -245,7 +250,7 @@ describe('interview/reusable.vue — first visit with a fragment', () => {
     const [url, options] = mockFetchImpl.mock.calls[0] as [string, Record<string, unknown>]
     expect(url).toBe('https://api.test/reusable-links/redeem')
     expect(options['method']).toBe('POST')
-    expect(options['body']).toEqual({ link_token: REUSABLE_LINK_TOKEN })
+    expect(options['body']).toEqual(REDEEM_BODY)
     expect(options['params']).toBeUndefined()
     expect(url).not.toContain('beai_rl_')
   })
@@ -587,6 +592,23 @@ describe('interview/reusable.vue — 429, network failure and 5xx are retryable'
     }
   )
 
+  it.each([
+    ['a 422 naming the email', httpError(422, { errors: { email: ['x'] } })],
+    ['a 409 duplicate_enrolment', httpError(409, { message: 'duplicate_enrolment' })],
+  ])(
+    'INTERIM (until the form is wired): %s leaves the loading state for the failed state, never a spinner that does not end',
+    async (_n, error) => {
+      mockFetchImpl.mockRejectedValueOnce(error)
+
+      const wrapper = await openLink()
+
+      expect(wrapper.find('[data-testid="reusable-loading"]').exists()).toBe(false)
+      expect(wrapper.text()).toContain('interview.reusable.failed.title')
+      expect(wrapper.get('[data-testid="reusable-retry"]').exists()).toBe(true)
+      expect(mockNavigateTo).not.toHaveBeenCalled()
+    }
+  )
+
   it('Retry re-posts the SAME token, and a success then lands on the session route', async () => {
     mockFetchImpl.mockRejectedValueOnce(httpError(429))
     mockFetchImpl.mockResolvedValueOnce({ access_token: makeCandidateJwt() })
@@ -595,10 +617,7 @@ describe('interview/reusable.vue — 429, network failure and 5xx are retryable'
     await wrapper.get('[data-testid="reusable-retry"]').trigger('click')
     await flushPromises()
 
-    expect(fetchBodies()).toEqual([
-      { link_token: REUSABLE_LINK_TOKEN },
-      { link_token: REUSABLE_LINK_TOKEN },
-    ])
+    expect(fetchBodies()).toEqual([REDEEM_BODY, REDEEM_BODY])
     expect(useCandidateSession().read()?.entry).toBe('reusable')
     expect(mockNavigateTo).toHaveBeenCalledTimes(1)
     expect(mockNavigateTo).toHaveBeenCalledWith(SESSION_ROUTE, { replace: true })
