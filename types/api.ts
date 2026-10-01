@@ -3487,6 +3487,10 @@ export interface components {
             email: string;
             external_id: number | null;
             source: string | null;
+            reusable_link: {
+                id: string;
+                label: string | null;
+            } | null;
             role_code: string | null;
             language: string | null;
             /** @enum {string} */
@@ -3575,6 +3579,10 @@ export interface components {
             email: string;
             external_id: number | null;
             source: string | null;
+            reusable_link: {
+                id: string;
+                label: string | null;
+            } | null;
             role_code: string | null;
             language: string | null;
             /** @enum {string} */
