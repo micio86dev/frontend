@@ -150,7 +150,7 @@
           "nameTooLong": "Your name can be at most 255 characters.",
           "nameInvalid": "Check the name you entered.",
           "emailRequired": "Enter your email.",
-          "emailInvalid": "Enter a valid email address, like name@example.com.",
+          "emailInvalid": "Enter a valid email address, like name{'@'}example.com.",
           "emailTooLong": "Your email can be at most 255 characters.",
           "emailTaken": "This email address has already been used for this interview. Please contact the person who shared the link with you."
         }
