@@ -3,8 +3,9 @@
  * (observability spec: "A Credential Carried In A URL Fragment Or A Request
  * Body Is Redacted Before Any Error Sink").
  *
- * THIS FILE EXISTS IN TWO COPIES, byte-identical: here and in
- * `frontend/tests/unit/fixtures/reusable-link-scrub-cases.ts`. The two Nuxt
+ * THIS FILE EXISTS IN TWO COPIES, byte-identical:
+ * `frontend/tests/unit/fixtures/reusable-link-scrub-cases.ts` and
+ * `backoffice/tests/unit/fixtures/reusable-link-scrub-cases.ts`. The two Nuxt
  * scrubbers must apply the same rule, and one fixture set pinned in both is
  * what stops them drifting apart ("The two Nuxt scrubbers agree"). The
  * wrapper compares the copies with `cmp`.
