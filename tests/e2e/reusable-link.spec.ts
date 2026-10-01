@@ -790,6 +790,43 @@ test.describe('reusable entry route — no history entry holds the token', () =>
   })
 })
 
+test.describe('reusable entry route — every state passes WCAG 2.1 AA', () => {
+  test('the loading state (a redeem still in flight)', async ({ page }) => {
+    const redeem = await mockRedeem(page, ['pending'])
+    await mockCandidateSession(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+
+    // The loading <main> is the only landmark here, and it announces itself busy.
+    await expect(page.getByRole('main')).toHaveAttribute('aria-busy', 'true')
+    await expect.poll(() => redeem.calls.length).toBe(1)
+    await checkA11y(page)
+
+    // Let it finish, so the test does not end with a request still held.
+    redeem.release()
+    await expect(page).toHaveURL(/\/en\/interview\/session$/)
+  })
+
+  test('the terminal "link is no longer valid" page', async ({ page }) => {
+    await mockRedeem(page, [404])
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+
+    await expectLinkInvalidTerminal(page)
+    await checkA11y(page)
+  })
+
+  test('the consent screen the visitor lands on', async ({ page }) => {
+    await mockRedeem(page)
+    await mockCandidateSession(page)
+
+    await page.goto(`/en/interview/reusable#${LINK_TOKEN}`)
+
+    await expect(consentScreen(page)).toBeVisible()
+    await checkA11y(page)
+  })
+})
+
 test.describe('reusable entry route — an unsupported browser never redeems (SA-11)', () => {
   async function openIn(
     browser: Browser,
