@@ -1,15 +1,12 @@
 /**
- * app/pages/interview/terminal.vue — the `link_invalid` copy.
+ * app/pages/interview/terminal.vue: the `link_invalid` copy.
  *
- * `link_invalid` is the one terminal reason shared by every entry that ends on
- * "this link will never work": a single-use hosted link (`/i/{token}`: expired,
- * mis-signed, wrong audience, malformed or already invalid), an embed exchange
- * (401/404) and, since reusable interview links, a reusable link (`/r/...`)
- * that is unknown, malformed or disabled. A reusable link NEVER expires, so the
- * copy must not claim expiry: it has to be true for every one of those cases.
- *
- * The page itself is entry-agnostic (it only reads `?reason=`), so the two
- * entry kinds are pinned here by the exact route each one lands on.
+ * Several entries end on this reason (a hosted link's exchange 401, a reusable
+ * link's 404, malformed fragment or missing session), and a reusable link never
+ * expires, so the copy must not claim expiry: it has to be true for all of them.
+ * The page is entry-kind agnostic, it only reads `?reason=`, so one render per
+ * locale covers every entry. Which entry navigates here is asserted where the
+ * navigation happens: hosted-entry.spec.ts and reusable-entry-page.spec.ts.
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
@@ -46,21 +43,6 @@ async function mountTerminal(locale: 'en' | 'it', query: Record<string, string>)
   return mount(Page, { global: { mocks: { $t: translator(loadLocale(locale)) } } })
 }
 
-/**
- * The two entry kinds that end on this reason, by the route each one replaces
- * to (asserted in hosted-entry.spec.ts and reusable-entry-page.spec.ts).
- */
-const ENTRY_KINDS: ReadonlyArray<[string, Record<string, string>]> = [
-  [
-    'single-use hosted link (/i/{token}, 401 token_invalid)',
-    Object.fromEntries(new URLSearchParams('reason=link_invalid')),
-  ],
-  [
-    'reusable link (/interview/reusable, 404, malformed or disabled)',
-    Object.fromEntries(new URLSearchParams('reason=link_invalid')),
-  ],
-]
-
 const EXPECTED: Record<'en' | 'it', { title: string; body: string }> = {
   en: {
     title: 'This Link Is No Longer Valid',
@@ -82,27 +64,28 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+const QUERY = { reason: 'link_invalid' }
+
 describe('terminal page — link_invalid copy', () => {
   for (const locale of ['en', 'it'] as const) {
     describe(`locale: ${locale}`, () => {
-      it.each(ENTRY_KINDS)('%s: shows the pinned headline and body', async (_kind, query) => {
-        const wrapper = await mountTerminal(locale, query)
+      it('shows the pinned headline and body', async () => {
+        const wrapper = await mountTerminal(locale, QUERY)
 
         expect(wrapper.get('h1').text()).toBe(EXPECTED[locale].title)
         expect(wrapper.get('section p').text()).toBe(EXPECTED[locale].body)
       })
 
-      it.each(ENTRY_KINDS)('%s: never claims the link expired', async (_kind, query) => {
-        const wrapper = await mountTerminal(locale, query)
+      it('never claims the link expired', async () => {
+        const wrapper = await mountTerminal(locale, QUERY)
 
         expect(wrapper.text()).not.toMatch(EXPIRY_CLAIM[locale])
       })
 
       it('is an accessible region: the section is labelled by the page heading', async () => {
-        const wrapper = await mountTerminal(locale, { reason: 'link_invalid' })
+        const wrapper = await mountTerminal(locale, QUERY)
 
-        const heading = wrapper.get('h1')
-        expect(heading.attributes('id')).toBe('terminal-page-heading')
+        expect(wrapper.get('h1').attributes('id')).toBe('terminal-page-heading')
         expect(wrapper.get('section').attributes('aria-labelledby')).toBe('terminal-page-heading')
         expect(wrapper.find('a').exists()).toBe(false)
       })
