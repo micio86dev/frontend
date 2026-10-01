@@ -51,11 +51,50 @@ const NOTHING: ReusableLinkTake = { present: false, token: null }
 let held: ReusableLinkTake = NOTHING
 
 /**
+ * The router's history state, without the token it may have written into it.
+ *
+ * On a hash-only change (a link pasted into the tab already open) the browser
+ * fires `popstate` BEFORE `hashchange`. With no state on that entry, vue-router
+ * answers `replace(to)` with a location that still carries the fragment, so
+ * `history.state.current` holds `<path>#beai_rl_…` by the time this module runs.
+ * Handing that state back unchanged would clean the address bar and keep the
+ * credential in the history entry.
+ *
+ * Only a string `current` whose FRAGMENT starts with the marker is rewritten, to
+ * what precedes the `#`. That is the same rule as the address bar strip: the
+ * fragment starts with `#beai_rl_`, of any length. A `current` that merely
+ * mentions the marker in its path, its query or the middle of another fragment
+ * is not a link fragment and is left alone, and so is any state that is not an
+ * object with such a `current`. The router's object is copied, never mutated.
+ */
+function withoutTokenInState(state: unknown): unknown {
+  if (state === null || typeof state !== 'object') {
+    return state
+  }
+
+  const current = (state as Record<string, unknown>)['current']
+
+  if (typeof current !== 'string') {
+    return state
+  }
+
+  const hashIndex = current.indexOf('#')
+
+  if (hashIndex === -1 || !current.startsWith(FRAGMENT_PREFIX, hashIndex)) {
+    return state
+  }
+
+  return { ...state, current: current.slice(0, hashIndex) }
+}
+
+/**
  * Removes a `#beai_rl_…` fragment from the address bar and remembers it.
  *
  * `replaceState` with the CURRENT state: the router owns `history.state`, and
  * replacing the entry in place neither adds a history entry nor navigates, so
- * Back does not return to a URL that carries the credential.
+ * Back does not return to a URL that carries the credential. The state itself is
+ * passed through `withoutTokenInState`, because the router may already have
+ * copied the fragment into it.
  *
  * A call that finds no link fragment changes nothing — in particular it does
  * not erase a token captured earlier and not yet taken.
@@ -67,7 +106,7 @@ export function captureReusableLinkFragment(win: FragmentWindow): void {
     return
   }
 
-  win.history.replaceState(win.history.state, '', `${pathname}${search}`)
+  win.history.replaceState(withoutTokenInState(win.history.state), '', `${pathname}${search}`)
 
   const candidate = hash.slice(1)
 
