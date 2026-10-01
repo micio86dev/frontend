@@ -16,6 +16,11 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env['CI'],
   retries: process.env['CI'] ? 2 : 0,
+  // A test that fails and then passes on a retry is NOT green. Retries exist to
+  // keep one infrastructure hiccup from hiding a real signal in the report, and
+  // without this a flaky test exits 0 and is never looked at again. With it the
+  // run fails and the HTML report still shows which test and which attempt.
+  failOnFlakyTests: true,
   workers: process.env['CI'] ? 1 : undefined,
   reporter: [['html', { open: 'never' }], ['list']],
 
