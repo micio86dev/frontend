@@ -245,6 +245,15 @@ export const DENIED_KEYS = new Set([
   // scrubber denies, so an object that crosses the wire between BEAI's three
   // apps is treated identically everywhere.
   'candidate_ref',
+  // The calling system's own record id for a candidate (candidate-external-
+  // reference). Same class as `candidate_ref`: an identifier that means nothing
+  // to BEAI and everything to the system that issued it, so it links an error
+  // report back to a person. The candidate app never reads it (the session
+  // omits it), but the denylist is the set the api denies, not the set this app
+  // happens to touch. `source` is NOT denied: it is a generic key (Sentry's own
+  // `transaction_info.source`) and its value names a system, not a person.
+  'external_id',
+  'external_ids',
   // The candidate-identifying PLURALS. The rule was applied to the credential
   // keys and to the content keys and skipped here — the third half of the same
   // list. `redactFreeText('CR-99')` has nothing to grip on.
