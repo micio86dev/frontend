@@ -101,6 +101,28 @@ const REQUIRED_KEYS = [
   'interview.reusable.failed.title',
   'interview.reusable.failed.body',
   'interview.reusable.retry',
+  // reusable-link-visitor-identity — the identity form the reusable entry route
+  // shows before it redeems (DESIGN.md §16.19): heading and intro, the two field
+  // labels, the privacy notice, the submit control in its two states, and every
+  // message the client validation and the 409/422 mapping can show.
+  'interview.reusable.identity.title',
+  'interview.reusable.identity.intro',
+  'interview.reusable.identity.name.label',
+  'interview.reusable.identity.email.label',
+  'interview.reusable.identity.privacy',
+  'interview.reusable.identity.submit',
+  'interview.reusable.identity.submitting',
+  'interview.reusable.identity.errors.nameRequired',
+  'interview.reusable.identity.errors.nameTooLong',
+  'interview.reusable.identity.errors.nameInvalid',
+  'interview.reusable.identity.errors.emailRequired',
+  'interview.reusable.identity.errors.emailInvalid',
+  'interview.reusable.identity.errors.emailTooLong',
+  'interview.reusable.identity.errors.emailTaken',
+  // A reload while the identity form is shown loses the in-memory token: its own
+  // terminal, distinct from `link_invalid` (which would be untrue).
+  'interview.terminal.link_reopen.title',
+  'interview.terminal.link_reopen.body',
 ]
 
 describe('i18n interview flow keys', () => {
@@ -176,6 +198,126 @@ describe('i18n interview flow keys', () => {
   // 429 or a network blip does not mean, and the wording is what makes someone
   // walk away from a link that would have worked a moment later.
   // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // reusable-link-visitor-identity: the copy the SPEC fixes word for word. Where
+  // the design's first draft differed, the spec string is the normative one
+  // (reconciliation R1), so these are exact pins, not key-presence checks.
+  // ---------------------------------------------------------------------------
+
+  describe('spec-normative identity copy is pinned exactly', () => {
+    const PINNED: Record<string, Record<string, string>> = {
+      en: {
+        'interview.reusable.identity.privacy':
+          'Your name and email are shared with the organization running this interview so your interview can be identified and requests about your data can be handled.',
+        'interview.reusable.identity.errors.emailTaken':
+          'This email address has already been used for this interview. Please contact the person who shared the link with you.',
+        'interview.terminal.link_reopen.title': 'Please open the link again',
+        'interview.terminal.link_reopen.body':
+          'This page was reloaded, so your interview link is no longer here. Open the link again (scan the QR code or use the message you received) to start.',
+      },
+      it: {
+        'interview.reusable.identity.privacy':
+          "Il tuo nome e la tua email sono condivisi con l'organizzazione che conduce il colloquio, così che il tuo colloquio possa essere identificato e le richieste relative ai tuoi dati possano essere gestite.",
+        'interview.reusable.identity.errors.emailTaken':
+          'Questo indirizzo email è già stato utilizzato per questo colloquio. Contatta chi ti ha condiviso il link.',
+        'interview.terminal.link_reopen.title': 'Apri di nuovo il link',
+        'interview.terminal.link_reopen.body':
+          'Questa pagina è stata ricaricata, quindi il link del tuo colloquio non è più qui. Riapri il link (inquadra di nuovo il codice QR oppure usa il messaggio ricevuto) per iniziare.',
+      },
+    }
+
+    for (const locale of locales) {
+      for (const [key, expected] of Object.entries(PINNED[locale] as Record<string, string>)) {
+        it(`${locale}.json — "${key}" is the spec string`, () => {
+          expect(getNestedKey(loadLocale(locale), key)).toBe(expected)
+        })
+      }
+    }
+  })
+
+  describe('a duplicate email never promises a resume', () => {
+    // 409 means "this address already enrolled here". The visitor is never
+    // resumed into that interview (that would hand it to whoever typed the
+    // address), so the copy must not suggest a way back in.
+    const resumeWord: Record<string, RegExp> = { en: /resum/i, it: /riprend/i }
+
+    for (const locale of locales) {
+      it(`${locale}.json — emailTaken does not claim a resume is possible`, () => {
+        const value = getNestedKey(
+          loadLocale(locale),
+          'interview.reusable.identity.errors.emailTaken'
+        ) as string
+
+        expect(value).not.toMatch(resumeWord[locale] as RegExp)
+      })
+    }
+  })
+
+  describe('the identity form never promises verification', () => {
+    // The email is accepted as typed and is NOT verified (OD-1): copy that
+    // mentions a code or a confirmation would be untrue.
+    const verifyWord: Record<string, RegExp> = {
+      en: /verif|confirmation|code/i,
+      it: /verific|conferma|codice/i,
+    }
+
+    for (const locale of locales) {
+      for (const key of [
+        'interview.reusable.identity.intro',
+        'interview.reusable.identity.privacy',
+        'interview.reusable.identity.submit',
+      ]) {
+        it(`${locale}.json — ${key} does not mention verification`, () => {
+          const value = getNestedKey(loadLocale(locale), key) as string
+
+          expect(value).not.toMatch(verifyWord[locale] as RegExp)
+        })
+      }
+    }
+  })
+
+  describe('the reopen terminal is distinct from link_invalid and never claims the link is bad', () => {
+    for (const locale of locales) {
+      it(`${locale}.json — link_reopen differs from link_invalid`, () => {
+        const data = loadLocale(locale)
+
+        expect(getNestedKey(data, 'interview.terminal.link_reopen.title')).not.toBe(
+          getNestedKey(data, 'interview.terminal.link_invalid.title')
+        )
+        expect(getNestedKey(data, 'interview.terminal.link_reopen.body')).not.toBe(
+          getNestedKey(data, 'interview.terminal.link_invalid.body')
+        )
+      })
+    }
+  })
+
+  // ---------------------------------------------------------------------------
+  // Key parity: a key present in one locale only renders as the raw key path for
+  // every visitor of the other, and nothing else would notice.
+  // ---------------------------------------------------------------------------
+
+  describe('en and it carry exactly the same keys', () => {
+    function flatten(obj: Record<string, unknown>, prefix = ''): string[] {
+      return Object.entries(obj).flatMap(([key, value]) =>
+        value !== null && typeof value === 'object'
+          ? flatten(value as Record<string, unknown>, `${prefix}${key}.`)
+          : [`${prefix}${key}`]
+      )
+    }
+
+    it('has no key in en.json that is missing from it.json', () => {
+      const it_ = new Set(flatten(loadLocale('it')))
+
+      expect(flatten(loadLocale('en')).filter((key) => !it_.has(key))).toEqual([])
+    })
+
+    it('has no key in it.json that is missing from en.json', () => {
+      const en = new Set(flatten(loadLocale('en')))
+
+      expect(flatten(loadLocale('it')).filter((key) => !en.has(key))).toEqual([])
+    })
+  })
 
   describe('the retryable reusable states never call the link invalid', () => {
     const invalidPattern: Record<string, RegExp> = {

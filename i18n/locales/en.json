@@ -99,6 +99,10 @@
         "title": "This Link Is No Longer Valid",
         "body": "This interview link is not valid or is no longer active. Please ask whoever sent it to you for a new link."
       },
+      "link_reopen": {
+        "title": "Please open the link again",
+        "body": "This page was reloaded, so your interview link is no longer here. Open the link again (scan the QR code or use the message you received) to start."
+      },
       "unsupported": {
         "title": "Unsupported Browser",
         "body": "This interview requires a supported desktop browser (Chrome, Edge, Opera or Safari) on a desktop computer."
@@ -128,7 +132,29 @@
         "title": "We could not start your interview",
         "body": "Something went wrong on the way to the interview service. This is usually temporary, so try again in a few moments."
       },
-      "retry": "Try again"
+      "retry": "Try again",
+      "identity": {
+        "title": "Before you start",
+        "intro": "Enter your name and email so your interview can be identified.",
+        "name": {
+          "label": "Full name"
+        },
+        "email": {
+          "label": "Email"
+        },
+        "privacy": "Your name and email are shared with the organization running this interview so your interview can be identified and requests about your data can be handled.",
+        "submit": "Start the interview",
+        "submitting": "Starting…",
+        "errors": {
+          "nameRequired": "Enter your name.",
+          "nameTooLong": "Your name can be at most 255 characters.",
+          "nameInvalid": "Check the name you entered.",
+          "emailRequired": "Enter your email.",
+          "emailInvalid": "Enter a valid email address, like name@example.com.",
+          "emailTooLong": "Your email can be at most 255 characters.",
+          "emailTaken": "This email address has already been used for this interview. Please contact the person who shared the link with you."
+        }
+      }
     },
     "document_title": "BEAI Interview",
     "guide": {
