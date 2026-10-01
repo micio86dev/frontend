@@ -91,6 +91,16 @@ const REQUIRED_KEYS = [
   'interview.terminal.link_used.body',
   'interview.terminal.link_invalid.title',
   'interview.terminal.link_invalid.body',
+  // reusable-interview-links — the reusable entry route (`/interview/reusable`)
+  // and its three non-terminal states: loading, busy (429) and failed
+  // (network / 5xx). An unknown or disabled link is the existing
+  // `link_invalid` terminal above, not a new key.
+  'interview.reusable.loading',
+  'interview.reusable.busy.title',
+  'interview.reusable.busy.body',
+  'interview.reusable.failed.title',
+  'interview.reusable.failed.body',
+  'interview.reusable.retry',
 ]
 
 describe('i18n interview flow keys', () => {
@@ -157,6 +167,36 @@ describe('i18n interview flow keys', () => {
         const body = getNestedKey(data, 'interview.error.body') as string
         expect(body).not.toMatch(resumePromisePattern[locale])
       })
+    }
+  })
+
+  // ---------------------------------------------------------------------------
+  // reusable-interview-links: the busy and failed states are RETRYABLE, so they
+  // must never tell the visitor the link is bad — that is the one thing a
+  // 429 or a network blip does not mean, and the wording is what makes someone
+  // walk away from a link that would have worked a moment later.
+  // ---------------------------------------------------------------------------
+
+  describe('the retryable reusable states never call the link invalid', () => {
+    const invalidPattern: Record<string, RegExp> = {
+      it: /non (?:è )?(?:più )?valid|scadut|disattivat/i,
+      en: /not (?:a )?valid|invalid|expired|no longer|disabled/i,
+    }
+
+    for (const locale of locales) {
+      for (const key of [
+        'interview.reusable.busy.title',
+        'interview.reusable.busy.body',
+        'interview.reusable.failed.title',
+        'interview.reusable.failed.body',
+      ]) {
+        it(`${locale}.json — ${key} does not claim the link is invalid`, () => {
+          const value = getNestedKey(loadLocale(locale), key) as string
+
+          expect(value).toMatch(/\S/)
+          expect(value).not.toMatch(invalidPattern[locale] as RegExp)
+        })
+      }
     }
   })
 })

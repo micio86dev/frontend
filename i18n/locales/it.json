@@ -118,6 +118,18 @@
         "contact": "Contatta l’assistenza"
       }
     },
+    "reusable": {
+      "loading": "Stiamo avviando il tuo colloquio…",
+      "busy": {
+        "title": "Molte persone stanno iniziando in questo momento",
+        "body": "Il servizio di colloquio è molto richiesto al momento. Il tuo link va bene: attendi qualche secondo e riprova."
+      },
+      "failed": {
+        "title": "Non siamo riusciti ad avviare il tuo colloquio",
+        "body": "Qualcosa è andato storto nel raggiungere il servizio di colloquio. Di solito è un problema temporaneo: riprova tra qualche istante."
+      },
+      "retry": "Riprova"
+    },
     "document_title": "Colloquio BEAI",
     "guide": {
       "title": "Come funziona",

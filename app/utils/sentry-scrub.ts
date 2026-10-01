@@ -254,6 +254,18 @@ export const DENIED_KEYS = new Set([
   // `transaction_info.source`) and its value names a system, not a person.
   'external_id',
   'external_ids',
+  // reusable-interview-links: the sha256 the api stores to look a link up. Both
+  // spellings, like every other credential pair. The word `token` already makes
+  // any `token_*` key denied, so this is the NAMED statement of the rule rather
+  // than the only thing holding it: the api scrubber carries `token_hash`
+  // explicitly, and this list is the one that has to agree with it.
+  //
+  // `link_token` needs no entry: it reaches `token` through the last-segment
+  // rule. `token_prefix` is an identification aid and is NOT scrubbed by VALUE
+  // (see `REUSABLE_LINK_TOKEN_PATTERN`); as a KEY it still falls to the `token`
+  // word above, which is the fail-closed side of that ambiguity.
+  'token_hash',
+  'token_hashes',
   // The candidate-identifying PLURALS. The rule was applied to the credential
   // keys and to the content keys and skipped here — the third half of the same
   // list. `redactFreeText('CR-99')` has nothing to grip on.
@@ -883,7 +895,10 @@ function redactPath(path: string): string {
 const ANCHORED_INTERVIEW_ROUTE = /^\/(?:[a-z]{2}\/)?interview\/[^/]+$/
 
 function redactAddressInPath(url: string): string {
-  return url.replace(EMAIL_PATTERN, REDACTED)
+  // The reusable link token is cut here too: `redactUrl` is the primary URL
+  // sink, and a path segment or a non-URL string handed to it never passes
+  // through `redactSharedPasses`.
+  return redactReusableLinkTokens(url.replace(EMAIL_PATTERN, REDACTED))
 }
 
 /**
@@ -988,6 +1003,30 @@ const EMBEDDED_INTERVIEW_PATH = /(\/(?:[a-z]{2}\/)?interview)\/[^\s/"'<>]+/gi
 const EMAIL_PATTERN = /(?<![\w.%+-])[\w.%+-]+@(?:[A-Z0-9-]+\.)+[A-Z]{2,}/gi
 
 /**
+ * The reusable interview link token, cut BY VALUE.
+ *
+ * `beai_rl_` followed by 43 base64url characters (256 bits) is a live,
+ * NON-EXPIRING credential: whoever holds it can start interviews in a project
+ * until an operator disables the link. In THIS app it travels in the URL
+ * FRAGMENT (`/interview/reusable#<token>`) and in the `link_token` field of the
+ * redeem request body. Sentry reads `location.href` for `request.url`, the
+ * pageload transaction and the first navigation breadcrumb BEFORE the page
+ * strips the fragment, and a key denylist cannot reach a token that sits inside
+ * a string, so the value itself is the net.
+ *
+ * EXACTLY 43, matching the api's token format, which is also what keeps the
+ * 16-character display prefix (`beai_rl_` + 8) and a near miss such as the
+ * marker followed by 10 characters readable: an over-eager scrubber that eats
+ * ordinary text makes the error report useless. The backoffice applies the
+ * same rule, and both are pinned by one shared fixture set.
+ */
+const REUSABLE_LINK_TOKEN_PATTERN = /beai_rl_[\w-]{43}/g
+
+function redactReusableLinkTokens(text: string): string {
+  return text.replace(REUSABLE_LINK_TOKEN_PATTERN, REDACTED)
+}
+
+/**
  * Every pass that is NOT about how an absolute URL should be treated.
  *
  * `redactFreeText` and `redactStackFrames` were two separate chains, and they
@@ -1002,7 +1041,14 @@ const EMAIL_PATTERN = /(?<![\w.%+-])[\w.%+-]+@(?:[A-Z0-9-]+\.)+[A-Z]{2,}/gi
  * scrubbed one.
  */
 function redactSharedPasses(text: string): string {
-  return redactSelectorCopy(redactRelativeQuery(redactEmbeddedDocuments(redactEmbeddedPairs(text))))
+  // The token pass is FIRST, so a token is gone before any later pass parses,
+  // splits or re-serialises the text around it, and it reaches both callers of
+  // this chain: free text and stack frames.
+  return redactSelectorCopy(
+    redactRelativeQuery(
+      redactEmbeddedDocuments(redactEmbeddedPairs(redactReusableLinkTokens(text)))
+    )
+  )
 }
 
 /**

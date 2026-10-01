@@ -118,6 +118,18 @@
         "contact": "Contact Support"
       }
     },
+    "reusable": {
+      "loading": "Starting your interview…",
+      "busy": {
+        "title": "Many people are starting right now",
+        "body": "The interview service is busy at the moment. Nothing is wrong with your link: wait a few seconds and try again."
+      },
+      "failed": {
+        "title": "We could not start your interview",
+        "body": "Something went wrong on the way to the interview service. This is usually temporary, so try again in a few moments."
+      },
+      "retry": "Try again"
+    },
     "document_title": "BEAI Interview",
     "guide": {
       "title": "How this works",
