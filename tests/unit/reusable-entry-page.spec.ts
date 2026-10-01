@@ -1044,19 +1044,82 @@ describe('interview/reusable.vue — leaving the page clears what it held', () =
     expect(sessionStorage.getItem(IDENTITY_PENDING_KEY)).toBeNull()
   })
 
-  it('a submit that settles after the page was left makes no navigation and keeps no token', async () => {
-    let settle: (value: unknown) => void = () => undefined
-    mockFetchImpl.mockReturnValueOnce(new Promise((resolve) => (settle = resolve)))
-    const wrapper = await openLink()
-    await submitIdentity(wrapper)
+  // The redemption is already on the wire when the visitor leaves (an in-app navigation
+  // or a closed tab's late response). Whatever it then answers, the page is gone: it must
+  // not store the session of a visitor nobody is looking at, nor navigate anywhere.
+  describe('a submit that settles after the page was left', () => {
+    const REDIRECT = 'https://client.example/closed'
 
-    wrapper.unmount()
-    settle({ access_token: makeCandidateJwt() })
-    await flushPromises()
+    async function leaveWhileInFlight(answer: () => unknown): Promise<VueWrapper> {
+      let settle: (value: unknown) => void = () => undefined
+      let fail: (reason: unknown) => void = () => undefined
+      mockFetchImpl.mockReturnValueOnce(
+        new Promise((resolve, reject) => {
+          settle = resolve
+          fail = reject
+        })
+      )
+      const wrapper = await openLink()
+      await submitIdentity(wrapper)
+      expect(mockFetchImpl).toHaveBeenCalledTimes(1)
 
-    // Whatever the in-flight request returns, no second request is made.
-    expect(mockFetchImpl).toHaveBeenCalledTimes(1)
-    expect(sessionStorage.getItem(IDENTITY_PENDING_KEY)).toBeNull()
+      wrapper.unmount()
+      const result = answer()
+      if (result instanceof Error) fail(result)
+      else settle(result)
+      await flushPromises()
+
+      return wrapper
+    }
+
+    it.each([
+      ['a 200', () => ({ access_token: makeCandidateJwt() })],
+      ['a 404', () => httpError(404)],
+      ['a 403 with a redirect_url', () => httpError(403, { redirect_url: REDIRECT })],
+      ['a 403 without one', () => httpError(403, { redirect_url: null })],
+    ])(
+      '%s: stores no session, makes no navigation of any kind, makes no second request',
+      async (_n, answer) => {
+        await leaveWhileInFlight(answer)
+
+        expect(navigations).toEqual([])
+        expect(navigateToDouble).not.toHaveBeenCalled()
+        expect(routerReplace).not.toHaveBeenCalled()
+        expect(localStorage.getItem(STORAGE_KEY)).toBeNull()
+        expect(useCandidateSession().read()).toBeNull()
+        expect(mockFetchImpl).toHaveBeenCalledTimes(1)
+        expect(sessionStorage.getItem(IDENTITY_PENDING_KEY)).toBeNull()
+      }
+    )
+
+    it.each([
+      ['a 429', () => httpError(429)],
+      ['a 502', () => httpError(502)],
+      ['a 409', () => httpError(409, { message: 'duplicate_enrolment' })],
+    ])('%s: nothing is stored and nothing navigates either', async (_n, answer) => {
+      await leaveWhileInFlight(answer)
+
+      expect(navigations).toEqual([])
+      expect(localStorage.getItem(STORAGE_KEY)).toBeNull()
+      expect(mockFetchImpl).toHaveBeenCalledTimes(1)
+    })
+
+    it('a Retry that settles after the page was left is gated the same way', async () => {
+      let settle: (value: unknown) => void = () => undefined
+      mockFetchImpl.mockRejectedValueOnce(httpError(429))
+      mockFetchImpl.mockReturnValueOnce(new Promise((resolve) => (settle = resolve)))
+      const wrapper = await openLink()
+      await submitIdentity(wrapper)
+      await wrapper.get(RETRY).trigger('click')
+      expect(mockFetchImpl).toHaveBeenCalledTimes(2)
+
+      wrapper.unmount()
+      settle({ access_token: makeCandidateJwt() })
+      await flushPromises()
+
+      expect(navigations).toEqual([])
+      expect(localStorage.getItem(STORAGE_KEY)).toBeNull()
+    })
   })
 })
 
