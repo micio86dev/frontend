@@ -38,7 +38,14 @@
         <p class="text-sm text-muted-foreground">{{ $t('interview.terminal.link_used.body') }}</p>
       </template>
 
-      <!-- Hosted-entry terminal — `GET /api/embed/exchange` 401 `token_invalid`: expired, mis-signed, or wrong-audience session token (G-32). -->
+      <!--
+        Shared "this link will never work" terminal. Reached from the hosted
+        entry (`GET /api/embed/exchange` 401 `token_invalid`: expired,
+        mis-signed or wrong-audience session token, G-32), the embed exchange
+        (401/404) and the reusable entry (an unknown, malformed or disabled
+        link). A reusable link never expires, so the copy says "not valid or
+        no longer active" and must never claim expiry.
+      -->
       <template v-else-if="reason === 'link_invalid'">
         <h1 id="terminal-page-heading" class="text-2xl font-semibold text-foreground">
           {{ $t('interview.terminal.link_invalid.title') }}
@@ -94,11 +101,12 @@
  *   reason — '403' (authorization expired/closed), 'spent_link' (sso-link
  *     jti already consumed — exchange 401), 'link_used' (public-api hosted
  *     entry's session token already consumed/replaced — `/api/embed/exchange`
- *     410 `token_consumed`, G-32), 'link_invalid' (hosted entry's session
- *     token expired/malformed — `/api/embed/exchange` 401 `token_invalid`,
- *     G-32), 'session_expired' (stored candidate session absent/expired —
- *     candidate-session middleware gate, D-E), or 'absent_phrase' (service
- *     unavailable, fallback default).
+ *     410 `token_consumed`, G-32), 'link_invalid' (the link is not valid or no
+ *     longer active: hosted entry's session token expired/malformed —
+ *     `/api/embed/exchange` 401 `token_invalid`, G-32 — or a reusable link
+ *     that is unknown, malformed or disabled), 'session_expired' (stored
+ *     candidate session absent/expired — candidate-session middleware gate,
+ *     D-E), or 'absent_phrase' (service unavailable, fallback default).
  *
  * Reached from three places:
  *   1. The sso-link entry route (`interview/[token].vue`) on an exchange

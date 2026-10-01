@@ -97,7 +97,7 @@
       },
       "link_invalid": {
         "title": "Questo link non è più valido",
-        "body": "Questo link per il colloquio è scaduto o non è valido. Chiedi un nuovo link a chi te lo ha inviato."
+        "body": "Questo link per il colloquio non è valido o non è più attivo. Chiedi un nuovo link a chi te lo ha inviato."
       },
       "unsupported": {
         "title": "Browser non supportato",
