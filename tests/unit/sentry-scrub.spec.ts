@@ -4664,6 +4664,13 @@ describe('scrubSentryEvent — the reusable link token', () => {
     expect(JSON.stringify(scrubbed)).not.toContain('beai_rl_')
   })
 
+  it('keeps the page identifiable once the fragment is gone', () => {
+    // Cutting the fragment must not collapse the whole route into `:token`: the
+    // reusable entry route is a NAMED page, like done/error/terminal.
+    expect(redactUrl(FRAGMENT_URL)).toBe('https://interview.example.test/interview/reusable')
+    expect(redactFreeText('/en/interview/reusable')).toBe('/en/interview/reusable')
+  })
+
   it.each([
     ['a short fragment', '/interview/abc#x'],
     ['a long fragment', `/interview/abc#${'f'.repeat(200)}`],

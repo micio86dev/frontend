@@ -39,6 +39,38 @@ describe('redactAnalyticsPath', () => {
     expect(redactAnalyticsPath('/en/interview/done')).toBe('/en/interview/done')
   })
 
+  it('keeps the reusable entry route as a NAMED page, not a token', () => {
+    // reusable-interview-links: `/interview/reusable` is a fixed page whose
+    // visitor-supplied part lives in the URL FRAGMENT. Collapsing it into
+    // `/interview/:token` would hide the one funnel step that says how many
+    // people opened a reusable link, and would misreport it as a token page.
+    expect(redactAnalyticsPath('/interview/reusable')).toBe('/interview/reusable')
+    expect(redactAnalyticsPath('/en/interview/reusable')).toBe('/en/interview/reusable')
+  })
+
+  it('drops the token from a reusable entry route, whatever carries it', () => {
+    const token = 'beai_rl_9AuXUvnfk8dgg-mOHfBcWFbQ98k_MXZ5SChgVAqzCpY'
+
+    // The fragment is where the token travels; the query is where a mistake
+    // would put it. Both are removed wholesale, and neither survives.
+    expect(redactAnalyticsPath(`/interview/reusable#${token}`)).toBe('/interview/reusable')
+    expect(redactAnalyticsPath(`/en/interview/reusable?x=1#${token}`)).toBe(
+      '/en/interview/reusable'
+    )
+    expect(redactAnalyticsPath(`/interview/reusable?link_token=${token}`)).not.toContain('beai_rl_')
+  })
+
+  it('still collapses an unknown segment next to the reusable page into :token', () => {
+    // The named page is an exact match, not a prefix: `reusable-x` is a token.
+    expect(redactAnalyticsPath('/interview/reusable-x')).toBe('/interview/:token')
+    expect(redactAnalyticsPath('/interview/reusables')).toBe('/interview/:token')
+  })
+
+  it('treats the reusable entry route as unsafe for analytics, like the rest of the interview', () => {
+    expect(isAnalyticsSafeRoute('/interview/reusable#beai_rl_x')).toBe(false)
+    expect(isAnalyticsSafeRoute('/en/interview/reusable')).toBe(false)
+  })
+
   it('strips the query string and the fragment entirely', () => {
     // Not redacted field by field — removed wholesale. Query parameters are
     // where tokens, candidate references and exit-redirect URLs travel, and an

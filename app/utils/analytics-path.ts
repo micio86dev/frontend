@@ -31,7 +31,11 @@ const UNSAFE_PREFIX = /^\/(?:[a-z]{2}\/)?interview(?:\/|$)/
  * English-language project while the Italian ones looked correctly redacted —
  * which is worse than not redacting at all, because it looks like it works.
  */
-const NAMED_INTERVIEW_PAGES = new Set(['done', 'error', 'terminal'])
+// `reusable` is the reusable-link entry route (reusable-interview-links): a fixed
+// page whose credential lives in the URL FRAGMENT, which this module drops
+// wholesale below. Naming it keeps the funnel step visible instead of folding it
+// into `:token`.
+const NAMED_INTERVIEW_PAGES = new Set(['done', 'error', 'terminal', 'reusable'])
 
 /**
  * Strips a route down to something that identifies the PAGE and nothing else.
