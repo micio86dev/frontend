@@ -37,6 +37,94 @@ import {
  * interview entry link carries the candidate's SSO token as a path segment.
  */
 
+/**
+ * Proves an operation is LINEAR in its input, independently of how fast the machine
+ * is, by comparing the same operation at `n` and at `k * n` instead of against an
+ * absolute number of milliseconds. A threshold in milliseconds measures the machine
+ * as much as the code: one of these assertions failed at 415 ms against a 400 ms
+ * limit while the host was under load, and passed three times out of three alone.
+ *
+ * A linear scan takes about `k` times longer at `k * n`, a quadratic one about `k^2`
+ * times (8 -> 64), a cubic one about `k^3`. The bound is `3 * k`: well clear of the
+ * noise a loaded machine adds to a ratio of about `k`, well under quadratic growth.
+ *
+ * A ratio is only meaningful when the small side is long enough to be measured, and
+ * how long an operation takes is exactly what differs between machines. So each
+ * measurement is a SAMPLE: the operation repeated inside one timed block. The repeat
+ * count is calibrated ONCE, at the small size, until the sample takes at least
+ * `TARGET_SAMPLE_MS`, and the SAME count is then used at the large size, so the two
+ * sides do the same number of operations and only the input size differs. Each side
+ * is the FASTEST of a few samples after a warm-up, because interruptions (a busy host,
+ * a GC pause) only ever add time. There is no floor on the small side: it is
+ * measurable by construction.
+ *
+ * `build(size)` prepares the input and returns the operation to time, so building the
+ * hostile input is never part of the measurement.
+ */
+const GROWTH = 8
+const TIMING_RUNS = 5
+const CALIBRATION_RUNS = 3
+const TARGET_SAMPLE_MS = 5
+const MAX_REPEATS = 2 ** 20
+
+function sampleMs(operation: () => void, repeats: number): number {
+  const started = performance.now()
+
+  for (let i = 0; i < repeats; i += 1) {
+    operation()
+  }
+
+  return performance.now() - started
+}
+
+function fastestSampleMs(operation: () => void, repeats: number, runs: number): number {
+  let fastest = Infinity
+
+  for (let run = 0; run < runs; run += 1) {
+    fastest = Math.min(fastest, sampleMs(operation, repeats))
+  }
+
+  return fastest
+}
+
+/** The smallest power-of-two repeat count whose FASTEST sample reaches the target duration. */
+function calibrateRepeats(operation: () => void): number {
+  operation()
+
+  let repeats = 1
+
+  while (
+    repeats < MAX_REPEATS &&
+    fastestSampleMs(operation, repeats, CALIBRATION_RUNS) < TARGET_SAMPLE_MS
+  ) {
+    repeats *= 2
+  }
+
+  return repeats
+}
+
+function expectLinearGrowth(build: (size: number) => () => void, size: number): void {
+  const small = build(size)
+  const large = build(size * GROWTH)
+  const repeats = calibrateRepeats(small)
+
+  large()
+
+  const smallMs = fastestSampleMs(small, repeats, TIMING_RUNS)
+  const largeMs = fastestSampleMs(large, repeats, TIMING_RUNS)
+  const ratio = largeMs / smallMs
+
+  expect(
+    ratio,
+    `${GROWTH}x the input took ${ratio.toFixed(1)}x as long over ${repeats} repeat(s) ` +
+      `(${smallMs.toFixed(2)} ms -> ${largeMs.toFixed(2)} ms); ` +
+      `linear is about ${GROWTH}x, quadratic about ${GROWTH * GROWTH}x`
+  ).toBeLessThan(GROWTH * 3)
+}
+
+/** Per-test timeout: a quadratic regression must reach the ratio assertion, not the default 5 s. */
+const TIMING_TEST_TIMEOUT_MS = 60_000
+
 function eventWith(extra: Record<string, unknown>): ScrubbableEvent {
   return { extra }
 }
@@ -1151,17 +1239,22 @@ describe('a literal unset misses every other spelling', () => {
 })
 
 describe('what the measurements settled', () => {
-  it('scans a long hostile string in linear time', () => {
-    // Unanchored, the local part re-ran from every start position: 24ms at 10k,
-    // 393ms at 40k, 1,544ms at 80k — a second and a half of main-thread freeze
-    // inside beforeSend. The leading lookbehind makes each start O(1) to reject.
-    const hostile = 'x@' + 'a'.repeat(80_000)
-    const started = performance.now()
+  it(
+    'scans a long hostile string in linear time',
+    () => {
+      // Unanchored, the local part re-ran from every start position: 24ms at 10k,
+      // 393ms at 40k, 1,544ms at 80k — a second and a half of main-thread freeze
+      // inside beforeSend. The leading lookbehind makes each start O(1) to reject.
+      // Measured at 5k and at 40k: big enough that a quadratic scan is unmistakable, small
+      // enough that a regression fails in seconds rather than minutes.
+      expectLinearGrowth((size) => {
+        const hostile = 'x@' + 'a'.repeat(size)
 
-    redactFreeText(hostile)
-
-    expect(performance.now() - started).toBeLessThan(250)
-  })
+        return () => redactFreeText(hostile)
+      }, 5_000)
+    },
+    TIMING_TEST_TIMEOUT_MS
+  )
 
   it('redacts an address sitting in a URL PATH', () => {
     // `redactAnalyticsPath` collapses the segments it knows; an address in one
@@ -1367,15 +1460,19 @@ describe('pinned on the branch delta, not on what another rule already cuts', ()
     expect(encoded).not.toContain('BCTOKEN9')
   })
 
-  it('anchors the address pass inside a URL path too', () => {
-    // Without the lookbehind the scan restarts from every position — the same
-    // deletion that is pinned on the prose pattern.
-    const started = performance.now()
+  it(
+    'anchors the address pass inside a URL path too',
+    () => {
+      // Without the lookbehind the scan restarts from every position — the same
+      // deletion that is pinned on the prose pattern.
+      expectLinearGrowth((size) => {
+        const path = '/downloads/' + 'a'.repeat(size)
 
-    redactUrl('/downloads/' + 'a'.repeat(60_000))
-
-    expect(performance.now() - started).toBeLessThan(250)
-  })
+        return () => redactUrl(path)
+      }, 3_000)
+    },
+    TIMING_TEST_TIMEOUT_MS
+  )
 })
 
 describe('the fast path and the miss path must answer the same', () => {
@@ -3273,24 +3370,26 @@ describe('a multi-word denied key behind a prefix', () => {
     expect((scrubbed.extra as Record<string, unknown>)[key]).toBe('application/json')
   })
 
-  it('scans a long BRACE RUN in linear time', () => {
-    // The embedded-document scan called `embeddedValueEnd` at every `{`, and on
-    // an unbalanced opener that scan runs to the end of the string — O(n^2),
-    // with the length check sitting AFTER it so it bounded `JSON.parse` and
-    // nothing else. Measured before the fix: 671 ms at 20k, 2.3 s at 40k,
-    // 14.1 s at 99k — fourteen seconds of blocked main thread inside
-    // `beforeSend`, on the operator's tab.
-    //
-    // Same shape as the two timing assertions this suite already carries, for
-    // the same reason: a bound only a performance test can see.
-    const hostile = '{'.repeat(99_000)
+  it(
+    'scans a long BRACE RUN in linear time',
+    () => {
+      // The embedded-document scan called `embeddedValueEnd` at every `{`, and on
+      // an unbalanced opener that scan runs to the end of the string — O(n^2),
+      // with the length check sitting AFTER it so it bounded `JSON.parse` and
+      // nothing else. Measured before the fix: 671 ms at 20k, 2.3 s at 40k,
+      // 14.1 s at 99k — fourteen seconds of blocked main thread inside
+      // `beforeSend`, on the operator's tab.
+      //
+      // Same shape as the two timing assertions this suite already carries, for
+      // the same reason: a bound only a performance test can see.
+      expectLinearGrowth((size) => {
+        const event = { message: '{'.repeat(size) } as unknown as ScrubbableEvent
 
-    const started = performance.now()
-
-    scrubSentryEvent({ message: hostile } as unknown as ScrubbableEvent)
-
-    expect(performance.now() - started).toBeLessThan(250)
-  })
+        return () => scrubSentryEvent(event)
+      }, 6_000)
+    },
+    TIMING_TEST_TIMEOUT_MS
+  )
 
   it('gives the stack HEAD the free-text rule and the FRAMES the url rule', () => {
     // The split is what makes `redactStack` two things at once, and collapsing it
@@ -3435,24 +3534,28 @@ describe('a multi-word denied key behind a prefix', () => {
     }
   )
 
-  it('resolves a COLLIDING key map in linear time', () => {
-    // Every colliding key restarted the suffix search at 2, so n keys redacting
-    // to the same marker cost O(n^2) probes — 82 ms at 1000, 806 ms at 4000,
-    // 2.9 s at 8000, inside `beforeSend` on the main thread. A map keyed by
-    // address is the ordinary shape of a delivery-result map, and a map keyed by
-    // absolute URL collides just as hard.
-    const extra: Record<string, unknown> = {}
+  it(
+    'resolves a COLLIDING key map in linear time',
+    () => {
+      // Every colliding key restarted the suffix search at 2, so n keys redacting
+      // to the same marker cost O(n^2) probes — 82 ms at 1000, 806 ms at 4000,
+      // 2.9 s at 8000, inside `beforeSend` on the main thread. A map keyed by
+      // address is the ordinary shape of a delivery-result map, and a map keyed by
+      // absolute URL collides just as hard.
+      expectLinearGrowth((size) => {
+        const extra: Record<string, unknown> = {}
 
-    for (let i = 0; i < 8_000; i += 1) {
-      extra[`user${i}@acme.test`] = 'x'
-    }
+        for (let i = 0; i < size; i += 1) {
+          extra[`user${i}@acme.test`] = 'x'
+        }
 
-    const started = performance.now()
+        const event = { extra } as unknown as ScrubbableEvent
 
-    scrubSentryEvent({ extra } as unknown as ScrubbableEvent)
-
-    expect(performance.now() - started).toBeLessThan(400)
-  })
+        return () => scrubSentryEvent(event)
+      }, 1_000)
+    },
+    TIMING_TEST_TIMEOUT_MS
+  )
 
   it('cuts a whole JWT query, and ends a prose query at the space', () => {
     // The boundary this module and `redactUrl` answer differently, made visible
@@ -3861,22 +3964,25 @@ describe('a multi-word denied key behind a prefix', () => {
     }
   )
 
-  it('bounds the denied-key run walk, so a long key cannot freeze beforeSend', () => {
-    // The bound is a performance guard and only a performance test can see it.
-    // Unbounded, the walk is cubic — every start, every end, and a `join` inside
-    // both — on a key whose length a request body influences: measured 845 ms of
-    // main-thread freeze inside `beforeSend` against 1 ms with the bound.
-    //
-    // The twin guard already had this test ('scans a long hostile string in
-    // linear time'); the key walk never got it.
-    const hostileKey = Array.from({ length: 600 }, (_, i) => `seg${i}`).join('_')
+  it(
+    'bounds the denied-key run walk, so a long key cannot freeze beforeSend',
+    () => {
+      // The bound is a performance guard and only a performance test can see it.
+      // Unbounded, the walk is cubic — every start, every end, and a `join` inside
+      // both — on a key whose length a request body influences: measured 845 ms of
+      // main-thread freeze inside `beforeSend` against 1 ms with the bound.
+      //
+      // The twin guard already had this test ('scans a long hostile string in
+      // linear time'); the key walk never got it.
+      expectLinearGrowth((size) => {
+        const hostileKey = Array.from({ length: size }, (_, i) => `seg${i}`).join('_')
+        const event = { extra: { [hostileKey]: 'x' } } as unknown as ScrubbableEvent
 
-    const started = performance.now()
-
-    scrubSentryEvent({ extra: { [hostileKey]: 'x' } } as unknown as ScrubbableEvent)
-
-    expect(performance.now() - started).toBeLessThan(250)
-  })
+        return () => scrubSentryEvent(event)
+      }, 75)
+    },
+    TIMING_TEST_TIMEOUT_MS
+  )
 
   it('quotes the marker the way the DOCUMENT is quoted', () => {
     // A plain-quoted marker inside an escaped document closes the outer string

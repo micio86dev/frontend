@@ -37,6 +37,66 @@ describe('FieldError', () => {
 
     expect(wrapper.find('[role="alert"]').exists()).toBe(false)
   })
+
+  it.each([
+    ['undefined entries', [undefined]],
+    ['several undefined entries', [undefined, undefined]],
+    ['an empty string', ['']],
+    ['an object with no message', [{ message: undefined }]],
+    ['a mix of all of them', [undefined, '', { message: undefined }]],
+  ])('renders nothing at all when every entry is falsy: %s', (_label, errors) => {
+    const wrapper = mount(FieldError, { props: { errors } })
+
+    // An empty role="alert" is announced as nothing by some readers and as noise by
+    // others, and an empty <ul> is a list landmark with no items.
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.find('ul').exists()).toBe(false)
+    expect(wrapper.html()).toBe('<!--v-if-->')
+  })
+
+  it('lists two DISTINCT errors as list items, in order', () => {
+    const wrapper = mount(FieldError, { props: { errors: ['Too short.', 'Needs a digit.'] } })
+
+    expect(wrapper.attributes('role')).toBe('alert')
+    expect(wrapper.findAll('li').map((li) => li.text())).toEqual(['Too short.', 'Needs a digit.'])
+  })
+
+  it('shows two IDENTICAL errors once, as plain text and not as a one-item list', () => {
+    const wrapper = mount(FieldError, {
+      props: { errors: ['Enter your name.', 'Enter your name.'] },
+    })
+
+    expect(wrapper.text()).toBe('Enter your name.')
+    expect(wrapper.find('ul').exists()).toBe(false)
+  })
+
+  it('de-duplicates by message across string and object entries', () => {
+    const wrapper = mount(FieldError, {
+      props: { errors: ['Same.', { message: 'Same.' }, { message: 'Other.' }] },
+    })
+
+    expect(wrapper.findAll('li').map((li) => li.text())).toEqual(['Same.', 'Other.'])
+  })
+
+  it('ignores a falsy entry among real ones', () => {
+    const wrapper = mount(FieldError, { props: { errors: [undefined, 'Only this.', ''] } })
+
+    expect(wrapper.text()).toBe('Only this.')
+    expect(wrapper.find('ul').exists()).toBe(false)
+  })
+
+  it('keeps each list item with its own message when the errors change (keyed on the message)', async () => {
+    const wrapper = mount(FieldError, { props: { errors: ['First.', 'Second.'] } })
+    const second = wrapper.findAll('li')[1]?.element
+
+    await wrapper.setProps({ errors: ['Zeroth.', 'First.', 'Second.'] })
+
+    // With an index key the node that held "Second." is reused for "First."; with the
+    // message as the key it is the same element, moved.
+    const items = wrapper.findAll('li')
+    expect(items.map((li) => li.text())).toEqual(['Zeroth.', 'First.', 'Second.'])
+    expect(items[2]?.element).toBe(second)
+  })
 })
 
 describe('Input', () => {
