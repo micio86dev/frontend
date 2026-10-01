@@ -182,4 +182,16 @@ describe('isGateExemptPath — routes the global gate never redirects', () => {
   it.each(['/interview/x', '/i/tok', '/embedded/tok', '/'])('gates %s', (path) => {
     expect(isGateExemptPath(path)).toBe(false)
   })
+
+  // reusable-interview-links: a phone that opens a reusable link must be turned
+  // away BEFORE the page mounts, because mounting redeems and a redemption
+  // creates a visitor nobody can interview. The gate is a global route
+  // middleware, so the only way this route could redeem on a phone is by being
+  // exempted here.
+  it.each(['/interview/reusable', '/en/interview/reusable'])(
+    'gates the reusable entry route %s, so an unsupported browser never redeems',
+    (path) => {
+      expect(isGateExemptPath(path)).toBe(false)
+    }
+  )
 })
