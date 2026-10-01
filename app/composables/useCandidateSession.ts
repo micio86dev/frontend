@@ -37,10 +37,21 @@ export interface CandidateSession {
    * sessions stored via the SSO-link entry route.
    */
   interviewId?: string
+  /**
+   * Which entry route stored this session. `'reusable'` is written only by the
+   * reusable entry route (`app/pages/interview/reusable.vue`), and it is what
+   * lets a reload of that route — which no longer has a fragment — resume ITS
+   * OWN session and nothing else: a session stored by the single-use or hosted
+   * entry route carries no marker and is never resumed there. Absent (the key is
+   * not even written) for every other kind, so those records are byte-identical
+   * to what they were before the reusable link existed.
+   */
+  entry?: 'reusable'
 }
 
 export interface StoreExtra {
   interviewId?: string
+  entry?: 'reusable'
 }
 
 export interface UseCandidateSessionReturn {
@@ -49,7 +60,8 @@ export interface UseCandidateSessionReturn {
   /**
    * Decodes claims from the JWT payload; no signature verification (server
    * re-validates). `extra.interviewId`, when passed, is stored alongside the
-   * decoded claims — see `CandidateSession.interviewId`.
+   * decoded claims — see `CandidateSession.interviewId`. `extra.entry`, when
+   * passed, marks the session's origin — see `CandidateSession.entry`.
    */
   store(accessToken: string, extra?: StoreExtra): void
   clear(): void
@@ -97,6 +109,7 @@ export function useCandidateSession(): UseCandidateSessionReturn {
 
     const session: CandidateSession = { accessToken, exp, candidateRef, projectId }
     if (extra?.interviewId) session.interviewId = extra.interviewId
+    if (extra?.entry) session.entry = extra.entry
     localStorage.setItem(STORAGE_KEY, JSON.stringify(session))
   }
 
