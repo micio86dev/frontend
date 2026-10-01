@@ -6,6 +6,7 @@ import {
   captureReusableLinkFragment,
   discardReusableLinkFragment,
   takeReusableLinkToken,
+  type FragmentWindow,
 } from '~/app/utils/reusable-link-fragment'
 import { REUSABLE_LINK_TOKEN } from './fixtures/reusable-link-scrub-cases'
 
@@ -318,5 +319,125 @@ describe('the early client plugin runs BEFORE the router plugin', () => {
 
     expect(match, 'the plugin must declare a numeric `order`').not.toBeNull()
     expect(Number(match?.[1])).toBeLessThan(ROUTER_PLUGIN_ORDER)
+  })
+})
+
+describe('captureReusableLinkFragment — the router state written back by a hash change', () => {
+  // A hash-only change fires `popstate` BEFORE `hashchange`. With no state on
+  // that entry, vue-router answers `replace(to)`, where `to` is built from a
+  // `location` that still carries the fragment, and so writes
+  // `{ current: '<path>#beai_rl_…', replaced: true, … }` into `history.state`.
+  // By the time the plugin's `hashchange` listener runs, the state it is about to
+  // hand back to `replaceState` already holds the token, so the strip has to
+  // clean `current` as well as the address bar. A plain object stands in for the
+  // window so each case can read exactly what was passed to `replaceState`.
+  const PATH = '/en/interview/reusable'
+
+  function windowWith(
+    state: unknown,
+    options: { hash?: string; search?: string } = {}
+  ): { win: FragmentWindow; replaceState: ReturnType<typeof vi.fn> } {
+    const replaceState = vi.fn()
+    const win = {
+      location: {
+        hash: options.hash ?? `#${REUSABLE_LINK_TOKEN}`,
+        pathname: PATH,
+        search: options.search ?? '',
+      },
+      history: { state, replaceState },
+    } as unknown as FragmentWindow
+
+    return { win, replaceState }
+  }
+
+  it('rewrites a router-shaped `current` that carries the fragment to pathname plus search', () => {
+    const routerState = {
+      back: null,
+      current: `${PATH}#${REUSABLE_LINK_TOKEN}`,
+      forward: null,
+      replaced: true,
+      position: 1,
+      scroll: null,
+    }
+    const { win, replaceState } = windowWith(routerState)
+
+    captureReusableLinkFragment(win)
+
+    expect(replaceState).toHaveBeenCalledTimes(1)
+    expect(replaceState).toHaveBeenCalledWith({ ...routerState, current: PATH }, '', PATH)
+    // The router's own object is not mutated.
+    expect(routerState.current).toContain('beai_rl_')
+  })
+
+  it('keeps the query string of `current`', () => {
+    const { win, replaceState } = windowWith(
+      { current: `${PATH}?utm=kiosk#${REUSABLE_LINK_TOKEN}`, position: 2 },
+      { search: '?utm=kiosk' }
+    )
+
+    captureReusableLinkFragment(win)
+
+    expect(replaceState).toHaveBeenCalledWith(
+      { current: `${PATH}?utm=kiosk`, position: 2 },
+      '',
+      `${PATH}?utm=kiosk`
+    )
+  })
+
+  it('cleans a fragment of ANY length, like the address bar strip does', () => {
+    for (const body of ['', 'short', 'x'.repeat(16), 'y'.repeat(300)]) {
+      const { win, replaceState } = windowWith(
+        { current: `${PATH}#beai_rl_${body}` },
+        { hash: `#beai_rl_${body}` }
+      )
+
+      captureReusableLinkFragment(win)
+
+      expect(replaceState).toHaveBeenCalledWith({ current: PATH }, '', PATH)
+      discardReusableLinkFragment()
+    }
+  })
+
+  it.each([
+    ['a state without the marker', { back: null, current: PATH, position: 1 }],
+    ['a state with no `current`', { position: 1 }],
+    ['a null state', null],
+    ['a string state', `${PATH}#${REUSABLE_LINK_TOKEN}`],
+    ['a number state', 7],
+    ['an array state', [`${PATH}#${REUSABLE_LINK_TOKEN}`]],
+    ['a non-string `current`', { current: 42 }],
+    ['an object `current`', { current: { href: `${PATH}#${REUSABLE_LINK_TOKEN}` } }],
+    [
+      'a `current` that mentions the marker in its query string',
+      { current: `${PATH}?next=${REUSABLE_LINK_TOKEN}` },
+    ],
+    [
+      'a `current` that mentions the marker in its path',
+      { current: `/page/${REUSABLE_LINK_TOKEN}` },
+    ],
+    [
+      'a `current` whose fragment only CONTAINS the marker',
+      { current: `/page#anchor-${REUSABLE_LINK_TOKEN}` },
+    ],
+    ['a `current` with another fragment', { current: `${PATH}#section-2` }],
+  ])('passes %s through unchanged', (_name, state) => {
+    const { win, replaceState } = windowWith(state)
+
+    captureReusableLinkFragment(win)
+
+    expect(replaceState).toHaveBeenCalledTimes(1)
+    expect(replaceState.mock.calls[0]?.[0]).toBe(state)
+    expect(replaceState.mock.calls[0]?.[2]).toBe(PATH)
+  })
+
+  it('does not call replaceState at all when there is no link fragment, whatever the state', () => {
+    const { win, replaceState } = windowWith(
+      { current: `${PATH}#${REUSABLE_LINK_TOKEN}` },
+      { hash: '#section-2' }
+    )
+
+    captureReusableLinkFragment(win)
+
+    expect(replaceState).not.toHaveBeenCalled()
   })
 })
