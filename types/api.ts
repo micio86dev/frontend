@@ -3228,6 +3228,8 @@ export interface components {
                  *     BACKOFFICE UI concept).
                  */
                 language?: string | null;
+                external_id?: number | null;
+                source?: string | null;
             };
             /** @description Free-form key/value pairs (≤ 20 keys, key ≤ 40 chars, value ≤ 500 chars). */
             metadata?: {
@@ -6932,6 +6934,10 @@ export interface operations {
                 cursor?: string;
                 /** @description Page size, 1-100 (default 25). Out of range answers 400 validation_failed. */
                 limit?: number;
+                /** @description Exact match on the external_id supplied as candidate.external_id when the interview was created. An integer from 1 to 9007199254740991; any other value answers 400 validation_failed. An empty value is ignored. */
+                external_id?: number;
+                /** @description Exact, case-sensitive match on the source supplied as candidate.source when the interview was created. At most 180 characters; a longer value answers 400 validation_failed. An empty value is ignored. */
+                source?: string;
                 /** @description Comma-separated related resources to inline. Supported: project. */
                 expand?: string;
             };
