@@ -46,7 +46,8 @@ function resolveEn(key: string): string {
       en
     )
   if (typeof found !== 'string') throw new Error(`en.json has no string at "${key}"`)
-  return found
+  // vue-i18n renders the literal `{'@'}` as `@`; do the same so assertions read what a visitor reads.
+  return found.replaceAll("{'@'}", '@')
 }
 
 const mounted: VueWrapper[] = []
