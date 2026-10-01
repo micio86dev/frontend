@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 import type { Browser, Page, Request } from '@playwright/test'
 import { checkA11y } from './fixtures/a11y'
 import { injectDeviceMocks } from './fixtures/device-mocks'
+import { waitForHydration } from './fixtures/hydration'
 
 /**
  * Playwright E2E — the reusable entry route `/interview/reusable#beai_rl_<43>`
@@ -797,9 +798,41 @@ test.describe('reusable entry route — no history entry holds the token', () =>
  * nothing reloads (the early plugin's `hashchange` listener, AD-16).
  */
 async function pasteIntoThisTab(page: Page, token: string): Promise<void> {
-  await page.evaluate((value) => {
-    window.location.hash = value
-  }, token)
+  // "A tab that is already open" means a hydrated one. Before hydration the
+  // router is not listening yet: the plugin strips the fragment, the router never
+  // sees it, and no navigation exists to be waited for.
+  await waitForHydration(page)
+
+  // Resolves from INSIDE the page on the `hashchange` it caused. The plugin's own
+  // listener is registered earlier, so the strip has already run by then, and
+  // `popstate` has already fired, so vue-router has already started its own
+  // navigation to the pasted fragment.
+  await page.evaluate(
+    (value) =>
+      new Promise<void>((resolve) => {
+        window.addEventListener('hashchange', () => resolve(), { once: true })
+        window.location.hash = value
+      }),
+    token
+  )
+
+  // That navigation is asynchronous (the global middleware are awaited), and
+  // Nuxt's `navigateTo` called while one is in flight is taken for a middleware
+  // redirect and does nothing. The tests that go on to leave the entry route (the
+  // redeem is released, a soft navigation is made) would lose that navigation
+  // depending on how fast the runner is.
+  //
+  // So wait for the router to be idle. Nuxt holds `_processingMiddleware` from the
+  // start of a navigation to its `afterEach`, and that is reached whatever the
+  // order of the events: it is not "the router adopted the pasted hash", which
+  // never happens when the strip wins. No sleep, no longer timeout.
+  await page.waitForFunction(() => {
+    const nuxt = (
+      window as unknown as { useNuxtApp?: () => { _processingMiddleware?: unknown } | undefined }
+    ).useNuxtApp?.()
+
+    return nuxt?._processingMiddleware === undefined
+  })
 }
 
 /** A second, well-formed token: what a visitor pastes over the first. */
