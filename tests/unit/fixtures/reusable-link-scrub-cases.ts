@@ -184,55 +184,55 @@ export interface ReusableLinkRedactionCase {
   readonly leaked: readonly string[]
 }
 
-const R = REUSABLE_LINK_REDACTED
+const REDACTED = REUSABLE_LINK_REDACTED
 
 export const REUSABLE_LINK_REDACTION_CASES: readonly ReusableLinkRedactionCase[] = [
   {
     name: 'a 16-character tail (the shortest the pattern cuts)',
     input: `see beai_rl_${reusableLinkTail(16)} here`,
-    expected: `see ${R} here`,
+    expected: `see ${REDACTED} here`,
     leaked: [reusableLinkTail(16)],
   },
   {
     name: 'a 42-character tail, one short of the real token',
     input: `see beai_rl_${reusableLinkTail(42)} here`,
-    expected: `see ${R} here`,
+    expected: `see ${REDACTED} here`,
     leaked: [reusableLinkTail(42)],
   },
   {
     name: 'the real 43-character token',
     input: `see ${REUSABLE_LINK_TOKEN} here`,
-    expected: `see ${R} here`,
+    expected: `see ${REDACTED} here`,
     leaked: [REUSABLE_LINK_SECRET],
   },
   {
     name: 'a 60-character tail is cut whole, with no readable remainder',
     input: `see beai_rl_${reusableLinkTail(60)} here`,
-    expected: `see ${R} here`,
+    expected: `see ${REDACTED} here`,
     leaked: [reusableLinkTail(60), reusableLinkTail(60).slice(43)],
   },
   {
     name: 'a token inside a url fragment',
     input: `https://interview.example.test/interview/reusable#${REUSABLE_LINK_TOKEN}`,
-    expected: `https://interview.example.test/interview/reusable#${R}`,
+    expected: `https://interview.example.test/interview/reusable#${REDACTED}`,
     leaked: [REUSABLE_LINK_SECRET],
   },
   {
     name: 'a token inside a JSON string',
     input: `{"link_token":"${REUSABLE_LINK_TOKEN}","ok":true}`,
-    expected: `{"link_token":"${R}","ok":true}`,
+    expected: `{"link_token":"${REDACTED}","ok":true}`,
     leaked: [REUSABLE_LINK_SECRET],
   },
   {
     name: 'a token inside a query string',
     input: `/interview/reusable?ref=${REUSABLE_LINK_TOKEN}&lang=it`,
-    expected: `/interview/reusable?ref=${R}&lang=it`,
+    expected: `/interview/reusable?ref=${REDACTED}&lang=it`,
     leaked: [REUSABLE_LINK_SECRET],
   },
   {
     name: 'two tokens in one string, each cut',
     input: `${REUSABLE_LINK_TOKEN} and beai_rl_${reusableLinkTail(20)}.`,
-    expected: `${R} and ${R}.`,
+    expected: `${REDACTED} and ${REDACTED}.`,
     leaked: [REUSABLE_LINK_SECRET, reusableLinkTail(20)],
   },
   {
