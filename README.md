@@ -46,6 +46,38 @@ bunx eslint .
 > environment variables Playwright injects, and fails for reasons unrelated to
 > the code. Stop it first.
 
+### Real-stack e2e (opt-in)
+
+Every spec above mocks `/api` with `page.route`, so none of them can see a real
+api that is broken (for example a database schema behind the code, which answers
+500). `tests/e2e/stack/**` is a separate tier that drives the candidate redeem
+flow against your LIVE local stack, with nothing mocked:
+
+```bash
+task stack:check            # precondition: the stack is up AND ready (migrated)
+export BEAI_E2E_ADMIN_EMAIL=...      # admin/operator of a local organization
+export BEAI_E2E_ADMIN_PASSWORD=...   # no default exists; never commit it
+bun run test:e2e:stack      # chromium + webkit, one worker, no retries
+```
+
+| Variable                  | Default                 | Meaning                                  |
+| ------------------------- | ----------------------- | ---------------------------------------- |
+| `BEAI_E2E_ADMIN_EMAIL`    | none (required)         | admin login used for setup and cleanup   |
+| `BEAI_E2E_ADMIN_PASSWORD` | none (required)         | its password, never printed              |
+| `BEAI_E2E_API_URL`        | `http://localhost:8000` | api origin for the readiness probe/setup |
+| `BEAI_E2E_STACK_URL`      | `http://localhost:3000` | candidate app under test                 |
+
+A global setup first calls `/api/health` and `/api/health/ready` and aborts the
+whole run with the fix command (for example `docker compose exec api php artisan
+migrate --force`) when the stack is down or its schema is behind. The test then
+creates a reusable link, redeems it in the browser, and fails on any `/api/`
+response with status 500 or above.
+
+It WRITES to the local dev database only: a link (disabled again at the end of
+every run) and one participant per run (`e2e-stack-<n>@example.test`), which stays
+because the api has no participant deletion. Never point it at a shared or
+production api. CI does not run this tier; the default projects ignore it.
+
 ## API client
 
 `types/api.ts` is GENERATED from `openapi.json`, which is exported from the api
