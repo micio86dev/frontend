@@ -178,7 +178,13 @@ test.describe('real stack — reusable link redeem', () => {
     // Same next step the mocked spec asserts: the session route and its consent screen.
     await expect(page).toHaveURL(/\/interview\/session$/)
     await expect(page.getByTestId('reusable-identity-form')).toHaveCount(0)
-    await expect(page.getByRole('region', { name: /privacy notice and consent/i })).toBeVisible()
+    // The page language follows the link's `lang`, not the browser: a real link is
+    // Italian, the mocked spec's is English. Match the consent heading in either.
+    await expect(
+      page.getByRole('region', {
+        name: /privacy notice and consent|informativa sulla privacy e consenso/i,
+      })
+    ).toBeVisible()
 
     expect(
       serverErrors,
