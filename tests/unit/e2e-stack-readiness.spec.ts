@@ -81,4 +81,12 @@ describe('describeReadiness', () => {
     expect(verdict.ok).toBe(false)
     expect(verdict.message).toContain('503')
   })
+
+  it('echoes only the sanitised short reason of a valid but unrecognised 503 reason', () => {
+    const verdict = describeReadiness(503, '{"status":"down","reason":"cache_cold"}')
+
+    expect(verdict.ok).toBe(false)
+    expect(verdict.message).toContain('(reason: cache_cold)')
+    expect(verdict.message).toContain('503')
+  })
 })

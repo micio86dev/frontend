@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
+import { DEFAULT_STACK_URL } from './tests/e2e/support/stack-origin'
 
 /**
  * Playwright E2E configuration — 3 required browser projects per D14.
@@ -23,7 +24,7 @@ import { defineConfig, devices } from '@playwright/test'
  * ignore `tests/e2e/stack/**`.
  */
 const STACK = process.env['BEAI_E2E_STACK'] === '1'
-const STACK_URL = process.env['BEAI_E2E_STACK_URL'] ?? 'http://localhost:3000'
+const STACK_URL = process.env['BEAI_E2E_STACK_URL'] ?? DEFAULT_STACK_URL
 const STACK_SPECS = ['stack/**/*.stack.spec.ts']
 
 export default defineConfig({

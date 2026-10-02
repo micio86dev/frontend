@@ -1,4 +1,5 @@
 import { describeReadiness } from './stack-readiness'
+import { resolveApiUrl, resolveStackUrl } from './stack-origin'
 
 /**
  * Global setup of the opt-in real-stack tier (`BEAI_E2E_STACK=1`).
@@ -8,8 +9,6 @@ import { describeReadiness } from './stack-readiness'
  * database). A stack that is not ready aborts the whole run with the fix command,
  * instead of letting a test discover it as a 500 halfway through a flow.
  */
-
-export const DEFAULT_API_URL = 'http://localhost:8000'
 
 async function probe(url: string): Promise<{ status: number | undefined; body: string }> {
   try {
@@ -25,7 +24,10 @@ async function probe(url: string): Promise<{ status: number | undefined; body: s
 }
 
 export default async function globalSetup(): Promise<void> {
-  const origin = (process.env['BEAI_E2E_API_URL'] ?? DEFAULT_API_URL).replace(/\/+$/, '')
+  // Both origins are checked before the first request: nothing is sent anywhere else.
+  const origin = resolveApiUrl()
+
+  resolveStackUrl()
 
   const liveness = await probe(`${origin}/api/health`)
 

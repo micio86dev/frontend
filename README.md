@@ -60,12 +60,29 @@ export BEAI_E2E_ADMIN_PASSWORD=...   # no default exists; never commit it
 bun run test:e2e:stack      # chromium + webkit, one worker, no retries
 ```
 
-| Variable                  | Default                 | Meaning                                  |
-| ------------------------- | ----------------------- | ---------------------------------------- |
-| `BEAI_E2E_ADMIN_EMAIL`    | none (required)         | admin login used for setup and cleanup   |
-| `BEAI_E2E_ADMIN_PASSWORD` | none (required)         | its password, never printed              |
-| `BEAI_E2E_API_URL`        | `http://localhost:8000` | api origin for the readiness probe/setup |
-| `BEAI_E2E_STACK_URL`      | `http://localhost:3000` | candidate app under test                 |
+| Variable                   | Default                 | Meaning                                  |
+| -------------------------- | ----------------------- | ---------------------------------------- |
+| `BEAI_E2E_ADMIN_EMAIL`     | none (required)         | admin login used for setup and cleanup   |
+| `BEAI_E2E_ADMIN_PASSWORD`  | none (required)         | its password, never printed              |
+| `BEAI_E2E_API_URL`         | `http://localhost:8000` | api origin for the readiness probe/setup |
+| `BEAI_E2E_STACK_URL`       | `http://localhost:3000` | candidate app under test                 |
+| `BEAI_E2E_PROJECT_ID`      | none (optional)         | the one project the link is created on   |
+| `BEAI_E2E_ALLOW_NON_LOCAL` | none                    | `1` lifts the origin guard (see below)   |
+
+The credentials MUST belong to an admin of a dedicated e2e organization, never your
+own working one: the test writes there. Set `BEAI_E2E_PROJECT_ID` to a project that
+exists for this purpose. Without it the first project that accepts a link is used,
+which in a developer's own organization can be a real one; its id and name are
+recorded in the test annotations (`project`) either way. A pinned project that does
+not accept a link fails the run with the reason instead of falling back.
+
+**Origin guard.** Both URLs are parsed and refused unless the hostname is exactly
+`localhost`, `127.0.0.1` or `[::1]` (http or https), so a stray variable cannot
+send the admin password to, or write on, staging or production. Setting
+`BEAI_E2E_ALLOW_NON_LOCAL=1` lifts the check; it is for deliberate use only.
+
+**Never run with `--trace on` or `trace: 'on'`.** The trace would record the typed
+password and the access token. The default config does not enable it.
 
 A global setup first calls `/api/health` and `/api/health/ready` and aborts the
 whole run with the fix command (for example `docker compose exec api php artisan
