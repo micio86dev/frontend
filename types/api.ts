@@ -4693,6 +4693,8 @@ export interface operations {
             /** @description Throttled. Retry after the number of seconds in the `Retry-After` header. */
             429: {
                 headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -5211,6 +5213,8 @@ export interface operations {
             /** @description Throttled. Retry after the number of seconds in the `Retry-After` header. */
             429: {
                 headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
