@@ -4796,7 +4796,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: string;
+                        data: {
+                            heygen: {
+                                key: string;
+                                type: string;
+                                label_key: string;
+                                hint_key?: string;
+                                required?: boolean;
+                                options?: string[];
+                                min?: number;
+                                max?: number;
+                                step?: number;
+                                catalogue_resource?: string;
+                                options_depend_on?: string;
+                                options_by_value?: {
+                                    [key: string]: string[];
+                                };
+                                superadmin_only?: boolean;
+                                superseded_by_key?: string;
+                                superseded_by_values?: string[];
+                            }[];
+                            tavus: {
+                                key: string;
+                                type: string;
+                                label_key: string;
+                                hint_key?: string;
+                                required?: boolean;
+                                options?: string[];
+                                min?: number;
+                                max?: number;
+                                step?: number;
+                                catalogue_resource?: string;
+                                options_depend_on?: string;
+                                options_by_value?: {
+                                    [key: string]: string[];
+                                };
+                                superadmin_only?: boolean;
+                                superseded_by_key?: string;
+                                superseded_by_values?: string[];
+                            }[];
+                        };
                     };
                 };
             };
@@ -7995,7 +8034,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: string;
+                        data: {
+                            heygen: {
+                                key: string;
+                                type: string;
+                                label_key: string;
+                                hint_key?: string;
+                                required?: boolean;
+                                options?: string[];
+                                min?: number;
+                                max?: number;
+                                step?: number;
+                                catalogue_resource?: string;
+                                options_depend_on?: string;
+                                options_by_value?: {
+                                    [key: string]: string[];
+                                };
+                                superadmin_only?: boolean;
+                                superseded_by_key?: string;
+                                superseded_by_values?: string[];
+                            }[];
+                            tavus: {
+                                key: string;
+                                type: string;
+                                label_key: string;
+                                hint_key?: string;
+                                required?: boolean;
+                                options?: string[];
+                                min?: number;
+                                max?: number;
+                                step?: number;
+                                catalogue_resource?: string;
+                                options_depend_on?: string;
+                                options_by_value?: {
+                                    [key: string]: string[];
+                                };
+                                superadmin_only?: boolean;
+                                superseded_by_key?: string;
+                                superseded_by_values?: string[];
+                            }[];
+                        };
                     };
                 };
             };
