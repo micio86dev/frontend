@@ -51,3 +51,15 @@ describe('InterviewGuide', () => {
     }
   })
 })
+
+describe('InterviewGuide — legible for any client colour', () => {
+  it('draws the step numerals as a solid brand fill with on-primary text', () => {
+    const wrapper = mount(InterviewGuide, { global: { mocks: { $t: (key: string) => key } } })
+    const numeral = wrapper.get('ol li span[aria-hidden="true"]')
+
+    // `bg-primary/10 text-primary` vanished for a light client colour.
+    expect(numeral.classes()).toContain('bg-primary')
+    expect(numeral.classes()).toContain('text-on-primary')
+    expect(numeral.classes()).not.toContain('text-primary')
+  })
+})

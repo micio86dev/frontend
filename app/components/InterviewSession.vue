@@ -1,8 +1,15 @@
 <template>
   <main
-    class="flex min-h-screen flex-col items-center justify-center bg-background p-4"
+    class="flex min-h-screen flex-col items-center justify-center p-4"
+    :class="onBrandCanvas ? 'bg-primary text-on-primary' : 'bg-background'"
     :aria-label="$t('interview.document_title')"
   >
+    <!--
+      Consent and the device check are the last pages before the interview, so
+      they sit on the brand canvas the candidate arrived on (DESIGN.md §7.0.1
+      "Pre-interview screens"); their cards are already white surfaces. Every
+      later state keeps the interview's own chrome.
+    -->
     <!--
       Player mount layer (invisible-competency-handover D3/D5/D6) — ALWAYS
       rendered whenever `session.players` is non-empty, entirely independent
@@ -612,6 +619,14 @@ const hasLivePlayer = computed(() => session.players.value.some((p) => p.role ==
  * yet". A page-local boolean would be a second source for a fact the server
  * already states — the shape of the defect this whole change removes.
  */
+/**
+ * Consent and the device check render on the brand canvas; the live interview
+ * and everything after it keep their own chrome (interview-chrome task).
+ */
+const onBrandCanvas = computed(
+  () => session.state.value === 'idle' || session.state.value === 'device_check'
+)
+
 const hasRunACompetency = computed(() => (session.endedCompetencies.value ?? 0) > 0)
 
 const currentCaption = ref('')

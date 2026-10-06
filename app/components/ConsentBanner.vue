@@ -107,10 +107,17 @@ function decide(granted: boolean): void {
 </script>
 
 <style scoped>
+/*
+ * A floating surface above the brand canvas rather than a full-width strip:
+ * it reads as a separate, optional question, and it never covers the canvas's
+ * footer edge to edge. Every colour is a token; the card tokens keep their
+ * measured contrast whatever the client colour is (DESIGN.md §3.1 rule 2).
+ * Elevation level 2 (§3.5).
+ */
 .consent-banner {
   position: fixed;
-  inset-inline: 0;
-  bottom: 0;
+  inset-inline: 1rem;
+  bottom: 1rem;
   z-index: 50;
 
   display: flex;
@@ -119,16 +126,19 @@ function decide(granted: boolean): void {
   align-items: center;
   justify-content: space-between;
 
-  padding: 1rem 1.25rem;
+  max-width: 56rem;
+  margin-inline: auto;
+  padding: 1.125rem 1.25rem;
   /* Clears the home indicator on notched devices; harmless everywhere else. */
-  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  margin-bottom: env(safe-area-inset-bottom);
 
-  background: var(--color-background, #fff);
-  border-top: 1px solid var(--color-border, #e5e7eb);
-  color: var(--color-foreground, #111827);
-  box-shadow: 0 -4px 16px rgb(0 0 0 / 8%);
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  color: var(--color-card-foreground);
+  box-shadow: var(--shadow-lg);
 
-  animation: consent-banner-in 200ms ease-out;
+  animation: consent-banner-in 240ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .consent-banner__text {
@@ -145,7 +155,7 @@ function decide(granted: boolean): void {
   margin: 0;
   font-size: 0.875rem;
   line-height: 1.5;
-  color: var(--color-muted-foreground, #6b7280);
+  color: var(--color-muted-foreground);
 }
 
 .consent-banner__actions {
@@ -165,35 +175,40 @@ function decide(granted: boolean): void {
 .consent-banner__button {
   flex: 1 1 auto;
   min-width: 8rem;
+  min-height: var(--spacing-control);
   padding: 0.5rem 1.25rem;
 
   font: inherit;
-  font-weight: 500;
+  font-weight: 600;
   color: inherit;
 
   background: transparent;
-  border: 1px solid var(--color-border, #d1d5db);
-  border-radius: 0.375rem;
+  /* --color-input, not --color-border: the 3:1 control outline (§3.1 D12). */
+  border: 1px solid var(--color-input);
+  border-radius: var(--radius-md);
   cursor: pointer;
 
   transition: background-color 150ms ease;
 }
 
 .consent-banner__button:hover {
-  background: var(--color-muted, #f3f4f6);
+  background: var(--color-muted);
 }
 
+/* Brand ink: ≥4.5:1 on white for any client colour (DESIGN.md §7.0.1). */
 .consent-banner__button:focus-visible {
-  outline: 2px solid var(--color-ring, #2563eb);
+  outline: 2px solid var(--color-primary-ink);
   outline-offset: 2px;
 }
 
 @keyframes consent-banner-in {
   from {
-    transform: translateY(100%);
+    opacity: 0;
+    transform: translateY(1rem);
   }
 
   to {
+    opacity: 1;
     transform: translateY(0);
   }
 }

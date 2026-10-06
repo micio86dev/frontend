@@ -914,3 +914,31 @@ describe('interview/session.vue — question label', () => {
     expect(findLabel(wrapper)).toBe('interview.live.question_label|n=2')
   })
 })
+
+/**
+ * The two pre-interview screens sit on the brand canvas (DESIGN.md §7.0.1
+ * "Pre-interview screens"): consent and the device check are the last pages a
+ * candidate sees before the interview, and a white page there broke the
+ * client's canvas they arrived on. The live interview keeps its own chrome.
+ */
+describe('interview session — pre-interview screens on the brand canvas', () => {
+  it.each(['idle', 'device_check'] as const)(
+    'paints the canvas behind the %s card',
+    async (state) => {
+      const wrapper = await mountPage(makeSession({ state }))
+      const main = wrapper.get('main')
+
+      expect(main.classes()).toContain('bg-primary')
+      expect(main.classes()).toContain('text-on-primary')
+      expect(main.classes()).not.toContain('bg-background')
+    }
+  )
+
+  it('leaves the live interview chrome as it is', async () => {
+    const wrapper = await mountPage(makeSession({ state: 'live' }))
+    const main = wrapper.get('main')
+
+    expect(main.classes()).toContain('bg-background')
+    expect(main.classes()).not.toContain('bg-primary')
+  })
+})

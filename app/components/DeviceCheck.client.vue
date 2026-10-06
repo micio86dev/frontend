@@ -147,9 +147,12 @@
          role=status announcement on the threshold crossing. -->
     <div class="flex flex-col gap-2">
       <div class="relative">
+        <!-- Brand ink on a brand tint, not the vendored `bg-primary` on
+             `bg-muted`: a light client colour on white is ~1.1:1, under the
+             3:1 a meaningful graphic needs (DESIGN.md §3.1 rule 3, §9.1). -->
         <Progress
           data-testid="mic-meter"
-          class="h-2"
+          class="h-2 bg-primary-surface [&_[data-slot=progress-indicator]]:bg-primary-ink"
           :model-value="micMeterPercent"
           :aria-label="$t('interview.device_check.mic_instruction')"
         />
