@@ -1,14 +1,5 @@
 <template>
-  <main
-    class="flex min-h-screen flex-col items-center justify-center bg-background p-4"
-    aria-live="polite"
-    aria-busy="true"
-  >
-    <div class="flex flex-col items-center gap-4">
-      <Skeleton class="h-48 w-full max-w-2xl rounded-lg" />
-      <Skeleton class="h-4 w-48 rounded" />
-    </div>
-  </main>
+  <CanvasLoading test-id="hosted-entry-loading" />
 </template>
 
 <script setup lang="ts">
@@ -62,7 +53,7 @@
  */
 import { onMounted } from 'vue'
 import { $fetch } from 'ofetch'
-import { Skeleton } from '~/components/ui/skeleton'
+import CanvasLoading from '~/components/molecules/CanvasLoading.vue'
 import { apiUrl } from '~/app/utils/api-url'
 import { decodeJwtPayload } from '~/app/utils/jwt-decode'
 import { useCandidateSession, type CandidateSession } from '~/app/composables/useCandidateSession'

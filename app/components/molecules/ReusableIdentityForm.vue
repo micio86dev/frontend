@@ -69,6 +69,7 @@
       <Button
         type="submit"
         size="lg"
+        class="h-(--spacing-control) px-6"
         :loading="submitting"
         aria-describedby="reusable-identity-privacy"
         data-testid="reusable-identity-submit"

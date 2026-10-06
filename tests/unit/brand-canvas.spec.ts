@@ -8,12 +8,19 @@
  * canvas colour itself (`text-primary`). The visuals beyond that are reviewed
  * in screenshots, not asserted.
  */
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import BrandCanvas from '../../app/components/organisms/BrandCanvas.vue'
 import { useCandidateBranding } from '../../app/composables/useCandidateBranding'
+
+// Hoisted above the imports by Vitest, so the composable sees the mock.
+const { candidateFetchMock } = vi.hoisted(() => ({ candidateFetchMock: vi.fn() }))
+
+vi.mock('../../app/utils/candidate-api', () => ({
+  candidateFetch: candidateFetchMock,
+}))
 
 const tMock = (key: string) => key
 
@@ -43,6 +50,26 @@ const WHITE_PAGE_CLASSES =
 
 beforeEach(() => {
   useCandidateBranding().reset()
+  candidateFetchMock.mockReset()
+  candidateFetchMock.mockRejectedValue(new Error('no session'))
+})
+
+describe('BrandCanvas — who fetches the branding', () => {
+  it('reads the session branding itself when nobody has yet', async () => {
+    mountCanvas()
+    await flushPromises()
+
+    expect(candidateFetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not read it on an entry route before the token exchange', async () => {
+    // There is no candidate session yet, so the read could only fail, and a
+    // failed read settles "no branding" for every later page.
+    mountCanvas({ loadBranding: false })
+    await flushPromises()
+
+    expect(candidateFetchMock).not.toHaveBeenCalled()
+  })
 })
 
 describe('BrandCanvas — landmark and surface', () => {

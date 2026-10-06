@@ -3,7 +3,11 @@
     "close": "Chiudi"
   },
   "shell": {
-    "tagline": "Valutazione delle soft skill attraverso un colloquio strutturato."
+    "tagline": "Valutazione delle soft skill attraverso un colloquio strutturato.",
+    "loading": {
+      "title": "Stiamo aprendo il tuo colloquio",
+      "body": "Ci vuole solo un attimo. Tieni aperta questa pagina."
+    }
   },
   "welcome": "Benvenuto",
   "root": {

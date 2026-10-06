@@ -7,7 +7,12 @@
     :message="$t('interview.error.body')"
   >
     <div>
-      <Button size="lg" data-testid="retry-button" @click="handleRetry">
+      <Button
+        size="lg"
+        class="h-(--spacing-control) px-6"
+        data-testid="retry-button"
+        @click="handleRetry"
+      >
         {{ $t('interview.error.retry') }}
       </Button>
     </div>

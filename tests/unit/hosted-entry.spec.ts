@@ -38,6 +38,17 @@ vi.mock('ofetch', () => ({
   $fetch: mockFetchImpl,
 }))
 
+// The brand canvas reads the organization's branding through its own module;
+// that is a separate authenticated request this route has nothing to do with,
+// and the module's `ofetch.create` is not part of the `$fetch` mock above.
+vi.mock('~/app/composables/useCandidateBranding', () => ({
+  useCandidateBranding: () => ({
+    logoUrl: { value: null },
+    organizationName: { value: null },
+    ensureLoaded: vi.fn(),
+  }),
+}))
+
 // eslint-disable-next-line import/first
 import { useCandidateSession } from '~/app/composables/useCandidateSession'
 

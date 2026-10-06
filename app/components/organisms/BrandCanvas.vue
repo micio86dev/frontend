@@ -91,19 +91,31 @@ import { useCandidateBranding } from '~/app/composables/useCandidateBranding'
  * route's test id and its heading link, so route specs keep locating the page
  * by element and the heading stays the landmark's accessible name.
  */
-defineProps<{
-  /** Rendered on the `<main>` landmark. */
-  testId: string
-  /** Id of the `<h1>` inside the slot: the landmark's accessible name. */
-  headingId?: string
-  /** A redirect or a request is in flight: the landmark is `aria-busy`. */
-  busy?: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    /** Rendered on the `<main>` landmark. */
+    testId: string
+    /** Id of the `<h1>` inside the slot: the landmark's accessible name. */
+    headingId?: string
+    /** A redirect or a request is in flight: the landmark is `aria-busy`. */
+    busy?: boolean
+    /**
+     * Read the branding if nobody has yet. Off for the entry routes' loading
+     * state: there is no candidate session before the token exchange, so the
+     * read could only fail, and a failed read is a SETTLED answer
+     * (`ensureLoaded` primes "no branding"), which would leave every later page
+     * of the interview unbranded. Those states render in whatever was already
+     * primed, or in the Quint default.
+     */
+    loadBranding?: boolean
+  }>(),
+  { headingId: undefined, busy: false, loadBranding: true }
+)
 
 const { logoUrl, organizationName, ensureLoaded } = useCandidateBranding()
 
 onMounted(() => {
-  void ensureLoaded()
+  if (props.loadBranding) void ensureLoaded()
 })
 </script>
 
