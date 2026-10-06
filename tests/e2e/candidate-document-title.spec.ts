@@ -23,18 +23,27 @@ async function expectTitled(page: Page, pattern: RegExp): Promise<void> {
 }
 
 test.describe('document titles on directly loaded candidate states', () => {
-  test('the entry loading state has a localized title and passes axe', async ({ page }) => {
-    let release: () => void = () => {}
-    const held = new Promise<void>((resolve) => (release = resolve))
-    await page.route('**/api/embed/exchange*', async (route) => {
-      await held
-      await route.fulfill({ status: 500, contentType: 'application/json', body: '{}' })
-    })
+  // The exact string, per locale: a non-empty check would pass for a raw i18n key
+  // or for the wrong language.
+  for (const [locale, prefix, title] of [
+    ['en', '/en', 'BEAI Interview'],
+    ['it', '', 'Colloquio BEAI'],
+  ] as const) {
+    test(`the entry loading state is titled "${title}" (${locale}) and passes axe`, async ({
+      page,
+    }) => {
+      let release: () => void = () => {}
+      const held = new Promise<void>((resolve) => (release = resolve))
+      await page.route('**/api/embed/exchange*', async (route) => {
+        await held
+        await route.fulfill({ status: 500, contentType: 'application/json', body: '{}' })
+      })
 
-    await page.goto(`/en/i/${sessionToken()}`)
-    await expectTitled(page, /\S/)
-    release()
-  })
+      await page.goto(`${prefix}/i/${sessionToken()}`)
+      await expectTitled(page, new RegExp(`^${title}$`))
+      release()
+    })
+  }
 
   test('terminal link_used loaded directly has a title in en and it', async ({ page }) => {
     await page.goto('/en/interview/terminal?reason=link_used')
