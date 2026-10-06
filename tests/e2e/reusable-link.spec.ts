@@ -244,7 +244,7 @@ const consentScreen = (page: Page) =>
 /** The terminal page for a link that is not valid, reached by `replace`. */
 async function expectLinkInvalidTerminal(page: Page): Promise<void> {
   await expect(page).toHaveURL(/\/en\/interview\/terminal\?reason=link_invalid$/)
-  await expect(page.getByText('This Link Is No Longer Valid')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'This Link Is No Longer Valid' })).toBeVisible()
   await expect(page.getByRole('button', { name: /try again|retry/i })).toHaveCount(0)
 }
 
@@ -287,7 +287,7 @@ async function expectLinkReopenTerminal(page: Page): Promise<void> {
   await expect(identityForm(page)).toHaveCount(0)
   await expect(page.getByRole('button', { name: /try again|retry/i })).toHaveCount(0)
   // Not the untrue "this link is bad": the link is fine, the page just forgot it.
-  await expect(page.getByText('This Link Is No Longer Valid')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'This Link Is No Longer Valid' })).toHaveCount(0)
 }
 
 /**
@@ -448,7 +448,7 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
       page.getByRole('heading', { name: 'Many people are starting right now' })
     ).toBeVisible()
     // Retryable, and nothing about it claims the link is bad.
-    await expect(page.getByText('This Link Is No Longer Valid')).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'This Link Is No Longer Valid' })).toHaveCount(0)
     await expect(page).toHaveURL(/\/en\/interview\/reusable$/)
     await expectTokenNowhereInThePage(page)
     await checkA11y(page)
@@ -485,7 +485,7 @@ test.describe('reusable entry route — /interview/reusable#<token>', () => {
       page.getByRole('heading', { name: 'We could not start your interview' })
     ).toBeVisible()
     await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible()
-    await expect(page.getByText('This Link Is No Longer Valid')).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'This Link Is No Longer Valid' })).toHaveCount(0)
     await checkA11y(page)
     // A failure is one request, not an automatic retry loop.
     await expectCountStays(() => redeem.calls.length, 1)
@@ -625,7 +625,9 @@ test.describe('reusable entry route — a 403 and a dropped connection', () => {
       // The token is spent for this outcome: nothing to retry, so no control for it.
       await expect(page.getByRole('button', { name: /try again|retry/i })).toHaveCount(0)
       // Neither "this link is bad" nor a hint of which gate closed.
-      await expect(page.getByText('This Link Is No Longer Valid')).toHaveCount(0)
+      await expect(page.getByRole('heading', { name: 'This Link Is No Longer Valid' })).toHaveCount(
+        0
+      )
       await expectCountStays(() => redeem.calls.length, 1)
       expect(leftTheApp).toEqual([])
       await expectTokenNowhereInThePage(page)
@@ -645,7 +647,7 @@ test.describe('reusable entry route — a 403 and a dropped connection', () => {
       page.getByRole('heading', { name: 'We could not start your interview' })
     ).toBeVisible()
     await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible()
-    await expect(page.getByText('This Link Is No Longer Valid')).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'This Link Is No Longer Valid' })).toHaveCount(0)
     await expect(page).toHaveURL(/\/en\/interview\/reusable$/)
     await expectCountStays(() => redeem.calls.length, 1)
     await expectTokenNowhereInThePage(page)
@@ -1543,7 +1545,7 @@ test.describe('reusable entry route — the identity form', () => {
     await page.goto('/en/interview/reusable')
 
     await expectLinkInvalidTerminal(page)
-    await expect(page.getByText('Please open the link again')).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'Please open the link again' })).toHaveCount(0)
   })
 
   test('is completed with the keyboard alone: Tab, type, Enter, one request', async ({ page }) => {

@@ -115,7 +115,9 @@ test.describe('hosted entry route — /i/{token} (public-api step 5)', () => {
 
     await expect(terminalScreen(page)).toBeVisible()
     await expect(page).toHaveURL(/\/interview\/terminal\?reason=link_used/)
-    await expect(page.getByText('This Link Has Already Been Used')).toBeVisible()
+    await expect(
+      page.getByRole('heading', { name: 'This Link Has Already Been Used' })
+    ).toBeVisible()
   })
 
   test('a 401 token_invalid exchange lands on the terminal page with the link_invalid copy', async ({
@@ -139,7 +141,7 @@ test.describe('hosted entry route — /i/{token} (public-api step 5)', () => {
 
     await expect(terminalScreen(page)).toBeVisible()
     await expect(page).toHaveURL(/\/interview\/terminal\?reason=link_invalid/)
-    await expect(page.getByText('This Link Is No Longer Valid')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'This Link Is No Longer Valid' })).toBeVisible()
   })
 
   test('a revisit with a matching stored session skips the exchange entirely', async ({ page }) => {
