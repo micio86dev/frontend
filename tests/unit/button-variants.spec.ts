@@ -21,6 +21,14 @@ describe('buttonVariants — default (primary)', () => {
     expect(classes).toContain('border-primary-ink')
   })
 
+  it('draws the link variant in primary-ink, never in the canvas colour', () => {
+    // `text-primary` as text on white is 1.07:1 for #ffd400.
+    const link = buttonVariants({ variant: 'link' }).split(/\s+/)
+
+    expect(link).toContain('text-primary-ink')
+    expect(link).not.toContain('text-primary')
+  })
+
   it('leaves the other variants without the brand edge', () => {
     expect(buttonVariants({ variant: 'outline' })).not.toContain('border-primary-ink')
   })

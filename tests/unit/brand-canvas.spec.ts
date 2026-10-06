@@ -256,6 +256,18 @@ describe("BrandCanvas — the organization's mark, or ours, but never nothing", 
     expect(wrapper.get('[data-testid="brand-canvas-org"]').text()).toBe('Acme Selezione')
   })
 
+  it('keeps the logo decorative when the name beside it already says who it is', async () => {
+    useCandidateBranding().prime({
+      primary_color: null,
+      logo_url: 'https://cdn.test/acme.png',
+      name: 'Acme Selezione',
+    })
+    const wrapper = mountCanvas()
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="brand-canvas-logo"]').attributes('alt')).toBe('')
+  })
+
   it('renders no empty organization line when the name is unknown', async () => {
     const wrapper = mountCanvas()
     await flushPromises()

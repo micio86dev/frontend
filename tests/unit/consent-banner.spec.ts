@@ -201,7 +201,8 @@ describe('room on the canvas', () => {
   it('publishes its clearance while it is open', () => {
     const wrapper = mountBanner()
 
-    expect(clearance()).toMatch(/^\d+(\.\d+)?px$/)
+    // Plus the safe-area inset the banner itself sits above on notched devices.
+    expect(clearance()).toMatch(/^calc\(\d+px \+ env\(safe-area-inset-bottom, 0px\)\)$/)
     wrapper.unmount()
   })
 

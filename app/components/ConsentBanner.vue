@@ -112,7 +112,9 @@ function publishClearance(): void {
   const height = bannerEl.value?.getBoundingClientRect().height ?? 0
   document.documentElement.style.setProperty(
     CLEARANCE_TOKEN,
-    `${Math.ceil(height) + CLEARANCE_GAP_PX}px`
+    // The banner sits above the safe-area inset (its own margin-bottom), so
+    // the room it takes includes it.
+    `calc(${Math.ceil(height) + CLEARANCE_GAP_PX}px + env(safe-area-inset-bottom, 0px))`
   )
 }
 

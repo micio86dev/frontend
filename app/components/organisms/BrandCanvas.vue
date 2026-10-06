@@ -28,7 +28,9 @@
         background, would vanish into a canvas of that same colour.
 
         `alt=""`: the organization name beside it is the accessible text, and
-        repeating it would make a screen reader say the name twice.
+        repeating it would make a screen reader say the name twice. With no
+        name it stays decoration on purpose (notice-shell.spec.ts): the
+        candidate already knows whose assessment they are taking.
       -->
       <!--
         The hairline edge is for the light logo on a light canvas: a yellow mark
