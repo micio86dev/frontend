@@ -109,6 +109,12 @@ export const BRAND_DERIVED_TOKENS = [
  *   on-primary toward the primary only as far as it stays at 4.5:1.
  * - `--color-primary-surface` / `--color-on-primary-surface`: a very light tint
  *   of the primary for cards and chips, and dark text held at 4.5:1 on it.
+ * - `--color-primary-ink`: the primary darkened until it reads at 4.5:1 on a
+ *   white surface — the brand colour as a link, a focus ring or a meter inside
+ *   a card, where the raw primary can be invisible (yellow on white is 1.07:1).
+ * - `--color-canvas-tone`: the primary moved AWAY from on-primary (deeper when
+ *   the text is white, lighter when it is black). The canvas decoration paints
+ *   only with it, so it can only raise the contrast of the text above it.
  *
  * Concrete hex only, never `color-mix()` (see `app/utils/brand-color`).
  */
@@ -117,6 +123,8 @@ export const BRAND_ON_PRIMARY_TOKENS = [
   '--color-on-primary-muted',
   '--color-primary-surface',
   '--color-on-primary-surface',
+  '--color-primary-ink',
+  '--color-canvas-tone',
 ] as const
 
 /** WCAG AA for body text. */
@@ -140,11 +148,20 @@ export function deriveOnPrimaryTokens(
   const onSurface =
     contrastRatio(AVATAR_PANEL, surface) >= TEXT_MIN_RATIO ? AVATAR_PANEL : '#000000'
 
+  const ink = ensureContrast(color, '#ffffff', TEXT_MIN_RATIO, '#000000')
+
+  // A channel lerp toward black only lowers every channel, toward white only
+  // raises it, so the tone is monotonically further from on-primary than the
+  // canvas is: any blend of the two reads at least as well as the bare canvas.
+  const tone = onPrimary === '#ffffff' ? mix(color, '#000000', 0.55) : mix(color, '#ffffff', 0.3)
+
   return {
     '--color-on-primary': onPrimary,
     '--color-on-primary-muted': muted,
     '--color-primary-surface': surface,
     '--color-on-primary-surface': onSurface,
+    '--color-primary-ink': ink,
+    '--color-canvas-tone': tone,
   }
 }
 

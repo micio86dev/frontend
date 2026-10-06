@@ -111,8 +111,18 @@ export function contrastRatio(a: string, b: string): number {
  * which is 17.85:1 against `#0f172a`, so every reachable threshold terminates
  * long before the bound. The bound exists so a future caller passing an
  * impossible `minRatio` gets the best available colour instead of a hang.
+ *
+ * `toward` defaults to white (the dark avatar panel). The candidate canvas
+ * passes black to DARKEN a brand colour until it reads on a white surface
+ * (`--color-primary-ink`); the same bound terminates there too, since black is
+ * 21:1 on white.
  */
-export function ensureContrast(color: string, background: string, minRatio: number): string {
+export function ensureContrast(
+  color: string,
+  background: string,
+  minRatio: number,
+  toward: '#ffffff' | '#000000' = '#ffffff'
+): string {
   if (!HEX.test(color) || !HEX.test(background)) return color
 
   let candidate = color
@@ -120,7 +130,7 @@ export function ensureContrast(color: string, background: string, minRatio: numb
   for (let step = 0; step < 20; step += 1) {
     if (contrastRatio(candidate, background) >= minRatio) return candidate
 
-    candidate = mix(candidate, '#ffffff', 0.85)
+    candidate = mix(candidate, toward, 0.85)
   }
 
   return candidate

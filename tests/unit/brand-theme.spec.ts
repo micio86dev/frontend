@@ -231,11 +231,13 @@ describe('the canvas contrast guarantee (DESIGN.md §7.3.2 rule 2)', () => {
 })
 
 describe('on-primary tokens (the text colour for anything drawn on the tenant canvas)', () => {
-  it('lists exactly the four on-primary tokens', () => {
+  it('lists exactly the six on-primary tokens', () => {
     expect([...BRAND_ON_PRIMARY_TOKENS].sort()).toEqual([
+      '--color-canvas-tone',
       '--color-on-primary',
       '--color-on-primary-muted',
       '--color-on-primary-surface',
+      '--color-primary-ink',
       '--color-primary-surface',
     ])
   })
