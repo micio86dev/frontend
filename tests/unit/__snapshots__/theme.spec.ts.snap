@@ -140,6 +140,9 @@ exports[`brand theme token source (regression guard) > @theme literal block matc
   --color-warning-dark: #92400e;
   --color-error: #ef4444;
   --color-error-light: #fee2e2;
+  /* Text-safe error pair, like the success/warning/info \`-dark\` tokens: 5.30:1 on
+     \`--color-error-light\` (\`--destructive\`'s oklch value measured 3.90:1 there). */
+  --color-error-dark: #b91c1c;
   --color-info: #3b82f6;
   --color-info-light: #dbeafe;
   /* Kept identical to the backoffice per DESIGN.md §17. \`--color-info\` on
