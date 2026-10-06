@@ -27,6 +27,7 @@ import {
   BRAND_DERIVED_TOKENS,
   BRAND_ON_PRIMARY_TOKENS,
   brandColorRevision,
+  deriveOnPrimaryTokens,
 } from '../../app/composables/useBrandTheme'
 import { contrastRatio, readableForeground } from '../../app/utils/brand-color'
 
@@ -317,5 +318,49 @@ describe('on-primary tokens (the text colour for anything drawn on the tenant ca
     for (const token of BRAND_ON_PRIMARY_TOKENS) {
       expect(read(token), token).toBe('')
     }
+  })
+})
+
+describe('on-primary margin at the worst-case tenant colour', () => {
+  const FLOOR = 4.5
+  const hex = (n: number): string => n.toString(16).padStart(2, '0')
+  const onPrimaryRatio = (color: string): number =>
+    contrastRatio(deriveOnPrimaryTokens(color)['--color-on-primary'], color)
+
+  it('keeps >= 4.5:1 on every one of the 256 grey levels', () => {
+    // max(contrast vs white, contrast vs black) is smallest for mid greys
+    // (relative luminance ~0.18), and that is the one place the guarantee has
+    // almost no slack: it is exactly what a sweep, not a few picked colours, covers.
+    for (let level = 0; level <= 255; level++) {
+      const grey = `#${hex(level)}${hex(level)}${hex(level)}`
+
+      expect(onPrimaryRatio(grey), grey).toBeGreaterThanOrEqual(FLOOR)
+    }
+  })
+
+  it('keeps >= 4.5:1 across a coarse RGB cube (17 steps per channel)', () => {
+    for (let r = 0; r <= 255; r += 17) {
+      for (let g = 0; g <= 255; g += 17) {
+        for (let b = 0; b <= 255; b += 17) {
+          const color = `#${hex(r)}${hex(g)}${hex(b)}`
+
+          expect(onPrimaryRatio(color), color).toBeGreaterThanOrEqual(FLOOR)
+        }
+      }
+    }
+  })
+
+  it('names the worst case: the grey #757575 has the least headroom, just over the floor', () => {
+    // The sweep finds the grey with the least headroom; pinning it by name makes
+    // a regression in the margin a one-line, readable failure.
+    const worst = Array.from({ length: 256 }, (_, level) => {
+      const grey = `#${hex(level)}${hex(level)}${hex(level)}`
+
+      return { grey, ratio: onPrimaryRatio(grey) }
+    }).reduce((least, next) => (next.ratio < least.ratio ? next : least))
+
+    expect(worst.grey).toBe('#757575')
+    expect(worst.ratio).toBeGreaterThanOrEqual(FLOOR)
+    expect(worst.ratio).toBeLessThan(4.7)
   })
 })
