@@ -6255,6 +6255,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             409: {
                 headers: {
