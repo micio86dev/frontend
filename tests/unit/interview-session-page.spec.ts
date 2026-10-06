@@ -566,9 +566,11 @@ describe('interview/session.vue — timer expiry and skip', () => {
     session.endedCompetencies.value = 2
     session.totalCompetencies.value = 6
     const wrapper = await mountPage(session)
+    const { default: ProgressBar } = await import('~/app/components/ProgressBar.vue')
 
-    expect(wrapper.text()).toContain('2')
-    expect(wrapper.text()).toContain('6')
+    expect(wrapper.getComponent(ProgressBar).props()).toMatchObject({ current: 2, total: 6 })
+    // The bar prints the count itself; a second "2 / 6" under it was an echo.
+    expect(wrapper.text()).not.toContain('2 / 6')
   })
 
   it('the scheduled-pause screen carries no secondary Pause control', async () => {
@@ -916,29 +918,181 @@ describe('interview/session.vue — question label', () => {
 })
 
 /**
- * The two pre-interview screens sit on the brand canvas (DESIGN.md §7.0.1
- * "Pre-interview screens"): consent and the device check are the last pages a
- * candidate sees before the interview, and a white page there broke the
- * client's canvas they arrived on. The live interview keeps its own chrome.
+ * The whole interview sits on the brand canvas (DESIGN.md §7.0.1, §7.2): the
+ * client's colour is the page from the landing to the done screen, and the
+ * avatar panel keeps its own dark surface inside it. Content lives on white
+ * surfaces; only on-primary tokens are drawn on the bare canvas.
  */
-describe('interview session — pre-interview screens on the brand canvas', () => {
-  it.each(['idle', 'device_check'] as const)(
-    'paints the canvas behind the %s card',
-    async (state) => {
-      const wrapper = await mountPage(makeSession({ state }))
-      const main = wrapper.get('main')
+const ALL_STATES: ReadonlyArray<SessionState> = [
+  'idle',
+  'device_check',
+  'connecting',
+  'live',
+  'paused',
+  'end_of_question',
+  'done',
+  'error',
+  'terminal',
+]
 
-      expect(main.classes()).toContain('bg-primary')
-      expect(main.classes()).toContain('text-on-primary')
-      expect(main.classes()).not.toContain('bg-background')
+const WHITE_PAGE_CLASSES =
+  /(^|\s)(text-primary|text-foreground|text-muted-foreground|text-destructive|bg-background)(\s|$)/
+
+/** Every element drawn on the bare canvas: outside any white surface and the avatar panel. */
+function bareCanvasElements(wrapper: Awaited<ReturnType<typeof mountPage>>): Element[] {
+  const root = wrapper.element as Element
+  return [root, ...root.querySelectorAll('*')].filter(
+    (node) => !node.closest('.bg-card') && !node.closest('[data-slot="avatar-layer"]')
+  )
+}
+
+describe('interview session — on the brand canvas in every state', () => {
+  it.each(ALL_STATES)('renders the %s state on the canvas', async (state) => {
+    const wrapper = await mountPage(makeSession({ state }))
+
+    expect(wrapper.classes()).toContain('brand-canvas')
+    expect(wrapper.classes()).toContain('bg-primary')
+    expect(wrapper.classes()).toContain('text-on-primary')
+    expect(wrapper.get('main').attributes('aria-label')).toBe('interview.document_title')
+  })
+
+  it.each(ALL_STATES)(
+    'draws nothing that assumes a white page on the bare canvas in %s',
+    async (state) => {
+      const session = makeSession({ state })
+      session.endedCompetencies.value = 1
+      session.totalCompetencies.value = 4
+      const wrapper = await mountPage(session)
+
+      for (const node of bareCanvasElements(wrapper)) {
+        expect(node.getAttribute('class') ?? '', node.outerHTML.slice(0, 160)).not.toMatch(
+          WHITE_PAGE_CLASSES
+        )
+      }
     }
   )
 
-  it('leaves the live interview chrome as it is', async () => {
-    const wrapper = await mountPage(makeSession({ state: 'live' }))
-    const main = wrapper.get('main')
+  it.each(['idle', 'paused', 'end_of_question', 'done', 'error', 'terminal'] as const)(
+    'puts the %s content on an elevated white surface with the ink focus ring',
+    async (state) => {
+      const wrapper = await mountPage(makeSession({ state, provider: null }))
+      const surface = wrapper.get('main section')
 
-    expect(main.classes()).toContain('bg-background')
-    expect(main.classes()).not.toContain('bg-primary')
+      expect(surface.classes()).toContain('bg-card')
+      expect(surface.classes()).toContain('rounded-surface')
+      expect(surface.classes()).toContain('shadow-surface')
+      // main.css draws the focus outline in primary-ink inside this class.
+      expect(surface.classes()).toContain('brand-canvas__surface')
+    }
+  )
+
+  it('never reads the branding itself — the exit-redirect fetch primes it', async () => {
+    // Two readers of GET /candidate/session on one page would be two requests.
+    const wrapper = await mountPage(makeSession({ state: 'idle' }))
+
+    expect(wrapper.findComponent({ name: 'BrandCanvas' }).props('loadBranding')).toBe(false)
   })
+
+  it.each(['idle', 'device_check', 'live'] as const)(
+    'carries no tagline footer in %s — the vertical room belongs to the interview',
+    async (state) => {
+      expect((await mountPage(makeSession({ state }))).find('footer').exists()).toBe(false)
+    }
+  )
+
+  it('leaves the avatar panel on its own dark layer, untouched', async () => {
+    const wrapper = await mountPage(makeSession({ state: 'live' }))
+    const layer = wrapper.get('[data-slot="avatar-layer"]')
+
+    expect(layer.find('[data-testid="avatar-player"]').exists()).toBe(true)
+    expect(layer.classes()).toContain('shadow-avatar')
+  })
+})
+
+describe('interview session — header chrome', () => {
+  it.each([
+    ['idle', '1'],
+    ['device_check', '2'],
+  ] as const)('marks step %s of the way in on the pre-interview screens', async (state, step) => {
+    const wrapper = await mountPage(makeSession({ state }))
+    const steps = wrapper.get('header [data-testid="interview-steps"]')
+
+    expect(steps.element.tagName).toBe('OL')
+    expect(steps.attributes('aria-label')).toBe('interview.steps.label')
+    expect(steps.findAll('li')).toHaveLength(3)
+    expect(steps.get('[aria-current="step"]').text()).toContain(step)
+  })
+
+  it('shows no steps once the interview runs', async () => {
+    const wrapper = await mountPage(makeSession({ state: 'live' }))
+
+    expect(wrapper.find('[data-testid="interview-steps"]').exists()).toBe(false)
+  })
+
+  it('moves the question label and the timer into the header while live', async () => {
+    const wrapper = await mountPage(makeSession({ state: 'live' }))
+    const status = wrapper.get('header [data-testid="interview-status"]')
+
+    // A white pill: the timer can turn red near the end, which only has a
+    // measured contrast on white, never on an arbitrary client colour.
+    expect(status.classes()).toContain('bg-card')
+    expect(status.find('[data-testid="question-label"]').exists()).toBe(true)
+    expect(status.findComponent(InterviewTimerStub).exists()).toBe(true)
+  })
+
+  it('shows server progress in the header once the server has stated a total', async () => {
+    const { default: ProgressBar } = await import('~/app/components/ProgressBar.vue')
+    const session = makeSession({ state: 'live' })
+    const wrapper = await mountPage(session)
+    // Null until the first /end: no bar rather than a bar reading 0 / 0.
+    expect(wrapper.findComponent(ProgressBar).exists()).toBe(false)
+
+    session.endedCompetencies.value = 2
+    session.totalCompetencies.value = 5
+    await nextTick()
+
+    const bar = wrapper.getComponent(ProgressBar)
+    expect(bar.props()).toMatchObject({ current: 2, total: 5, compact: true })
+    expect(
+      wrapper.get('header [data-testid="interview-status"]').element.contains(bar.element)
+    ).toBe(true)
+  })
+})
+
+describe('interview session — the live dock', () => {
+  it('sets the caption and the Pause control on one white surface under the avatar', async () => {
+    const wrapper = await mountPage(makeSession({ state: 'live' }))
+    const dock = wrapper.get('[data-testid="live-dock"]')
+
+    expect(dock.classes()).toContain('bg-card')
+    expect(dock.classes()).toContain('brand-canvas__surface')
+    expect(dock.findComponent({ name: 'InterviewCaption' }).exists()).toBe(true)
+    expect(dock.findAll('button').some((b) => b.text().includes('interview.live.pause'))).toBe(true)
+  })
+
+  it('says what to do while no caption has arrived yet, and steps aside once one has', async () => {
+    const wrapper = await mountPage(makeSession({ state: 'live' }))
+
+    expect(wrapper.get('[data-testid="live-hint"]').text()).toBe('interview.live.listen_hint')
+
+    wrapper.getComponent(AvatarPlayerStub).vm.$emit('transcript', { text: 'Tell me about a time…' })
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="live-hint"]').exists()).toBe(false)
+  })
+})
+
+describe('interview session — links on the surface', () => {
+  it.each(['absent_phrase', 'malformed_response', 'generic'] as const)(
+    'draws the %s support link in primary-ink',
+    async (reason) => {
+      const session = makeSession({ state: 'terminal', provider: null })
+      ;(session.terminalReason as { value: unknown }).value = reason
+      const wrapper = await mountPage(session)
+      const link = wrapper.get('[data-testid="terminal-contact"]')
+
+      expect(link.classes()).toContain('text-primary-ink')
+      expect(link.classes()).not.toContain('text-primary')
+    }
+  )
 })

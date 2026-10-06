@@ -1,12 +1,17 @@
 <template>
   <div class="flex items-center gap-2">
     <span class="text-sm text-muted-foreground">{{ $t('interview.live.timer_label') }}</span>
+    <!--
+      Card tokens: the timer sits on the white status pill in the canvas header.
+      The last ten seconds turn `--color-recording` (#dc2626, 4.83:1 on white);
+      a red on the bare client colour would have no measured contrast at all.
+    -->
     <time
       role="timer"
       :aria-label="$t('interview.live.timer_label')"
       :aria-live="remaining <= 10 ? 'assertive' : 'off'"
-      class="font-mono text-lg font-semibold tabular-nums"
-      :class="remaining <= 10 ? 'text-destructive' : 'text-foreground'"
+      class="font-mono text-base font-semibold tabular-nums"
+      :class="remaining <= 10 ? 'text-recording' : 'text-card-foreground'"
     >
       {{ formattedTime }}
     </time>

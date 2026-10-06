@@ -179,7 +179,10 @@ describe('InterviewCaption.vue', () => {
 describe('ProgressBar.vue', () => {
   it('renders aria-valuenow equal to current', async () => {
     const { default: ProgressBar } = await import('../../app/components/ProgressBar.vue')
-    const wrapper = mount(ProgressBar, { props: { current: 2, total: 5 } })
+    const wrapper = mount(ProgressBar, {
+      props: { current: 2, total: 5 },
+      global: { mocks: { $t: (k: string) => k } },
+    })
     const progressEl = wrapper.find('[aria-valuenow], [role="progressbar"]')
     expect(progressEl.exists()).toBe(true)
     const valuenow = progressEl.attributes('aria-valuenow')
@@ -188,21 +191,30 @@ describe('ProgressBar.vue', () => {
 
   it('renders aria-valuemax equal to total', async () => {
     const { default: ProgressBar } = await import('../../app/components/ProgressBar.vue')
-    const wrapper = mount(ProgressBar, { props: { current: 3, total: 10 } })
+    const wrapper = mount(ProgressBar, {
+      props: { current: 3, total: 10 },
+      global: { mocks: { $t: (k: string) => k } },
+    })
     const progressEl = wrapper.find('[aria-valuenow], [role="progressbar"]')
     expect(progressEl.attributes('aria-valuemax')).toBe('10')
   })
 
   it('shows correct progress percentage', async () => {
     const { default: ProgressBar } = await import('../../app/components/ProgressBar.vue')
-    const wrapper = mount(ProgressBar, { props: { current: 1, total: 4 } })
+    const wrapper = mount(ProgressBar, {
+      props: { current: 1, total: 4 },
+      global: { mocks: { $t: (k: string) => k } },
+    })
     // 1/4 = 25%
     expect(wrapper.html()).toContain('25')
   })
 
   it('has role="progressbar" for screen readers', async () => {
     const { default: ProgressBar } = await import('../../app/components/ProgressBar.vue')
-    const wrapper = mount(ProgressBar, { props: { current: 0, total: 5 } })
+    const wrapper = mount(ProgressBar, {
+      props: { current: 0, total: 5 },
+      global: { mocks: { $t: (k: string) => k } },
+    })
     const progressEl = wrapper.find('[role="progressbar"]')
     expect(progressEl.exists()).toBe(true)
   })

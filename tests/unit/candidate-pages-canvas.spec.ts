@@ -52,3 +52,38 @@ describe.each(PAGES)('%s renders on the brand canvas', (path) => {
     expect(markup).not.toMatch(/\bbg-primary\/10\b/)
   })
 })
+
+/**
+ * The interview chrome (DESIGN.md §7.0.1, §7.2). These render on the canvas or
+ * on a white surface inside it, never on a white page, so the canvas colour as
+ * text (`text-primary`) and as a tint of itself (`bg-primary/10`) are wrong in
+ * every one of them, and a bare `bg-primary` fill only reads with its ink edge.
+ */
+const CHROME = [
+  'app/components/InterviewSession.vue',
+  'app/components/ProgressBar.vue',
+  'app/components/InterviewCaption.vue',
+  'app/components/InterviewTimer.vue',
+  'app/components/molecules/InterviewGuide.vue',
+  'app/components/molecules/InterviewSteps.vue',
+] as const
+
+describe.each(CHROME)('%s is canvas-safe', (path) => {
+  const markup = template(path)
+
+  it('uses no canvas-coloured text or tint', () => {
+    expect(markup).not.toMatch(/\btext-primary(?![-\w])/)
+    expect(markup).not.toMatch(/\bbg-primary\/\d+/)
+    expect(markup).not.toMatch(/\bhover:text-primary\//)
+  })
+
+  it('paints no white page of its own', () => {
+    expect(markup).not.toMatch(/\bbg-background\b/)
+  })
+
+  it('edges every solid brand fill in primary-ink', () => {
+    for (const match of markup.matchAll(/class="([^"]*\bbg-primary(?![-\w/])[^"]*)"/g)) {
+      expect(match[1]).toContain('border-primary-ink')
+    }
+  })
+})

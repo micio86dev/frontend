@@ -70,6 +70,34 @@ describe.each(MATRIX)('brand canvas contrast — %s', (_label, primary) => {
   })
 })
 
+/** `--secondary` is oklch(0.97 0 0): the progress track. */
+const TRACK = '#f5f5f5'
+/** `--color-recording`: the timer's last ten seconds, on the white status pill. */
+const RECORDING = '#dc2626'
+
+describe.each(MATRIX)('interview chrome contrast — %s', (_label, primary) => {
+  const tokens = deriveOnPrimaryTokens(primary)
+
+  it('the primary-ink edge sets a brand fill off the white surface at >= 3:1', () => {
+    // Buttons, the info chip and the guide numerals (WCAG 1.4.11).
+    expect(contrastRatio(tokens['--color-primary-ink'], CARD)).toBeGreaterThanOrEqual(3)
+  })
+
+  it('the progress fill (primary-ink) clears 3:1 on its track', () => {
+    expect(contrastRatio(tokens['--color-primary-ink'], TRACK)).toBeGreaterThanOrEqual(3)
+  })
+
+  it('the current step numeral (primary on an on-primary disc) clears 4.5:1', () => {
+    expect(contrastRatio(primary, tokens['--color-on-primary'])).toBeGreaterThanOrEqual(4.5)
+  })
+})
+
+describe('interview chrome — constant pairs', () => {
+  it('the urgent timer red clears 4.5:1 on the white status pill', () => {
+    expect(contrastRatio(RECORDING, CARD)).toBeGreaterThanOrEqual(4.5)
+  })
+})
+
 describe('brand canvas — derived ink and tone', () => {
   it('keeps the primary itself as ink when it already reads on white', () => {
     expect(deriveOnPrimaryTokens(QUINT)['--color-primary-ink']).toBe(QUINT)

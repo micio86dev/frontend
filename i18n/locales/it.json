@@ -53,7 +53,8 @@
       "voice_visualizer_label": "Voce dell’intervistatore",
       "avatar_label": "Intervistatore",
       "region_label": "Colloquio in corso",
-      "question_label": "D{n}"
+      "question_label": "D{n}",
+      "listen_hint": "Ascolta la domanda, poi rispondi a voce. Prenditi il tuo tempo."
     },
     "end_of_question": {
       "title": "Domanda completata",
@@ -180,6 +181,16 @@
       "title": "Un attimo",
       "body": "Sto preparando la prossima domanda.",
       "progressLabel": "Avanzamento"
+    },
+    "steps": {
+      "label": "Fasi del colloquio",
+      "consent": "Consenso",
+      "device_check": "Dispositivi",
+      "interview": "Colloquio",
+      "done": "completato"
+    },
+    "progress": {
+      "label": "Avanzamento del colloquio"
     }
   },
   "analytics_consent": {

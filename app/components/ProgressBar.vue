@@ -1,42 +1,60 @@
 <template>
-  <div class="flex flex-col gap-1">
-    <div class="flex items-center justify-between text-sm text-muted-foreground">
+  <div :class="compact ? 'flex items-center gap-2.5' : 'flex flex-col gap-1'">
+    <div v-if="!compact" class="flex items-center justify-between text-sm text-muted-foreground">
       <span>{{ current }} / {{ total }}</span>
       <span>{{ percentage }}%</span>
     </div>
+    <!--
+      Fill in primary-ink, not the client colour: `bg-primary` on the light
+      track measured 1.0:1 for #ffd400, a bar nobody could read. The ink is the
+      brand darkened until it reads on white, so it clears 3:1 on the track for
+      any client colour (brand-canvas-contrast.spec.ts).
+    -->
     <div
       role="progressbar"
       :aria-valuenow="current"
       :aria-valuemin="0"
       :aria-valuemax="total"
-      :aria-label="$t ? $t('interview.end_of_question.title') : 'Progress'"
-      class="h-2 w-full overflow-hidden rounded-full bg-secondary"
+      :aria-label="$t('interview.progress.label')"
+      class="h-2 overflow-hidden rounded-full bg-secondary"
+      :class="compact ? 'w-24' : 'w-full'"
     >
       <div
-        class="h-full rounded-full bg-primary transition-all duration-300"
+        class="h-full rounded-full bg-primary-ink transition-[width] duration-300 motion-reduce:transition-none"
         :style="{ width: `${percentage}%` }"
       />
     </div>
+    <span v-if="compact" class="text-sm font-medium tabular-nums text-muted-foreground">
+      {{ current }} / {{ total }}
+    </span>
   </div>
 </template>
 
 <script setup lang="ts">
 /**
- * ProgressBar — competency progress indicator for the End of Question screen.
+ * ProgressBar — competency progress, from the server's counts.
  *
  * Props:
- *   current — current competency index (1-based for display)
+ *   current — competencies ended so far
  *   total   — total number of competencies
+ *   compact — one line (bar + count) for the interview header's status pill;
+ *             the default stacks the count and percentage over a full bar for
+ *             the scheduled-pause screen.
  *
- * Accessible: role="progressbar" with aria-valuenow/min/max.
- * SSR-safe: no browser APIs.
+ * Always drawn on a white surface (the pause card or the header pill), so the
+ * card text tokens apply. Accessible: role="progressbar" with
+ * aria-valuenow/min/max. SSR-safe: no browser APIs.
  */
 import { computed } from 'vue'
 
-const props = defineProps<{
-  current: number
-  total: number
-}>()
+const props = withDefaults(
+  defineProps<{
+    current: number
+    total: number
+    compact?: boolean
+  }>(),
+  { compact: false }
+)
 
 const percentage = computed(() => {
   if (props.total === 0) return 0
