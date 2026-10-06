@@ -91,6 +91,20 @@ describe('BrandCanvas — landmark and surface', () => {
     expect(surface.classes()).toContain('rounded-surface')
   })
 
+  it.each([
+    ['both given', { headingId: 'a-heading', ariaLabel: 'Interview' }, 'a-heading', undefined],
+    ['only a heading', { headingId: 'a-heading', ariaLabel: undefined }, 'a-heading', undefined],
+    ['only a label', { headingId: undefined, ariaLabel: 'Interview' }, undefined, 'Interview'],
+    ['neither', { headingId: undefined, ariaLabel: undefined }, undefined, undefined],
+  ])('names the landmark with exactly one mechanism (%s)', (_name, props, labelledby, label) => {
+    // aria-labelledby silently wins over aria-label, so rendering both is a lie
+    // about which name a screen reader announces: the heading wins, once.
+    const main = mountCanvas(props).get('main')
+
+    expect(main.attributes('aria-labelledby')).toBe(labelledby)
+    expect(main.attributes('aria-label')).toBe(label)
+  })
+
   it('marks the landmark busy only when asked to', () => {
     expect(mountCanvas().get('main').attributes('aria-busy')).toBeUndefined()
     expect(mountCanvas({ busy: true }).get('main').attributes('aria-busy')).toBe('true')

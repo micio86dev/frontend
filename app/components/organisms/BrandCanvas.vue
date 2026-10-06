@@ -66,7 +66,7 @@
     <main
       :data-testid="testId"
       :aria-labelledby="headingId"
-      :aria-label="ariaLabel"
+      :aria-label="headingId ? undefined : ariaLabel"
       :aria-busy="busy ? 'true' : undefined"
       :aria-live="busy ? 'polite' : undefined"
       :class="[
@@ -135,7 +135,11 @@ const props = withDefaults(
     surface?: boolean
     /** The tagline footer. Off during the live interview, where it is noise. */
     footer?: boolean
-    /** Landmark name when there is no single `<h1>` to point at. */
+    /**
+     * Landmark name when there is no single `<h1>` to point at. Ignored when a
+     * `headingId` is given: `aria-labelledby` would win over it anyway, so only
+     * one naming mechanism is ever rendered.
+     */
     ariaLabel?: string
   }>(),
   {
