@@ -755,6 +755,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/participants/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Authorize the single re-interview of a pending evaluation
+         * @description Re-opens the participant for the competencies whose result is invalid and returns
+         *     a single-use link. Allowed once per participant, for a completed interview whose
+         *     evaluation is still pending.
+         */
+        post: operations["evaluationRetry.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/m2m/participants/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Authorize the single re-interview of a pending evaluation
+         * @description Requires the `participants:retry` ability.
+         */
+        post: operations["m2m.evaluationRetry.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/embed/exchange": {
         parameters: {
             query?: never;
@@ -3291,6 +3333,9 @@ export interface components {
                 };
             };
             created_at: string | null;
+            retry_attempt: boolean;
+            retry_authorized_at: string | null;
+            retry_available: boolean;
         };
         /** ParticipantEnrolmentResource */
         ParticipantEnrolmentResource: {
@@ -4617,6 +4662,7 @@ export interface operations {
                                 viewAny: boolean;
                                 create: boolean;
                                 recover: boolean;
+                                retry: boolean;
                             };
                             clients: {
                                 viewAny: boolean;
@@ -6113,6 +6159,113 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "evaluationRetry.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    reason?: string | null;
+                };
+            };
+        };
+        responses: {
+            /**
+             * @description Scramble derives the response schema from this literal and cannot read a
+             *     property's type through the DTO, hence the key-level annotations.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description The participant's new lifecycle status. */
+                        status: string;
+                        entry_url: string;
+                        expires_at: string;
+                        /** @description Whether BEAI queued the link by email to the candidate. */
+                        email_sent: boolean;
+                        /** @description Codes of the competencies that will be asked again. */
+                        competencies_reset: string[];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        reason: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "m2m.evaluationRetry.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    reason?: string | null;
+                };
+            };
+        };
+        responses: {
+            /**
+             * @description Scramble derives the response schema from this literal and cannot read a
+             *     property's type through the DTO, hence the key-level annotations.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description The participant's new lifecycle status. */
+                        status: string;
+                        entry_url: string;
+                        expires_at: string;
+                        /** @description Whether BEAI queued the link by email to the candidate. */
+                        email_sent: boolean;
+                        /** @description Codes of the competencies that will be asked again. */
+                        competencies_reset: string[];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        reason: string;
+                    };
+                };
+            };
             422: components["responses"]["ValidationException"];
         };
     };
