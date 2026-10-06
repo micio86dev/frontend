@@ -1,6 +1,6 @@
 <template>
   <div
-    class="flex flex-col gap-6 p-6"
+    class="flex flex-col gap-5 p-5"
     role="region"
     :aria-label="$t('interview.device_check.title')"
   >

@@ -131,3 +131,22 @@ for (const [label, colour, rgb] of [
     })
   })
 }
+
+test.describe('device check fits the desktop viewport', () => {
+  test.use({ viewport: { width: 1440, height: 900 } })
+
+  test('does not scroll at 1440x900', async ({ page }) => {
+    await mockBrandedInterview(page, '#771aaf')
+    await injectDeviceMocks(page)
+    await page.goto(`/en/interview/${TOKEN}`)
+    await page.getByRole('button', { name: /accept and continue/i }).click({ timeout: 15000 })
+    await expect(page.getByRole('button', { name: /start the interview/i })).toBeEnabled({
+      timeout: 8000,
+    })
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollHeight - window.innerHeight
+    )
+    expect(overflow).toBeLessThanOrEqual(0)
+  })
+})
