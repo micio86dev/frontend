@@ -28,11 +28,17 @@ export const alertVariants = cva(
        * glare, and the saturated hue is legible there where it was not on
        * pale.
        *
+       * The description's colour is stated HERE, once per variant, and
+       * `AlertDescription` carries none of its own: with `text-muted-foreground`
+       * on both, the winner depended on selector shape and generated CSS order,
+       * which is how a failing axe contrast once slipped through.
+       *
        * No side-stripe accent borders — the reflex decoration for status
        * callouts, which reads as template output.
        */
       variant: {
-        default: 'bg-card text-card-foreground',
+        default:
+          'bg-card text-card-foreground *:data-[slot=alert-description]:text-muted-foreground',
         success:
           'border-success/35 bg-success-light text-success-dark dark:border-success/30 dark:bg-success/15 dark:text-success *:data-[slot=alert-description]:text-current/90 *:[svg]:text-current',
         warning:

@@ -38,3 +38,46 @@ describe('destructive Alert contrast', () => {
     ).toBeGreaterThanOrEqual(4.5)
   })
 })
+
+describe('the description colour belongs to the variant, not to two competing classes', () => {
+  // `AlertDescription` used to carry `text-muted-foreground` itself while the
+  // variants set `*:data-[slot=alert-description]:text-current` on the root: two
+  // single-class rules for one property, so the winner was an accident of the
+  // selector shapes and Tailwind's output order. A unit test cannot see that
+  // order (the Playwright spec "the destructive alert follows its variant" reads
+  // the real CSS); what it can pin is that there is only ONE rule to win.
+  const source = readFileSync(
+    resolve(__dirname, '../../app/components/ui/alert/AlertDescription.vue'),
+    'utf-8'
+  )
+  const DESCRIPTION_COLOUR = /\*:data-\[slot=alert-description\]:text-/
+
+  it('AlertDescription sets no text colour of its own', () => {
+    const classes = source.slice(source.indexOf('cn('), source.indexOf('props.class'))
+
+    expect(classes).not.toMatch(
+      /(^|[\s'])text-(muted-foreground|foreground|current|[a-z-]+-dark)\b/
+    )
+  })
+
+  it.each(['default', 'success', 'warning', 'destructive'] as const)(
+    'the %s variant states the description colour exactly once',
+    (variant) => {
+      const matches = alertVariants({ variant }).match(new RegExp(DESCRIPTION_COLOUR, 'g'))
+
+      expect(matches).toHaveLength(1)
+    }
+  )
+
+  it('the destructive description is the alert text colour at full strength', () => {
+    expect(alertVariants({ variant: 'destructive' })).toMatch(
+      /\*:data-\[slot=alert-description\]:text-current(\s|$)/
+    )
+  })
+
+  it('the default variant keeps the muted description', () => {
+    expect(alertVariants({ variant: 'default' })).toMatch(
+      /\*:data-\[slot=alert-description\]:text-muted-foreground(\s|$)/
+    )
+  })
+})

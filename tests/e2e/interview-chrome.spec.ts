@@ -216,6 +216,49 @@ for (const [label, colour, rgb] of [
   })
 }
 
+test.describe('the destructive alert follows its variant, in the real built CSS', () => {
+  // A unit test cannot see Tailwind's generated rule order, so this renders the
+  // real recovery alert (the microphone is refused) and reads the colours the
+  // browser resolved: title, description and the alert itself must agree on the
+  // text-safe error token, and clear 4.5:1 on the alert's own background.
+  test('title and description resolve to --color-error-dark and stay >= 4.5:1', async ({
+    page,
+  }) => {
+    await mockBrandedInterview(page, '#771aaf')
+    await injectDeviceMocks(page)
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
+        configurable: true,
+        value: async () => {
+          throw new DOMException('Permission denied', 'NotAllowedError')
+        },
+      })
+    })
+    await page.goto(`/en/interview/${TOKEN}`)
+    await page.getByRole('button', { name: /accept and continue/i }).click({ timeout: 15000 })
+
+    const alert = page.getByTestId('recovery-alert')
+    await expect(alert).toBeVisible()
+
+    const colours = await alert.evaluate((root) => {
+      const colourOf = (el: Element | null): string => (el ? getComputedStyle(el).color : 'missing')
+
+      return {
+        alert: colourOf(root),
+        title: colourOf(root.querySelector('[data-slot="alert-title"]')),
+        description: colourOf(root.querySelector('[data-slot="alert-description"]')),
+        background: getComputedStyle(root).backgroundColor,
+      }
+    })
+
+    // `--color-error-dark` is #b91c1c.
+    expect(colours.title).toBe('rgb(185, 28, 28)')
+    expect(colours.description).toBe(colours.title)
+    expect(colours.alert).toBe(colours.title)
+    expect(colours.background).toMatch(/^(rgb\(254, 226, 226\)|oklch\()/)
+  })
+})
+
 test.describe('device check fits the desktop viewport', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
 
