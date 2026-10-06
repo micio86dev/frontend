@@ -7,6 +7,10 @@
  * its own `min-h-screen bg-background` white page, which is exactly the
  * regression this change exists to remove. The canvas owns the page height and
  * the background, and `text-primary` is invisible on it (§3.1 rule 1).
+ *
+ * The page list below is deliberately wider than any one reviewed slice: this
+ * guard covers EVERY candidate page, so a change to one page's markup can fail
+ * here even when the page was not part of that slice. That coupling is the point.
  */
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
