@@ -1,6 +1,7 @@
 <template>
   <div
     v-if="visible"
+    ref="bannerEl"
     data-testid="analytics-consent"
     role="region"
     :aria-label="$t('analytics_consent.region_label')"
@@ -56,6 +57,7 @@
  * what licenses the rest — no focus trap, no modal, no scroll lock, no dimmed
  * page, no second prompt.
  */
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
   ANALYTICS_CONSENT_EVENT,
   hasAnalyticsDecision,
@@ -90,6 +92,55 @@ const visible = computed(() => {
 
   return !hasAnalyticsDecision(storage())
 })
+
+/*
+ * Room on the canvas. The banner floats over the bottom of the brand canvas,
+ * where the canvas keeps its footer; it publishes the room it takes (its height
+ * plus its bottom offset and a gap) as `--consent-banner-clearance`, which the
+ * canvas reserves as bottom padding, so neither one ever covers the other. A
+ * custom property rather than a shared store: the canvas only needs a length,
+ * and the property disappears with the banner.
+ */
+const CLEARANCE_TOKEN = '--consent-banner-clearance'
+/** `bottom: 1rem` of the banner plus a 1rem gap above it. */
+const CLEARANCE_GAP_PX = 32
+
+const bannerEl = ref<HTMLElement | null>(null)
+let resizeObserver: ResizeObserver | null = null
+
+function publishClearance(): void {
+  const height = bannerEl.value?.getBoundingClientRect().height ?? 0
+  document.documentElement.style.setProperty(
+    CLEARANCE_TOKEN,
+    `${Math.ceil(height) + CLEARANCE_GAP_PX}px`
+  )
+}
+
+function withdrawClearance(): void {
+  resizeObserver?.disconnect()
+  resizeObserver = null
+  if (typeof document !== 'undefined') {
+    document.documentElement.style.removeProperty(CLEARANCE_TOKEN)
+  }
+}
+
+watch(
+  bannerEl,
+  (element) => {
+    withdrawClearance()
+    if (!element) return
+
+    publishClearance()
+    // The banner wraps differently at every width and in every language.
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(publishClearance)
+      resizeObserver.observe(element)
+    }
+  },
+  { flush: 'post' }
+)
+
+onBeforeUnmount(withdrawClearance)
 
 function decide(granted: boolean): void {
   writeAnalyticsConsent(storage(), granted)

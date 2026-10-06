@@ -18,7 +18,7 @@
       <li v-for="(stepKey, index) in STEP_KEYS" :key="stepKey" class="flex gap-3">
         <span
           aria-hidden="true"
-          class="mt-px flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-on-primary"
+          class="mt-px flex size-5 shrink-0 items-center justify-center rounded-full border border-primary-ink bg-primary text-xs font-semibold text-on-primary"
         >
           {{ index + 1 }}
         </span>

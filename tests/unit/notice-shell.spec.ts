@@ -113,6 +113,14 @@ describe('NoticeShell — on the brand canvas', () => {
       /bg-primary\/10|(^|\s)text-primary(\s|")/
     )
   })
+
+  it('edges the info chip in primary-ink, so a light client colour still reads as a chip', () => {
+    // #ffd400 on the white surface is 1.07:1: the glyph read, the chip did not.
+    const chip = mountShell({ tone: 'info' }).get('span[aria-hidden="true"]')
+
+    expect(chip.classes()).toContain('border')
+    expect(chip.classes()).toContain('border-primary-ink')
+  })
 })
 
 describe("NoticeShell — the organization's mark, or ours, but never nothing", () => {

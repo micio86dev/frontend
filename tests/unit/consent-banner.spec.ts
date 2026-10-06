@@ -190,3 +190,39 @@ describe('the banner on the brand canvas', () => {
     expect(style).toMatch(/:focus-visible\s*\{[^}]*var\(--color-primary-ink\)/)
   })
 })
+
+describe('room on the canvas', () => {
+  // The banner floats over the bottom of the brand canvas. It publishes how
+  // much room it takes so the canvas can keep its footer clear of it, and takes
+  // that back the moment it is answered.
+  const clearance = () =>
+    document.documentElement.style.getPropertyValue('--consent-banner-clearance')
+
+  it('publishes its clearance while it is open', () => {
+    const wrapper = mountBanner()
+
+    expect(clearance()).toMatch(/^\d+(\.\d+)?px$/)
+    wrapper.unmount()
+  })
+
+  it('takes the clearance back once answered', async () => {
+    const wrapper = mountBanner()
+    await wrapper.get('[data-testid="analytics-consent-reject"]').trigger('click')
+
+    expect(clearance()).toBe('')
+    wrapper.unmount()
+  })
+
+  it('takes the clearance back when it unmounts', () => {
+    mountBanner().unmount()
+
+    expect(clearance()).toBe('')
+  })
+
+  it('publishes nothing when it never opens', () => {
+    mountBanner({ enabled: false }).unmount()
+    mountBanner({ enabled: false })
+
+    expect(clearance()).toBe('')
+  })
+})

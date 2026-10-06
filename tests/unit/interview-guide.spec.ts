@@ -62,4 +62,14 @@ describe('InterviewGuide — legible for any client colour', () => {
     expect(numeral.classes()).toContain('text-on-primary')
     expect(numeral.classes()).not.toContain('text-primary')
   })
+
+  it('edges the brand fill in primary-ink so it stands out from white on a light client', () => {
+    // A #ffd400 disc on a white card is 1.07:1: the numeral read, the disc did
+    // not. The ink edge is >= 4.5:1 on white for any client colour.
+    const wrapper = mount(InterviewGuide, { global: { mocks: { $t: (key: string) => key } } })
+    const numeral = wrapper.get('ol li span[aria-hidden="true"]')
+
+    expect(numeral.classes()).toContain('border')
+    expect(numeral.classes()).toContain('border-primary-ink')
+  })
 })

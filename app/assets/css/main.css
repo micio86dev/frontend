@@ -309,3 +309,29 @@
   outline-color: var(--color-primary-ink);
   box-shadow: none;
 }
+
+/* ---------------------------------------------------------------------------
+   Canvas surface entrance — DESIGN.md §7.0.1, §10.
+
+   Global rather than scoped to BrandCanvas: the interview renders one surface
+   per state (consent, device check, the live dock, pause, done…) and each one
+   enters the same way when its state begins. Entrance only, once per mount,
+   opacity and transform only, and nothing at all under reduced motion.
+--------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: no-preference) {
+  .brand-canvas__surface {
+    animation: brand-canvas-rise 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+@keyframes brand-canvas-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

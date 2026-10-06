@@ -105,7 +105,7 @@ withDefaults(
 // `info` is a solid brand fill with the derived on-primary glyph, which reads
 // on any client colour; `bg-primary/10 text-primary` vanished on a light one.
 const TONE_CHIP: Record<Tone, string> = {
-  info: 'bg-primary text-on-primary',
+  info: 'border border-primary-ink bg-primary text-on-primary',
   success: 'bg-success-light text-success-dark',
   warning: 'bg-warning-light text-warning-dark',
   danger: 'bg-error-light text-destructive',

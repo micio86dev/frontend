@@ -165,17 +165,57 @@ describe('BrandCanvas — the canvas is the client colour, and stays legible on 
     expect(style).not.toMatch(/#[0-9a-f]{3,8}\b|color-mix\(/i)
   })
 
-  it('animates the surface only under prefers-reduced-motion: no-preference', () => {
+  it('animates every canvas surface only under prefers-reduced-motion: no-preference', () => {
+    // Global, not scoped to this component: the interview states render their
+    // own surfaces on the canvas, and they enter the same way (DESIGN.md §10).
+    const css = readFileSync(resolve(__dirname, '../../app/assets/css/main.css'), 'utf-8')
+    const guardAt = css.indexOf('@media (prefers-reduced-motion: no-preference)')
+    const block = css.slice(guardAt, css.indexOf('}\n}', guardAt))
+
+    expect(guardAt).toBeGreaterThanOrEqual(0)
+    expect(block).toContain('.brand-canvas__surface')
+    expect(block).toContain('animation:')
+    expect(css.slice(0, guardAt)).not.toMatch(/\.brand-canvas__surface\s*\{[^}]*animation:/)
+  })
+
+  it('keeps the footer clear of the analytics consent banner while it is open', () => {
+    // The banner floats over the bottom of the canvas and publishes its height;
+    // the canvas reserves that much room so neither ever covers the other.
     const source = readFileSync(
       resolve(__dirname, '../../app/components/organisms/BrandCanvas.vue'),
       'utf-8'
     )
-    const style = source.slice(source.indexOf('<style'))
-    const animationAt = style.indexOf('animation:')
-    const guardAt = style.indexOf('@media (prefers-reduced-motion: no-preference)')
 
-    expect(guardAt).toBeGreaterThanOrEqual(0)
-    expect(animationAt).toBeGreaterThan(guardAt)
+    expect(source.slice(source.indexOf('<style'))).toMatch(
+      /padding-bottom:\s*var\(--consent-banner-clearance,\s*0px\)/
+    )
+  })
+})
+
+describe('BrandCanvas — bare mode, for the interview that brings its own surfaces', () => {
+  it('renders the slot straight in the landmark, stacked, when surface is off', () => {
+    const wrapper = mountCanvas({ surface: false, headingId: undefined, ariaLabel: 'Interview' })
+    const main = wrapper.get('main')
+
+    expect(wrapper.find('[data-slot="brand-canvas-surface"]').exists()).toBe(false)
+    expect(main.text()).toContain('Surface content')
+    expect(main.classes()).toContain('flex-col')
+    expect(main.attributes('aria-label')).toBe('Interview')
+    expect(main.attributes('aria-labelledby')).toBeUndefined()
+  })
+
+  it('drops the tagline footer when asked to', () => {
+    expect(mountCanvas({ footer: false }).find('footer').exists()).toBe(false)
+  })
+
+  it('renders trailing header chrome at the end of the header', () => {
+    const wrapper = mount(BrandCanvas, {
+      props: { testId: 'a-page' },
+      slots: { default: '<p>x</p>', 'header-end': '<span data-testid="chrome">2 / 5</span>' },
+      global: { mocks: { $t: tMock } },
+    })
+
+    expect(wrapper.get('header').find('[data-testid="chrome"]').exists()).toBe(true)
   })
 })
 
@@ -203,6 +243,8 @@ describe("BrandCanvas — the organization's mark, or ours, but never nothing", 
     expect(logo.attributes('alt')).toBe('')
     // A logo in the brand colour would vanish straight on a canvas of that colour.
     expect(logo.element.parentElement?.className).toContain('bg-card')
+    // A light logo on its white plate on a light canvas needs an edge to sit on.
+    expect(logo.element.parentElement?.className).toMatch(/(^|\s)border(\s|$)/)
     expect(wrapper.get('header').text()).not.toContain('BEAI')
   })
 
