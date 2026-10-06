@@ -34,7 +34,11 @@ import NoticeShell from '~/components/molecules/NoticeShell.vue'
 import { Button } from '~/components/ui/button'
 
 definePageMeta({ ssr: false })
-useHead({ meta: [{ name: 'robots', content: 'noindex, nofollow' }] })
+const { t: tTitle } = useI18n()
+useHead({
+  title: tTitle('interview.error.title'),
+  meta: [{ name: 'robots', content: 'noindex, nofollow' }],
+})
 
 const router = useRouter()
 

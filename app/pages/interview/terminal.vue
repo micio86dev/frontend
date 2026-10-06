@@ -122,13 +122,10 @@ const reason = computed<TerminalReason>(() => {
 })
 
 useHead({
-  // WCAG 2.4.2 (Page Titled). Set for `link_reopen` only: the visitor reaches it
-  // from a page that had its own title, and an untitled document is a Level A
-  // failure that axe reports on exactly this state. Every other reason keeps the
-  // document title it has always had.
-  title: computed(() =>
-    reason.value === 'link_reopen' ? t('interview.terminal.link_reopen.title') : undefined
-  ),
+  // WCAG 2.4.2 (Page Titled). Every reason carries its own localized title: the
+  // page is often loaded directly (e.g. after a 410 on the hosted link), and an
+  // untitled document is a Level A failure.
+  title: computed(() => t(`interview.terminal.${reason.value}.title`)),
   meta: [{ name: 'robots', content: 'noindex, nofollow' }],
 })
 </script>

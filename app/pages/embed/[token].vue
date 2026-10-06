@@ -78,7 +78,11 @@ type FramePolicyResponse =
   operations['exchange.framePolicy']['responses'][200]['content']['application/json']
 
 definePageMeta({ ssr: false })
+const { t: tTitle } = useI18n()
 useHead({
+  // WCAG 2.4.2 (Page Titled): this route is loaded directly from an email or a
+  // link, so the loading state has no titled page behind it.
+  title: tTitle('interview.document_title'),
   meta: [
     { name: 'robots', content: 'noindex, nofollow' },
     { name: 'referrer', content: 'no-referrer' },

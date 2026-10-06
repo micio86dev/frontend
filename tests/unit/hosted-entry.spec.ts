@@ -107,6 +107,7 @@ beforeEach(() => {
   vi.stubGlobal('navigateTo', mockNavigateTo)
   vi.stubGlobal('definePageMeta', vi.fn())
   vi.stubGlobal('useHead', vi.fn())
+  vi.stubGlobal('useI18n', () => ({ t: (key: string) => key }))
   vi.stubGlobal(
     'useLocalePath',
     vi.fn(() => (path: string) => `${LOCALE_MARKER}${path}`)

@@ -20,5 +20,9 @@
 import NoticeShell from '~/components/molecules/NoticeShell.vue'
 
 definePageMeta({ ssr: false })
-useHead({ meta: [{ name: 'robots', content: 'noindex, nofollow' }] })
+const { t: tTitle } = useI18n()
+useHead({
+  title: tTitle('interview.done.title'),
+  meta: [{ name: 'robots', content: 'noindex, nofollow' }],
+})
 </script>

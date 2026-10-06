@@ -105,6 +105,7 @@ beforeEach(() => {
   holder.session = makeSession()
   vi.stubGlobal('definePageMeta', vi.fn())
   vi.stubGlobal('useHead', vi.fn())
+  vi.stubGlobal('useI18n', () => ({ t: (key: string) => key }))
   vi.stubGlobal(
     'useRuntimeConfig',
     vi.fn(() => ({ public: { apiBase: 'https://api.test/api' } }))

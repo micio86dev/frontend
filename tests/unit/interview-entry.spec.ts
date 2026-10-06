@@ -114,6 +114,7 @@ beforeEach(() => {
   vi.stubGlobal('navigateTo', mockNavigateTo)
   vi.stubGlobal('definePageMeta', vi.fn())
   vi.stubGlobal('useHead', vi.fn())
+  vi.stubGlobal('useI18n', () => ({ t: (key: string) => key }))
   // Verification Finding #5: an IDENTITY stub here is exactly what let a
   // regression (bare navigateTo(path) instead of navigateTo(localePath(path)))
   // go undetected — real bug found via E2E: navigateTo('/interview/session')
