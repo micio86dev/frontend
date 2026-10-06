@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Locator, type Page } from '@playwright/test'
 import { checkA11y } from './fixtures/a11y'
 import { injectDeviceMocks } from './fixtures/device-mocks'
 
@@ -91,6 +91,66 @@ async function canvasColour(page: Page): Promise<string> {
   return page.locator('.brand-canvas').evaluate((node) => getComputedStyle(node).backgroundColor)
 }
 
+/**
+ * Contrast of the focus outline the browser really painted on `target` against
+ * the first opaque background behind it. Computed in the page, so `!important`,
+ * layer order and the real built CSS are all in play (the unit test only reads
+ * the source). One Tab press first puts the page in keyboard modality, which is
+ * what makes a programmatic `focus()` match `:focus-visible`; WebKit's Tab
+ * skips buttons by default, so the control is focused directly after that.
+ */
+async function focusViaKeyboardModality(page: Page, target: Locator): Promise<void> {
+  await page.keyboard.press('Tab')
+  await target.focus()
+}
+
+/** Polled by the caller: the vendored controls transition their outline colour in. */
+async function focusRingContrast(target: Locator): Promise<number> {
+  return target.evaluate((el) => {
+    // Computed colours can be `oklch()` (Tailwind's tokens), so read them back through a canvas.
+    const context = document.createElement('canvas').getContext('2d', { willReadFrequently: true })!
+    const toRgb = (value: string): { r: number; g: number; b: number; a: number } => {
+      context.clearRect(0, 0, 1, 1)
+      context.fillStyle = '#000000'
+      context.fillStyle = value
+      context.fillRect(0, 0, 1, 1)
+      const [r = 0, g = 0, b = 0, a = 255] = context.getImageData(0, 0, 1, 1).data
+
+      return { r, g, b, a: a / 255 }
+    }
+    const lum = ({ r, g, b }: { r: number; g: number; b: number }): number => {
+      const c = [r, g, b].map((v) => {
+        const s = v / 255
+        return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+      })
+
+      return 0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]!
+    }
+
+    if (document.activeElement !== el || !el.matches(':focus-visible')) return -1
+
+    const style = getComputedStyle(el)
+    if (style.outlineStyle === 'none' || Number.parseFloat(style.outlineWidth) === 0) return 0
+
+    // The outline is drawn 2px OUTSIDE the control, so what it sits on is what is behind the control.
+    let node: HTMLElement | null = el.parentElement
+    let background = { r: 255, g: 255, b: 255, a: 1 }
+    while (node) {
+      const candidate = toRgb(getComputedStyle(node).backgroundColor)
+      if (candidate.a > 0.95) {
+        background = candidate
+        break
+      }
+      node = node.parentElement
+    }
+
+    const outline = lum(toRgb(style.outlineColor))
+    const behind = lum(background)
+
+    return (Math.max(outline, behind) + 0.05) / (Math.min(outline, behind) + 0.05)
+  })
+}
+
 for (const [label, colour, rgb] of [
   ['light #ffd400', '#ffd400', 'rgb(255, 212, 0)'],
   ['dark #771aaf', '#771aaf', 'rgb(119, 26, 175)'],
@@ -128,6 +188,30 @@ for (const [label, colour, rgb] of [
       await expect(page.getByText(/listen to the question/i)).toBeVisible()
       await expect.poll(() => canvasColour(page)).toBe(rgb)
       await checkA11y(page)
+    })
+
+    test('the focus ring stands out from what is behind it, on the bare canvas and inside the surface', async ({
+      page,
+    }) => {
+      await page.goto(`/en/interview/${TOKEN}`)
+      const accept = page.getByRole('button', { name: /accept and continue/i })
+      await expect(accept).toBeVisible({ timeout: 15000 })
+      await expect.poll(() => canvasColour(page)).toBe(rgb)
+
+      // Inside the white surface: the primary-ink outline on white.
+      await focusViaKeyboardModality(page, accept)
+      await expect.poll(() => focusRingContrast(accept)).toBeGreaterThanOrEqual(3)
+
+      // Straight on the canvas: nothing on screen sits there, so put a control there.
+      const probe = page.locator('[data-testid="focus-probe"]')
+      await page.locator('.brand-canvas > header').evaluate((header) => {
+        const button = document.createElement('button')
+        button.dataset.testid = 'focus-probe'
+        button.textContent = 'probe'
+        header.append(button)
+      })
+      await focusViaKeyboardModality(page, probe)
+      await expect.poll(() => focusRingContrast(probe)).toBeGreaterThanOrEqual(3)
     })
   })
 }

@@ -45,6 +45,17 @@ function canvasElements(wrapper: VueWrapper): Element[] {
   )
 }
 
+/** Brace nesting depth of `css` at character `at` (0 = top level, i.e. unlayered). */
+function depthAt(css: string, at: number): number {
+  let depth = 0
+  for (const char of css.slice(0, at)) {
+    if (char === '{') depth++
+    if (char === '}') depth--
+  }
+
+  return depth
+}
+
 const WHITE_PAGE_CLASSES =
   /(^|\s)(text-primary|text-foreground|text-muted-foreground|bg-background)(\s|$)/
 
@@ -196,6 +207,30 @@ describe('BrandCanvas — the canvas is the client colour, and stays legible on 
     expect(block).toContain('.brand-canvas__surface')
     expect(block).toContain('animation:')
     expect(css.slice(0, guardAt)).not.toMatch(/\.brand-canvas__surface\s*\{[^}]*animation:/)
+  })
+
+  it('draws the focus ring in on-primary on the bare canvas and in primary-ink inside the surface', () => {
+    // DESIGN.md §7.0.1. Unlayered on purpose (it must outrank the layered vendored
+    // `outline-none`/ring utilities), so the two rules are read from the source.
+    const css = readFileSync(resolve(__dirname, '../../app/assets/css/main.css'), 'utf-8')
+    const ruleFor = (selector: string): string => {
+      const at = css.indexOf(`${selector} {`)
+      expect(at, `${selector} rule`).toBeGreaterThanOrEqual(0)
+
+      return css.slice(at, css.indexOf('}', at))
+    }
+    const canvasFocus = ruleFor('.brand-canvas :focus-visible')
+    const surfaceFocus = ruleFor('.brand-canvas__surface :focus-visible')
+
+    expect(canvasFocus).toMatch(/outline:\s*2px solid var\(--color-on-primary\)/)
+    expect(canvasFocus).toMatch(/outline-offset:\s*2px/)
+    expect(surfaceFocus).toMatch(/outline-color:\s*var\(--color-primary-ink\)/)
+    // The vendored halo is a 50%-alpha grey, not an indicator: the outline replaces it.
+    expect(surfaceFocus).toMatch(/box-shadow:\s*none/)
+    // Neither may sit inside an @layer (or any) block, or Tailwind's utilities outrank them.
+    for (const rule of [canvasFocus, surfaceFocus]) {
+      expect(depthAt(css, css.indexOf(rule)), 'rule is at the top level').toBe(0)
+    }
   })
 
   it('keeps the footer clear of the analytics consent banner while it is open', () => {
