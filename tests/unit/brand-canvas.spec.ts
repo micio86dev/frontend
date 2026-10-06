@@ -110,6 +110,12 @@ describe('BrandCanvas — landmark and surface', () => {
     expect(mountCanvas({ busy: true }).get('main').attributes('aria-busy')).toBe('true')
   })
 
+  it('announces politely while busy and is not a live region otherwise', () => {
+    expect(mountCanvas({ busy: true }).get('main').attributes('aria-live')).toBe('polite')
+    expect(mountCanvas({ busy: false }).get('main').attributes('aria-live')).toBeUndefined()
+    expect(mountCanvas().get('main').attributes('aria-live')).toBeUndefined()
+  })
+
   it('renders the tagline in the footer through i18n', () => {
     expect(mountCanvas().get('footer').text()).toContain('shell.tagline')
   })
