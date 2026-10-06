@@ -57,10 +57,18 @@ describe('NoticeShell', () => {
     expect(mountShell().findAll('button')).toHaveLength(0)
   })
 
+  it('holds no empty action row when the slot renders nothing', () => {
+    // A route that passes a slot whose only child is `v-if`-ed away (the
+    // terminal's support link) must not leave a blank band in the surface.
+    const wrapper = mountShell({}, { default: '<a v-if="false" href="#">x</a>' })
+
+    expect(wrapper.find('[data-slot="notice-actions"]').exists()).toBe(false)
+  })
+
   it('renders slotted actions', () => {
     const wrapper = mountShell({}, { default: '<button data-testid="go">Go</button>' })
 
-    expect(wrapper.find('[data-testid="go"]').exists()).toBe(true)
+    expect(wrapper.find('[data-slot="notice-actions"] [data-testid="go"]').exists()).toBe(true)
   })
 
   // The chip is the ONLY thing `tone` may change. If a tone ever starts

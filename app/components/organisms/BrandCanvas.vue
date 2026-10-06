@@ -21,7 +21,7 @@
       class="brand-canvas__decor pointer-events-none absolute inset-0 -z-10"
     />
 
-    <header class="mx-auto flex w-full max-w-6xl items-center gap-4 px-4 pt-6 lg:px-10 lg:pt-8">
+    <header class="mx-auto flex w-full max-w-6xl items-center gap-4 px-4 pt-6 lg:px-10">
       <!--
         The client's mark sits on a white plate, never straight on the canvas:
         the most common logo file there is, the brand colour on a transparent
@@ -57,19 +57,17 @@
       :aria-labelledby="headingId"
       :aria-busy="busy ? 'true' : undefined"
       :aria-live="busy ? 'polite' : undefined"
-      class="flex flex-1 items-center justify-center px-4 py-10 lg:px-10 lg:py-14"
+      class="flex flex-1 items-center justify-center px-4 py-8 lg:px-10 lg:py-10"
     >
       <div
         data-slot="brand-canvas-surface"
-        class="brand-canvas__surface w-full max-w-[34rem] rounded-surface bg-card p-6 text-card-foreground shadow-surface lg:p-10"
+        class="brand-canvas__surface w-full max-w-[34rem] rounded-surface bg-card p-6 text-card-foreground shadow-surface lg:p-9"
       >
         <slot />
       </div>
     </main>
 
-    <footer
-      class="mx-auto w-full max-w-6xl px-4 pb-6 text-sm text-on-primary-muted lg:px-10 lg:pb-8"
-    >
+    <footer class="mx-auto w-full max-w-6xl px-4 pb-6 text-sm text-on-primary-muted lg:px-10">
       {{ $t('shell.tagline') }}
     </footer>
   </div>

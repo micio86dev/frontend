@@ -73,6 +73,10 @@
         :loading="submitting"
         aria-describedby="reusable-identity-privacy"
         data-testid="reusable-identity-submit"
+        @pointerdown="pressingSubmit = true"
+        @pointerup="pressingSubmit = false"
+        @pointercancel="pressingSubmit = false"
+        @pointerleave="pressingSubmit = false"
       >
         {{
           submitting
@@ -152,6 +156,9 @@ const email = ref(props.initialEmail)
 const nameInput = ref<{ $el: HTMLElement } | null>(null)
 const emailInput = ref<{ $el: HTMLElement } | null>(null)
 
+/** The pointer is down on Start (see `onBlur`). */
+const pressingSubmit = ref(false)
+
 const clientErrors = reactive<FieldErrors>({})
 const serverFieldErrors = reactive<FieldErrors>({})
 
@@ -175,7 +182,18 @@ function setClientError(field: IdentityField, key: IdentityErrorKey | null): voi
   clientErrors[field] = key ?? undefined
 }
 
+/**
+ * A blur caused by pressing Start is left to the submit. Validating there would
+ * insert the error ABOVE the button between pointerdown and pointerup, the
+ * button would move, and the click would land elsewhere: Start pressed,
+ * nothing happens. `onSubmit` validates every field and focuses the first
+ * invalid one. Keyed on the POINTER, not on where focus went: a keyboard user
+ * tabbing to Start still gets the field checked on the way, and in WebKit a
+ * pressed button does not take focus at all, so `relatedTarget` would miss it.
+ */
 function onBlur(field: IdentityField): void {
+  if (pressingSubmit.value) return
+
   setClientError(field, validate(field))
 }
 

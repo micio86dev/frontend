@@ -51,14 +51,26 @@
     <p class="mt-3 max-w-[58ch] text-base leading-7 text-muted-foreground">{{ message }}</p>
 
     <!-- The route's one action, when it has one. -->
-    <div v-if="$slots.default" class="mt-8">
+    <div v-if="rendersContent($slots.default?.())" data-slot="notice-actions" class="mt-8">
       <slot />
     </div>
   </BrandCanvas>
 </template>
 
 <script setup lang="ts">
+import { Comment, type VNode } from 'vue'
 import BrandCanvas from '~/components/organisms/BrandCanvas.vue'
+
+/**
+ * Whether a slot renders anything. Presence is not enough: a route that passes
+ * a slot whose only child is `v-if`-ed away (the terminal's support link)
+ * renders a comment node, and the margin around it would leave a blank band at
+ * the bottom of the surface. Called from the template, i.e. during render,
+ * which is the only place a slot may be invoked.
+ */
+function rendersContent(nodes: VNode[] | undefined): boolean {
+  return (nodes ?? []).some((node) => node.type !== Comment)
+}
 
 /**
  * Shared notice for the standalone, non-interview routes: the root landing,

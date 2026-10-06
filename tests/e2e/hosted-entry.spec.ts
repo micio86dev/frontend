@@ -16,8 +16,10 @@ import type { Page } from '@playwright/test'
 
 const consentScreen = (page: Page) =>
   page.getByRole('region', { name: /privacy notice and consent/i })
+// The terminal ROUTE renders on the brand canvas, whose landmark is the page's
+// <main> labelled by its heading (DESIGN.md §7.0.1), not a labelled <section>.
 const terminalScreen = (page: Page) =>
-  page.getByRole('region', { name: /service temporarily unavailable|session|link/i })
+  page.getByRole('main', { name: /service temporarily unavailable|session|link/i })
 
 function base64url(input: string): string {
   return Buffer.from(input, 'utf-8')

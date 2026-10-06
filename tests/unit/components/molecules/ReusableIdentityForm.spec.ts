@@ -464,3 +464,49 @@ describe('ReusableIdentityForm: the typed identity is never persisted', () => {
     expect(document.cookie).toBe(before.cookie)
   })
 })
+
+/**
+ * A blur caused by pressing Start does not validate on its own.
+ *
+ * Pressing the button blurs the field first; validating there inserts the
+ * field's error ABOVE the button between mousedown and mouseup, the button
+ * moves, and the click lands somewhere else: the visitor pressed Start and
+ * nothing happened. Submit validates every field anyway (and focuses the first
+ * invalid one), so skipping the blur check for that one case loses nothing.
+ */
+describe('ReusableIdentityForm: pressing Start is never swallowed by the blur check', () => {
+  const SUBMIT = '[data-testid="reusable-identity-submit"]'
+
+  it('does not validate a field that loses focus because the pointer pressed Start', async () => {
+    const wrapper = mountForm()
+    await fill(wrapper, EMAIL, 'ana@gmail')
+
+    wrapper.get(SUBMIT).element.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await wrapper.get(EMAIL).trigger('blur')
+
+    expect(wrapper.find(ERR('email')).exists()).toBe(false)
+  })
+
+  it('still validates when the keyboard tabs from the field to Start', async () => {
+    const wrapper = mountForm()
+    await fill(wrapper, EMAIL, 'ana@gmail')
+    const submit = wrapper.get(SUBMIT).element
+
+    wrapper.get(EMAIL).element.dispatchEvent(new FocusEvent('blur', { relatedTarget: submit }))
+    await nextTick()
+
+    expect(wrapper.find(ERR('email')).exists()).toBe(true)
+  })
+
+  it('validates on blur again once the press is over', async () => {
+    const wrapper = mountForm()
+    await fill(wrapper, EMAIL, 'ana@gmail')
+    const submit = wrapper.get(SUBMIT).element
+
+    submit.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    submit.dispatchEvent(new Event('pointerup', { bubbles: true }))
+    await wrapper.get(EMAIL).trigger('blur')
+
+    expect(wrapper.find(ERR('email')).exists()).toBe(true)
+  })
+})
