@@ -172,13 +172,13 @@
          Retry. No failure state on this screen may be terminal. -->
     <Alert v-if="showRecovery" variant="destructive" data-testid="recovery-alert">
       <AlertTitle>{{ $t('interview.device_check.recovery_title') }}</AlertTitle>
-      <!-- The vendored destructive variant sets *:data-[slot=alert-description]:text-destructive/90
+      <!-- The vendored destructive variant sets *:data-[slot=alert-description]:text-current
            on the Alert root, but AlertDescription also hardcodes text-muted-foreground on
            itself; both are single-class-selector specificity, so which one wins depends on
            Tailwind's generated CSS order rather than markup nesting — an axe-caught AA
            contrast failure. Passing the same color explicitly here lets tailwind-merge (used
            inside AlertDescription's own cn()) deterministically drop text-muted-foreground. -->
-      <AlertDescription class="text-destructive/90">
+      <AlertDescription class="text-error-dark dark:text-destructive">
         {{ recoveryMessage }}
       </AlertDescription>
     </Alert>

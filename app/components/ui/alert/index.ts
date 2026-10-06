@@ -38,7 +38,7 @@ export const alertVariants = cva(
         warning:
           'border-warning/40 bg-warning-light text-warning-dark dark:border-warning/30 dark:bg-warning/15 dark:text-warning *:data-[slot=alert-description]:text-current/90 *:[svg]:text-current',
         destructive:
-          'border-destructive/35 bg-error-light text-destructive dark:border-destructive/30 dark:bg-destructive/15 dark:text-destructive *:data-[slot=alert-description]:text-destructive/90 *:[svg]:text-current',
+          'border-destructive/35 bg-error-light text-error-dark dark:border-destructive/30 dark:bg-destructive/15 dark:text-destructive *:data-[slot=alert-description]:text-current *:[svg]:text-current',
       },
     },
     defaultVariants: {
