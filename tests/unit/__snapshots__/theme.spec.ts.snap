@@ -85,6 +85,13 @@ exports[`brand theme token source (regression guard) > @theme literal block matc
   /* 15% darker than the prior #4f1aaf — still 11.75:1 against white (was
      10:1), so the ≥4.5:1 white-text floor stays comfortably clear. */
   --color-primary-dark: #431695;
+  /* On-primary family: what to draw ON the tenant's primary colour. These are
+     the Quint defaults; useBrandTheme.ts derives them per tenant, and
+     token-parity.spec.ts asserts they equal that derivation for #771aaf. */
+  --color-on-primary: #ffffff;
+  --color-on-primary-muted: #e1cded;
+  --color-primary-surface: #f4edf9;
+  --color-on-primary-surface: #0f172a;
   --color-accent: #e45526;
   --color-accent-light: #f19823;
   /* Aliased to --color-primary-dark, not a second literal: the "active /

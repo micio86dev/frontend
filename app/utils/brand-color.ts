@@ -125,3 +125,18 @@ export function ensureContrast(color: string, background: string, minRatio: numb
 
   return candidate
 }
+
+/**
+ * Black or white, whichever reads better on `background`.
+ *
+ * Same semantics as the backoffice's copy: no threshold, the higher WCAG
+ * contrast wins, and a value that is not `#rrggbb` degrades to white (the
+ * product's own on-primary) instead of a new failure mode. White wins a tie.
+ */
+export function readableForeground(background: string): '#000000' | '#ffffff' {
+  if (!HEX.test(background)) return '#ffffff'
+
+  return contrastRatio(background, '#ffffff') >= contrastRatio(background, '#000000')
+    ? '#ffffff'
+    : '#000000'
+}
