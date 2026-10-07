@@ -312,7 +312,8 @@ export interface paths {
          *     validation and the provider payload cannot disagree — which is the whole
          *     reason the spec is declarative. Machine-facing and NOT localized: it
          *     carries label keys, and translation happens where the operator's locale
-         *     lives.
+         *     lives. The superadmin-only fields (the external HeyGen voice) are listed
+         *     for a superadmin and for nobody else.
          */
         get: operations["avatarTemplate.fieldSpecs"];
         put?: never;
@@ -1687,6 +1688,28 @@ export interface paths {
         head?: never;
         /** PATCH /api/participants/{id}/schedule */
         patch: operations["participantSchedule.update"];
+        trace?: never;
+    };
+    "/admin/avatar-templates/field-specs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The field specs a platform template accepts, including the superadmin-only
+         *     ones (the external HeyGen voice). The organization route lists those for a
+         *     superadmin too and for nobody else
+         * @description Machine-facing and NOT localized, like the organization route's.
+         */
+        get: operations["platformAvatarTemplate.fieldSpecs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/admin/avatar-templates": {
@@ -4819,7 +4842,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: string;
+                        data: {
+                            heygen: {
+                                key: string;
+                                type: string;
+                                label_key: string;
+                                hint_key?: string;
+                                required?: boolean;
+                                options?: string[];
+                                min?: number;
+                                max?: number;
+                                step?: number;
+                                catalogue_resource?: string;
+                                options_depend_on?: string;
+                                options_by_value?: {
+                                    [key: string]: string[];
+                                };
+                                superadmin_only?: boolean;
+                                superseded_by_key?: string;
+                                superseded_by_values?: string[];
+                            }[];
+                            tavus: {
+                                key: string;
+                                type: string;
+                                label_key: string;
+                                hint_key?: string;
+                                required?: boolean;
+                                options?: string[];
+                                min?: number;
+                                max?: number;
+                                step?: number;
+                                catalogue_resource?: string;
+                                options_depend_on?: string;
+                                options_by_value?: {
+                                    [key: string]: string[];
+                                };
+                                superadmin_only?: boolean;
+                                superseded_by_key?: string;
+                                superseded_by_values?: string[];
+                            }[];
+                        };
                     };
                 };
             };
@@ -8109,6 +8171,68 @@ export interface operations {
             403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: components["responses"]["ValidationException"];
+        };
+    };
+    "platformAvatarTemplate.fieldSpecs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            heygen: {
+                                key: string;
+                                type: string;
+                                label_key: string;
+                                hint_key?: string;
+                                required?: boolean;
+                                options?: string[];
+                                min?: number;
+                                max?: number;
+                                step?: number;
+                                catalogue_resource?: string;
+                                options_depend_on?: string;
+                                options_by_value?: {
+                                    [key: string]: string[];
+                                };
+                                superadmin_only?: boolean;
+                                superseded_by_key?: string;
+                                superseded_by_values?: string[];
+                            }[];
+                            tavus: {
+                                key: string;
+                                type: string;
+                                label_key: string;
+                                hint_key?: string;
+                                required?: boolean;
+                                options?: string[];
+                                min?: number;
+                                max?: number;
+                                step?: number;
+                                catalogue_resource?: string;
+                                options_depend_on?: string;
+                                options_by_value?: {
+                                    [key: string]: string[];
+                                };
+                                superadmin_only?: boolean;
+                                superseded_by_key?: string;
+                                superseded_by_values?: string[];
+                            }[];
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "platformAvatarTemplate.index": {
