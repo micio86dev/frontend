@@ -227,3 +227,19 @@ describe('InterviewSession.vue — network guard', () => {
     expect(session.pause).not.toHaveBeenCalled()
   })
 })
+
+describe('InterviewSession.vue — the integrity Toaster', () => {
+  // IntegrityToast fires vue-sonner toasts from the live screen; without a
+  // mounted <Toaster> nobody ever sees them. Exactly one, whatever the state:
+  // a second one would render every toast twice.
+  it.each(['idle', 'device_check', 'live', 'paused', 'done'] as const)(
+    'mounts exactly one Toaster in the %s state',
+    async (state) => {
+      const session = makeSession(state, state === 'live')
+      const wrapper = await mountSession(session)
+
+      expect(wrapper.findAll('[data-testid="integrity-toaster"]')).toHaveLength(1)
+      expect(wrapper.findAll('section[aria-live="polite"][aria-label]')).toHaveLength(1)
+    }
+  )
+})
