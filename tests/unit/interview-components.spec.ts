@@ -5,13 +5,14 @@
  *   - InterviewTimer.vue: countdown, expired event, timer_label i18n key
  *   - InterviewCaption.vue: renders text, reactive update, empty text
  *   - ProgressBar.vue: aria-valuenow, visual progress
- *   - IntegrityToast.vue: shows toast on new event, no toast on empty
+ *   - IntegrityToast.vue: mounts with and without events (the toast copy and the
+ *     real Toaster are covered in integrity-toast.spec.ts)
  *
  * Spec: D11, "Flow screens — localized states"
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { nextTick, ref } from 'vue'
+import { nextTick } from 'vue'
 
 // ---- InterviewTimer.vue ----
 
@@ -245,28 +246,5 @@ describe('IntegrityToast.vue', () => {
       global: { mocks: { $t: (k: string) => k } },
     })
     expect(wrapper.exists()).toBe(true)
-  })
-
-  it('triggers toast when new event added to events prop', async () => {
-    const toastWarningFn = vi.fn()
-    vi.mock('vue-sonner', () => ({
-      toast: { warning: vi.fn(), error: vi.fn(), success: vi.fn() },
-    }))
-
-    const { default: IntegrityToast } = await import('../../app/components/IntegrityToast.vue')
-
-    const events = ref<Array<{ type: 'tab_hidden'; ts: string; meta: null }>>([])
-    const wrapper = mount(IntegrityToast, {
-      props: { events: events.value },
-    })
-
-    // Add an event by updating props
-    const newEvents = [{ type: 'tab_hidden' as const, ts: new Date().toISOString(), meta: null }]
-    await wrapper.setProps({ events: newEvents })
-    await nextTick()
-
-    // Component should still exist and no exception thrown
-    expect(wrapper.exists()).toBe(true)
-    void toastWarningFn // reference to suppress unused warning
   })
 })

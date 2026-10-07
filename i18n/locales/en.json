@@ -191,6 +191,66 @@
     },
     "progress": {
       "label": "Interview progress"
+    },
+    "integrity_toast": {
+      "region_label": "Interview notices",
+      "close": "Dismiss notice",
+      "generic": {
+        "title": "Stay focused on the interview",
+        "description": "Keep your face in the frame and your eyes on the screen."
+      },
+      "tab_hidden": {
+        "title": "Stay on this tab",
+        "description": "Keep the interview tab open until you finish."
+      },
+      "focus_lost": {
+        "title": "Stay in this window",
+        "description": "Keep this window in front while you answer."
+      },
+      "second_monitor": {
+        "title": "Use one screen",
+        "description": "If you can, disconnect any extra screen and use only this one."
+      },
+      "face_absent": {
+        "title": "Stay in the frame",
+        "description": "Keep your face visible to the camera."
+      },
+      "looking_away": {
+        "title": "Look at the screen",
+        "description": "Keep your eyes on the screen while you answer."
+      },
+      "looking_down": {
+        "title": "Look up at the screen",
+        "description": "Keep your head up and your eyes on the screen."
+      },
+      "too_far": {
+        "title": "Move a little closer",
+        "description": "Sit closer so the camera can see your face clearly."
+      },
+      "multiple_faces": {
+        "title": "Only you in the frame",
+        "description": "Make sure the camera sees only your face."
+      },
+      "fullscreen_exit": {
+        "title": "Back to full screen",
+        "description": "If you can, return to full screen for the rest of the interview."
+      },
+      "clipboard_copy": {
+        "title": "Answer in your own words",
+        "description": "There is no need to copy text during the interview."
+      },
+      "clipboard_paste": {
+        "title": "Answer in your own words",
+        "description": "Speak your answer aloud; there is no need to paste text."
+      },
+      "second_voice": {
+        "title": "Keep the room quiet",
+        "description": "Make sure only your voice can be heard while you answer."
+      },
+      "phone_detected": {
+        "title": "Put your phone away",
+        "description": "Keep your phone out of reach until the interview ends."
+      }
     }
   },
   "analytics_consent": {
