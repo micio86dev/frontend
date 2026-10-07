@@ -3,7 +3,11 @@
     "close": "Close"
   },
   "shell": {
-    "tagline": "Soft-skill assessment through a structured interview."
+    "tagline": "Soft-skill assessment through a structured interview.",
+    "loading": {
+      "title": "Opening your interview",
+      "body": "This takes a moment. Please keep this page open."
+    }
   },
   "welcome": "Welcome",
   "root": {
@@ -49,7 +53,8 @@
       "voice_visualizer_label": "Interviewer voice",
       "avatar_label": "Interviewer",
       "region_label": "Live interview",
-      "question_label": "Q{n}"
+      "question_label": "Q{n}",
+      "listen_hint": "Listen to the question, then answer out loud. Take your time."
     },
     "end_of_question": {
       "title": "Question Completed",
@@ -176,6 +181,16 @@
       "title": "One moment",
       "body": "Preparing the next question.",
       "progressLabel": "Progress"
+    },
+    "steps": {
+      "label": "Interview steps",
+      "consent": "Consent",
+      "device_check": "Devices",
+      "interview": "Interview",
+      "done": "completed"
+    },
+    "progress": {
+      "label": "Interview progress"
     }
   },
   "analytics_consent": {

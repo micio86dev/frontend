@@ -21,6 +21,7 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { deriveOnPrimaryTokens } from '../../app/composables/useBrandTheme'
 
 const CSS_PATH = resolve(__dirname, '../../app/assets/css/main.css')
 
@@ -90,6 +91,14 @@ describe('main.css — brand token reconciliation (D9)', () => {
 
   it('--color-lavender is #8373D2 (supporting secondary)', () => {
     expectToken(cssSource, '--color-lavender', '#8373[Dd]2')
+  })
+
+  it('on-primary tokens default to exactly what applyBrandColor derives for #771aaf', () => {
+    // One derivation, two consumers: the stylesheet defaults and the runtime
+    // writer cannot drift, because the defaults are asserted against the writer.
+    for (const [token, value] of Object.entries(deriveOnPrimaryTokens('#771aaf'))) {
+      expectToken(cssSource, token, value)
+    }
   })
 
   it('--color-bg-gradient contains linear-gradient(135deg', () => {

@@ -88,7 +88,7 @@ describe('terminal page — link_invalid copy', () => {
         const wrapper = await mountTerminal(locale, QUERY)
 
         expect(wrapper.get('h1').text()).toBe(EXPECTED[locale].title)
-        expect(wrapper.get('section p').text()).toBe(EXPECTED[locale].body)
+        expect(wrapper.get('main p').text()).toBe(EXPECTED[locale].body)
       })
 
       it('never claims the link expired', async () => {
@@ -97,11 +97,11 @@ describe('terminal page — link_invalid copy', () => {
         expect(wrapper.text()).not.toMatch(EXPIRY_CLAIM[locale])
       })
 
-      it('is an accessible region: the section is labelled by the page heading', async () => {
+      it('is an accessible region: the landmark is labelled by the page heading', async () => {
         const wrapper = await mountTerminal(locale, QUERY)
 
         expect(wrapper.get('h1').attributes('id')).toBe('terminal-page-heading')
-        expect(wrapper.get('section').attributes('aria-labelledby')).toBe('terminal-page-heading')
+        expect(wrapper.get('main').attributes('aria-labelledby')).toBe('terminal-page-heading')
         expect(wrapper.find('a').exists()).toBe(false)
       })
     })
@@ -134,7 +134,7 @@ describe('terminal page: link_reopen copy', () => {
         const wrapper = await mountTerminal(locale, query)
 
         expect(wrapper.get('h1').text()).toBe(REOPEN[locale].title)
-        expect(wrapper.get('section p').text()).toBe(REOPEN[locale].body)
+        expect(wrapper.get('main p').text()).toBe(REOPEN[locale].body)
       })
 
       it('is not the link_invalid state, whose copy would be untrue here', async () => {
@@ -157,7 +157,7 @@ describe('terminal page: link_reopen copy', () => {
         const wrapper = await mountTerminal(locale, query)
 
         expect(wrapper.get('h1').attributes('id')).toBe('terminal-page-heading')
-        expect(wrapper.get('section').attributes('aria-labelledby')).toBe('terminal-page-heading')
+        expect(wrapper.get('main').attributes('aria-labelledby')).toBe('terminal-page-heading')
       })
 
       it('sets a localized document title (WCAG 2.4.2) that matches the heading', async () => {
@@ -181,5 +181,28 @@ describe('terminal page: link_reopen copy', () => {
 
     expect(wrapper.text()).not.toContain(REOPEN.en.title)
     expect(wrapper.get('h1').text()).toBe('Session Not Authorized')
+  })
+})
+
+/**
+ * The one terminal that offers a way out: `absent_phrase` (service
+ * unavailable) links to support. It sits on the white canvas surface, where
+ * `text-primary` would be the raw client colour (yellow on white is 1.07:1),
+ * so the link uses the brand ink, held at 4.5:1 on white (DESIGN.md §3.1).
+ */
+describe('terminal page: on the brand canvas', () => {
+  it('renders on the canvas, not on a white page of its own', async () => {
+    const wrapper = await mountTerminal('en', { reason: 'link_invalid' })
+
+    expect(wrapper.find('[data-slot="brand-canvas-surface"] h1').exists()).toBe(true)
+    expect(wrapper.get('main').attributes('data-testid')).toBe('terminal-page')
+  })
+
+  it('draws the support link in the brand ink, never in the canvas colour', async () => {
+    const wrapper = await mountTerminal('en', { reason: 'absent_phrase' })
+    const link = wrapper.get('[data-testid="terminal-contact"]')
+
+    expect(link.classes()).toContain('text-primary-ink')
+    expect(link.classes()).not.toContain('text-primary')
   })
 })

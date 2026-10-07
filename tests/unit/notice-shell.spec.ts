@@ -57,16 +57,26 @@ describe('NoticeShell', () => {
     expect(mountShell().findAll('button')).toHaveLength(0)
   })
 
+  it('holds no empty action row when the slot renders nothing', () => {
+    // A route that passes a slot whose only child is `v-if`-ed away (the
+    // terminal's support link) must not leave a blank band in the surface.
+    const wrapper = mountShell({}, { default: '<a v-if="false" href="#">x</a>' })
+
+    expect(wrapper.find('[data-slot="notice-actions"]').exists()).toBe(false)
+  })
+
   it('renders slotted actions', () => {
     const wrapper = mountShell({}, { default: '<button data-testid="go">Go</button>' })
 
-    expect(wrapper.find('[data-testid="go"]').exists()).toBe(true)
+    expect(wrapper.find('[data-slot="notice-actions"] [data-testid="go"]').exists()).toBe(true)
   })
 
   // The chip is the ONLY thing `tone` may change. If a tone ever starts
   // altering copy or structure, the four pages stop being one system.
   it.each([
-    ['info', 'text-primary'],
+    // A solid brand fill with the derived on-primary glyph: `bg-primary/10
+    // text-primary` was invisible for a light client colour (DESIGN.md §3.1).
+    ['info', 'text-on-primary'],
     ['success', 'text-success-dark'],
     ['warning', 'text-warning-dark'],
     ['danger', 'text-destructive'],
@@ -88,6 +98,31 @@ describe('NoticeShell', () => {
   })
 })
 
+describe('NoticeShell — on the brand canvas', () => {
+  it('renders its content on the canvas surface, never on the bare canvas', () => {
+    const wrapper = mountShell()
+    const surface = wrapper.get('[data-slot="brand-canvas-surface"]')
+
+    expect(wrapper.classes()).toContain('bg-primary')
+    expect(surface.find('h1').exists()).toBe(true)
+    expect(surface.text()).toContain('A message')
+  })
+
+  it('never paints the info chip with the canvas colour on a tint of itself', () => {
+    expect(mountShell({ tone: 'info' }).html()).not.toMatch(
+      /bg-primary\/10|(^|\s)text-primary(\s|")/
+    )
+  })
+
+  it('edges the info chip in primary-ink, so a light client colour still reads as a chip', () => {
+    // #ffd400 on the white surface is 1.07:1: the glyph read, the chip did not.
+    const chip = mountShell({ tone: 'info' }).get('span[aria-hidden="true"]')
+
+    expect(chip.classes()).toContain('border')
+    expect(chip.classes()).toContain('border-primary-ink')
+  })
+})
+
 describe("NoticeShell — the organization's mark, or ours, but never nothing", () => {
   beforeEach(async () => {
     const { useCandidateBranding } = await import('../../app/composables/useCandidateBranding')
@@ -102,7 +137,7 @@ describe("NoticeShell — the organization's mark, or ours, but never nothing", 
     const wrapper = mountShell()
     await flushPromises()
 
-    expect(wrapper.find('[data-testid="notice-shell-logo"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="brand-canvas-logo"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('BEAI')
   })
 
@@ -117,14 +152,13 @@ describe("NoticeShell — the organization's mark, or ours, but never nothing", 
     const wrapper = mountShell()
     await flushPromises()
 
-    const logo = wrapper.get('[data-testid="notice-shell-logo"]')
+    const logo = wrapper.get('[data-testid="brand-canvas-logo"]')
 
     expect(logo.attributes('src')).toBe('https://cdn.test/acme.png')
     // Decoration beside the tagline that follows: announcing an
     // organization's name to a candidate who already knows whose assessment
     // they are taking adds noise, not meaning.
     expect(logo.attributes('alt')).toBe('')
-    expect(logo.attributes('aria-hidden')).toBe('true')
     expect(wrapper.text()).not.toContain('BEAI')
   })
 })
@@ -158,7 +192,7 @@ describe('NoticeShell — the organization is named, not just drawn', () => {
     const wrapper = mountShell()
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="notice-shell-org"]').text()).toBe('Acme Selezione')
+    expect(wrapper.get('[data-testid="brand-canvas-org"]').text()).toBe('Acme Selezione')
     // The product wordmark stays. Both, never one instead of the other.
     expect(wrapper.text()).toContain('BEAI')
   })
@@ -177,14 +211,14 @@ describe('NoticeShell — the organization is named, not just drawn', () => {
     const wrapper = mountShell()
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="notice-shell-org"]').text()).toBe('Acme Selezione')
+    expect(wrapper.get('[data-testid="brand-canvas-org"]').text()).toBe('Acme Selezione')
   })
 
   it('renders NOTHING rather than an empty line when there is no name', async () => {
     const wrapper = mountShell()
     await flushPromises()
 
-    expect(wrapper.find('[data-testid="notice-shell-org"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="brand-canvas-org"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('BEAI')
   })
 })

@@ -1,15 +1,5 @@
 <template>
-  <main
-    v-if="exchangeState === 'exchanging'"
-    class="flex min-h-screen flex-col items-center justify-center bg-background p-4"
-    aria-live="polite"
-    aria-busy="true"
-  >
-    <div class="flex flex-col items-center gap-4">
-      <Skeleton class="h-48 w-full max-w-2xl rounded-lg" />
-      <Skeleton class="h-4 w-48 rounded" />
-    </div>
-  </main>
+  <CanvasLoading v-if="exchangeState === 'exchanging'" test-id="embed-loading" />
 
   <!--
     Exchange failed — rendered INLINE on this SAME `/embed/{token}` route
@@ -21,23 +11,14 @@
     (`nuxt.config.ts`), which would make the candidate's error screen refuse
     to render inside the host's iframe at all.
   -->
-  <main
+  <NoticeShell
     v-else-if="exchangeState === 'error'"
-    class="flex min-h-screen flex-col items-center justify-center bg-background p-4"
-  >
-    <section
-      class="flex max-w-lg flex-col gap-6 rounded-xl border border-border bg-card p-8 shadow-md"
-      aria-labelledby="embed-error-heading"
-      data-testid="embed-error-screen"
-    >
-      <h1 id="embed-error-heading" class="text-2xl font-semibold text-foreground">
-        {{ $t(`interview.terminal.${exchangeErrorReason}.title`) }}
-      </h1>
-      <p class="text-sm text-muted-foreground">
-        {{ $t(`interview.terminal.${exchangeErrorReason}.body`) }}
-      </p>
-    </section>
-  </main>
+    tone="warning"
+    test-id="embed-error-screen"
+    heading-id="embed-error-heading"
+    :title="$t(`interview.terminal.${exchangeErrorReason}.title`)"
+    :message="$t(`interview.terminal.${exchangeErrorReason}.body`)"
+  />
 
   <InterviewSession v-else ref="interviewRef" />
 </template>
@@ -81,7 +62,8 @@
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { effectiveViewportWidth, isSupportedBrowser } from '~/app/utils/browser-gate'
 import { $fetch } from 'ofetch'
-import { Skeleton } from '~/components/ui/skeleton'
+import CanvasLoading from '~/components/molecules/CanvasLoading.vue'
+import NoticeShell from '~/components/molecules/NoticeShell.vue'
 import InterviewSession from '~/components/InterviewSession.vue'
 import { apiUrl } from '~/app/utils/api-url'
 import { decodeJwtPayload } from '~/app/utils/jwt-decode'
@@ -96,7 +78,11 @@ type FramePolicyResponse =
   operations['exchange.framePolicy']['responses'][200]['content']['application/json']
 
 definePageMeta({ ssr: false })
+const { t: tTitle } = useI18n()
 useHead({
+  // WCAG 2.4.2 (Page Titled): this route is loaded directly from an email or a
+  // link, so the loading state has no titled page behind it.
+  title: tTitle('interview.document_title'),
   meta: [
     { name: 'robots', content: 'noindex, nofollow' },
     { name: 'referrer', content: 'no-referrer' },

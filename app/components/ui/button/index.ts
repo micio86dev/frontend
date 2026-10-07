@@ -8,7 +8,10 @@ export const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground [a]:hover:bg-primary/80',
+        // `border-primary-ink`: the client-colour fill can be 1.07:1 on the white
+        // surface (#ffd400); the ink edge (>= 4.5:1 on white) keeps the button's
+        // shape on any brand (DESIGN.md §7.0.1). Invisible when ink == primary.
+        default: 'bg-primary text-primary-foreground border-primary-ink [a]:hover:bg-primary/80',
         outline:
           'border-border bg-background hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 aria-expanded:bg-muted aria-expanded:text-foreground',
         secondary:
@@ -17,7 +20,7 @@ export const buttonVariants = cva(
           'hover:bg-muted hover:text-foreground dark:hover:bg-muted/50 aria-expanded:bg-muted aria-expanded:text-foreground',
         destructive:
           'bg-destructive/10 hover:bg-destructive/20 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/20 text-destructive focus-visible:border-destructive/40 dark:hover:bg-destructive/30',
-        link: 'text-primary underline-offset-4 hover:underline',
+        link: 'text-primary-ink underline-offset-4 hover:underline',
       },
       size: {
         default:

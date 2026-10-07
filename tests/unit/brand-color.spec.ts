@@ -7,7 +7,7 @@
  * colour that exposes it.
  */
 import { describe, it, expect } from 'vitest'
-import { mix, contrastRatio, ensureContrast } from '../../app/utils/brand-color'
+import { mix, contrastRatio, ensureContrast, readableForeground } from '../../app/utils/brand-color'
 
 const PANEL = '#0f172a'
 
@@ -78,5 +78,26 @@ describe('ensureContrast', () => {
     // out of a malformed string yields NaN channels and a colour nobody chose,
     // silently. Returning the input unchanged keeps the failure visible.
     expect(ensureContrast('not-a-colour', PANEL, 3)).toBe('not-a-colour')
+  })
+})
+
+describe('readableForeground', () => {
+  it('picks white for a dark colour — the product default #771aaf', () => {
+    expect(readableForeground('#771aaf')).toBe('#ffffff')
+    expect(contrastRatio('#771aaf', readableForeground('#771aaf'))).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('picks black for a light colour — white on saturated yellow is unreadable', () => {
+    expect(readableForeground('#ffd400')).toBe('#000000')
+    expect(contrastRatio('#ffd400', readableForeground('#ffd400'))).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('picks black for pure white and white for pure black', () => {
+    expect(readableForeground('#ffffff')).toBe('#000000')
+    expect(readableForeground('#000000')).toBe('#ffffff')
+  })
+
+  it('falls back to white for a value it cannot parse', () => {
+    expect(readableForeground('not-a-color')).toBe('#ffffff')
   })
 })

@@ -25,16 +25,22 @@ import {
   applyBrandColor,
   BRAND_COLOR_TOKENS,
   BRAND_DERIVED_TOKENS,
+  BRAND_ON_PRIMARY_TOKENS,
   brandColorRevision,
+  deriveOnPrimaryTokens,
 } from '../../app/composables/useBrandTheme'
-import { contrastRatio } from '../../app/utils/brand-color'
+import { contrastRatio, readableForeground } from '../../app/utils/brand-color'
 
 function read(token: string): string {
   return document.documentElement.style.getPropertyValue(token)
 }
 
 afterEach(() => {
-  for (const token of [...BRAND_COLOR_TOKENS, ...BRAND_DERIVED_TOKENS]) {
+  for (const token of [
+    ...BRAND_COLOR_TOKENS,
+    ...BRAND_DERIVED_TOKENS,
+    ...BRAND_ON_PRIMARY_TOKENS,
+  ]) {
     document.documentElement.style.removeProperty(token)
   }
 })
@@ -222,5 +228,139 @@ describe('the canvas contrast guarantee (DESIGN.md §7.3.2 rule 2)', () => {
     applyBrandColor('#e45526')
 
     expect(contrastRatio('#ffffff', read('--color-primary-dark'))).toBeGreaterThanOrEqual(4.5)
+  })
+})
+
+describe('on-primary tokens (the text colour for anything drawn on the tenant canvas)', () => {
+  it('lists exactly the six on-primary tokens', () => {
+    expect([...BRAND_ON_PRIMARY_TOKENS].sort()).toEqual([
+      '--color-canvas-tone',
+      '--color-on-primary',
+      '--color-on-primary-muted',
+      '--color-on-primary-surface',
+      '--color-primary-ink',
+      '--color-primary-surface',
+    ])
+  })
+
+  it('picks black on a saturated yellow and white on the Quint purple', () => {
+    applyBrandColor('#ffd400')
+    expect(read('--color-on-primary')).toBe('#000000')
+
+    applyBrandColor('#771aaf')
+    expect(read('--color-on-primary')).toBe('#ffffff')
+  })
+
+  it('writes concrete hex for every on-primary token, never color-mix()', () => {
+    applyBrandColor('#e45526')
+
+    for (const token of BRAND_ON_PRIMARY_TOKENS) {
+      expect(read(token), token).toMatch(/^#[0-9a-f]{6}$/i)
+    }
+  })
+
+  it('tints the surface very light and keeps the muted text off pure on-primary when it can', () => {
+    applyBrandColor('#771aaf')
+
+    expect(read('--color-primary-surface')).toBe('#f4edf9')
+    expect(read('--color-on-primary-muted')).not.toBe('#ffffff')
+  })
+
+  const SAMPLES = [
+    '#ffffff',
+    '#000000',
+    '#ffd400',
+    '#fff8e1',
+    '#12203a',
+    '#771aaf',
+    '#e45526',
+    '#2563eb',
+    '#808080',
+    '#00b894',
+    '#7f7f00',
+    '#d81b60',
+  ]
+
+  it.each(SAMPLES)('every on-primary pair meets 4.5:1 for %s', (color) => {
+    applyBrandColor(color)
+
+    const primary = read('--color-primary')
+    const surface = read('--color-primary-surface')
+
+    expect(contrastRatio(primary, read('--color-on-primary'))).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(primary, read('--color-on-primary-muted'))).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(surface, read('--color-on-primary-surface'))).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('keeps the pressed shade readable for a light colour via readableForeground, not a constant white', () => {
+    // A 15% darkening of yellow is still light: white text on it fails AA.
+    applyBrandColor('#ffff00')
+
+    const dark = read('--color-primary-dark')
+
+    expect(contrastRatio(dark, '#ffffff')).toBeLessThan(4.5)
+    expect(contrastRatio(dark, readableForeground(dark))).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('removes every on-primary token on the no-colour path', () => {
+    applyBrandColor('#e45526')
+    applyBrandColor(null)
+
+    for (const token of BRAND_ON_PRIMARY_TOKENS) {
+      expect(read(token), token).toBe('')
+    }
+  })
+
+  it('removes them on a refused value as well', () => {
+    applyBrandColor('#e45526')
+    applyBrandColor('not-a-hex')
+
+    for (const token of BRAND_ON_PRIMARY_TOKENS) {
+      expect(read(token), token).toBe('')
+    }
+  })
+})
+
+describe('on-primary margin at the worst-case tenant colour', () => {
+  const FLOOR = 4.5
+  const hex = (n: number): string => n.toString(16).padStart(2, '0')
+  const onPrimaryRatio = (color: string): number =>
+    contrastRatio(deriveOnPrimaryTokens(color)['--color-on-primary'], color)
+
+  it('keeps >= 4.5:1 on every one of the 256 grey levels', () => {
+    // max(contrast vs white, contrast vs black) is smallest for mid greys
+    // (relative luminance ~0.18), and that is the one place the guarantee has
+    // almost no slack: it is exactly what a sweep, not a few picked colours, covers.
+    for (let level = 0; level <= 255; level++) {
+      const grey = `#${hex(level)}${hex(level)}${hex(level)}`
+
+      expect(onPrimaryRatio(grey), grey).toBeGreaterThanOrEqual(FLOOR)
+    }
+  })
+
+  it('keeps >= 4.5:1 across a coarse RGB cube (17 steps per channel)', () => {
+    for (let r = 0; r <= 255; r += 17) {
+      for (let g = 0; g <= 255; g += 17) {
+        for (let b = 0; b <= 255; b += 17) {
+          const color = `#${hex(r)}${hex(g)}${hex(b)}`
+
+          expect(onPrimaryRatio(color), color).toBeGreaterThanOrEqual(FLOOR)
+        }
+      }
+    }
+  })
+
+  it('names the worst case: the grey #757575 has the least headroom, just over the floor', () => {
+    // The sweep finds the grey with the least headroom; pinning it by name makes
+    // a regression in the margin a one-line, readable failure.
+    const worst = Array.from({ length: 256 }, (_, level) => {
+      const grey = `#${hex(level)}${hex(level)}${hex(level)}`
+
+      return { grey, ratio: onPrimaryRatio(grey) }
+    }).reduce((least, next) => (next.ratio < least.ratio ? next : least))
+
+    expect(worst.grey).toBe('#757575')
+    expect(worst.ratio).toBeGreaterThanOrEqual(FLOOR)
+    expect(worst.ratio).toBeLessThan(4.7)
   })
 })

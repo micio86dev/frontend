@@ -237,6 +237,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/avatar-templates/catalogue-sample": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/avatar-templates/catalogue-sample
+         * @description Returns the RAW AUDIO bytes (`audio/wav`, `audio/ogg` or `audio/mpeg`), not JSON. Failures are
+         *     `{message: <code>}` with one of `voice_preview_unavailable` (422, the voice has no catalogue
+         *     clip), `voice_preview_provider_not_configured` (503), `voice_preview_voice_not_found` (404)
+         *     and `voice_preview_provider_error` (502).
+         */
+        get: operations["avatarCatalogueSample"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/avatar-templates/options": {
         parameters: {
             query?: never;
@@ -289,7 +312,8 @@ export interface paths {
          *     validation and the provider payload cannot disagree — which is the whole
          *     reason the spec is declarative. Machine-facing and NOT localized: it
          *     carries label keys, and translation happens where the operator's locale
-         *     lives.
+         *     lives. The superadmin-only fields (the external HeyGen voice) are listed
+         *     for a superadmin and for nobody else.
          */
         get: operations["avatarTemplate.fieldSpecs"];
         put?: never;
@@ -726,6 +750,48 @@ export interface paths {
         get: operations["evaluationIndex.index"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/participants/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Authorize the single re-interview of a pending evaluation
+         * @description Re-opens the participant for the competencies whose result is invalid and returns
+         *     a single-use link. Allowed once per participant, for a completed interview whose
+         *     evaluation is still pending.
+         */
+        post: operations["evaluationRetry.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/m2m/participants/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Authorize the single re-interview of a pending evaluation
+         * @description Requires the `participants:retry` ability.
+         */
+        post: operations["m2m.evaluationRetry.store"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1622,6 +1688,28 @@ export interface paths {
         head?: never;
         /** PATCH /api/participants/{id}/schedule */
         patch: operations["participantSchedule.update"];
+        trace?: never;
+    };
+    "/admin/avatar-templates/field-specs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The field specs a platform template accepts, including the superadmin-only
+         *     ones (the external HeyGen voice). The organization route lists those for a
+         *     superadmin too and for nobody else
+         * @description Machine-facing and NOT localized, like the organization route's.
+         */
+        get: operations["platformAvatarTemplate.fieldSpecs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/admin/avatar-templates": {
@@ -3268,6 +3356,9 @@ export interface components {
                 };
             };
             created_at: string | null;
+            retry_attempt: boolean;
+            retry_authorized_at: string | null;
+            retry_available: boolean;
         };
         /** ParticipantEnrolmentResource */
         ParticipantEnrolmentResource: {
@@ -4594,6 +4685,7 @@ export interface operations {
                                 viewAny: boolean;
                                 create: boolean;
                                 recover: boolean;
+                                retry: boolean;
                             };
                             clients: {
                                 viewAny: boolean;
@@ -4609,6 +4701,101 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+        };
+    };
+    avatarCatalogueSample: {
+        parameters: {
+            query: {
+                provider: "cartesia";
+                voice_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The audio clip. */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    "X-Content-Type-Options"?: "nosniff";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "audio/wav": string;
+                    "audio/ogg": string;
+                    "audio/mpeg": string;
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            /** @description The provider does not know this voice. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "voice_preview_voice_not_found";
+                    };
+                };
+            };
+            /** @description Either the request failed validation (the standard validation body) or the voice has no catalogue clip (`voice_preview_unavailable`). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "voice_preview_unavailable";
+                    } | {
+                        message: string;
+                        errors: {
+                            [key: string]: string[];
+                        };
+                    };
+                };
+            };
+            /** @description Throttled. Retry after the number of seconds in the `Retry-After` header. */
+            429: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            /** @description The provider failed or was unreachable. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "voice_preview_provider_error";
+                    };
+                };
+            };
+            /** @description The provider is not configured on the platform. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "voice_preview_provider_not_configured";
+                    };
+                };
+            };
         };
     };
     "avatarTemplate.options": {
@@ -4655,7 +4842,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: string;
+                        data: {
+                            heygen: {
+                                key: string;
+                                type: string;
+                                label_key: string;
+                                hint_key?: string;
+                                required?: boolean;
+                                options?: string[];
+                                min?: number;
+                                max?: number;
+                                step?: number;
+                                catalogue_resource?: string;
+                                options_depend_on?: string;
+                                options_by_value?: {
+                                    [key: string]: string[];
+                                };
+                                superadmin_only?: boolean;
+                                superseded_by_key?: string;
+                                superseded_by_values?: string[];
+                            }[];
+                            tavus: {
+                                key: string;
+                                type: string;
+                                label_key: string;
+                                hint_key?: string;
+                                required?: boolean;
+                                options?: string[];
+                                min?: number;
+                                max?: number;
+                                step?: number;
+                                catalogue_resource?: string;
+                                options_depend_on?: string;
+                                options_by_value?: {
+                                    [key: string]: string[];
+                                };
+                                superadmin_only?: boolean;
+                                superseded_by_key?: string;
+                                superseded_by_values?: string[];
+                            }[];
+                        };
                     };
                 };
             };
@@ -5046,17 +5272,89 @@ export interface operations {
             };
         };
         responses: {
+            /** @description The audio clip. */
             200: {
                 headers: {
+                    "Cache-Control"?: string;
+                    "X-Content-Type-Options"?: "nosniff";
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": string;
+                    "audio/wav": string;
+                    "audio/ogg": string;
+                    "audio/mpeg": string;
                 };
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
-            422: components["responses"]["ValidationException"];
+            /** @description The provider does not know this voice. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "voice_preview_voice_not_found";
+                    };
+                };
+            };
+            /** @description Either the request failed validation (the standard validation body) or no voice can be previewed (`voice_preview_unavailable`, with a `reason`: `tavus_stock_voice`, `pal_uses_tavus_voice`, `pal_azure_engine` or `pal_no_voice_configured`). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "voice_preview_unavailable";
+                        /** @enum {string} */
+                        reason?: "tavus_stock_voice" | "pal_uses_tavus_voice" | "pal_azure_engine" | "pal_no_voice_configured";
+                    } | {
+                        message: string;
+                        errors: {
+                            [key: string]: string[];
+                        };
+                    };
+                };
+            };
+            /** @description Throttled. Retry after the number of seconds in the `Retry-After` header. */
+            429: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            /** @description The provider failed or was unreachable. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "voice_preview_provider_error";
+                    };
+                };
+            };
+            /** @description The provider is not configured on the platform. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "voice_preview_provider_not_configured";
+                    };
+                };
+            };
         };
     };
     "barsIndicator.index": {
@@ -5923,6 +6221,114 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "evaluationRetry.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    reason?: string | null;
+                };
+            };
+        };
+        responses: {
+            /**
+             * @description Scramble derives the response schema from this literal and cannot read a
+             *     property's type through the DTO, hence the key-level annotations.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description The participant's new lifecycle status. */
+                        status: string;
+                        entry_url: string;
+                        expires_at: string;
+                        /** @description Whether BEAI queued the link by email to the candidate. */
+                        email_sent: boolean;
+                        /** @description Codes of the competencies that will be asked again. */
+                        competencies_reset: string[];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        reason: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "m2m.evaluationRetry.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    reason?: string | null;
+                };
+            };
+        };
+        responses: {
+            /**
+             * @description Scramble derives the response schema from this literal and cannot read a
+             *     property's type through the DTO, hence the key-level annotations.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description The participant's new lifecycle status. */
+                        status: string;
+                        entry_url: string;
+                        expires_at: string;
+                        /** @description Whether BEAI queued the link by email to the candidate. */
+                        email_sent: boolean;
+                        /** @description Codes of the competencies that will be asked again. */
+                        competencies_reset: string[];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            404: components["responses"]["ModelNotFoundException"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        reason: string;
+                    };
+                };
+            };
             422: components["responses"]["ValidationException"];
         };
     };
@@ -7765,6 +8171,68 @@ export interface operations {
             403: components["responses"]["AuthorizationException"];
             404: components["responses"]["ModelNotFoundException"];
             422: components["responses"]["ValidationException"];
+        };
+    };
+    "platformAvatarTemplate.fieldSpecs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            heygen: {
+                                key: string;
+                                type: string;
+                                label_key: string;
+                                hint_key?: string;
+                                required?: boolean;
+                                options?: string[];
+                                min?: number;
+                                max?: number;
+                                step?: number;
+                                catalogue_resource?: string;
+                                options_depend_on?: string;
+                                options_by_value?: {
+                                    [key: string]: string[];
+                                };
+                                superadmin_only?: boolean;
+                                superseded_by_key?: string;
+                                superseded_by_values?: string[];
+                            }[];
+                            tavus: {
+                                key: string;
+                                type: string;
+                                label_key: string;
+                                hint_key?: string;
+                                required?: boolean;
+                                options?: string[];
+                                min?: number;
+                                max?: number;
+                                step?: number;
+                                catalogue_resource?: string;
+                                options_depend_on?: string;
+                                options_by_value?: {
+                                    [key: string]: string[];
+                                };
+                                superadmin_only?: boolean;
+                                superseded_by_key?: string;
+                                superseded_by_values?: string[];
+                            }[];
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
         };
     };
     "platformAvatarTemplate.index": {
