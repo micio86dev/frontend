@@ -16,8 +16,10 @@ import type { Page } from '@playwright/test'
 
 const consentScreen = (page: Page) =>
   page.getByRole('region', { name: /privacy notice and consent/i })
+// The terminal ROUTE renders on the brand canvas, whose landmark is the page's
+// <main> labelled by its heading (DESIGN.md §7.0.1), not a labelled <section>.
 const terminalScreen = (page: Page) =>
-  page.getByRole('region', { name: /service temporarily unavailable|session|link/i })
+  page.getByRole('main', { name: /service temporarily unavailable|session|link/i })
 
 function base64url(input: string): string {
   return Buffer.from(input, 'utf-8')
@@ -113,7 +115,9 @@ test.describe('hosted entry route — /i/{token} (public-api step 5)', () => {
 
     await expect(terminalScreen(page)).toBeVisible()
     await expect(page).toHaveURL(/\/interview\/terminal\?reason=link_used/)
-    await expect(page.getByText('This Link Has Already Been Used')).toBeVisible()
+    await expect(
+      page.getByRole('heading', { name: 'This Link Has Already Been Used' })
+    ).toBeVisible()
   })
 
   test('a 401 token_invalid exchange lands on the terminal page with the link_invalid copy', async ({
@@ -137,7 +141,7 @@ test.describe('hosted entry route — /i/{token} (public-api step 5)', () => {
 
     await expect(terminalScreen(page)).toBeVisible()
     await expect(page).toHaveURL(/\/interview\/terminal\?reason=link_invalid/)
-    await expect(page.getByText('This Link Is No Longer Valid')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'This Link Is No Longer Valid' })).toBeVisible()
   })
 
   test('a revisit with a matching stored session skips the exchange entirely', async ({ page }) => {

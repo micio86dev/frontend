@@ -15,6 +15,17 @@ const { mockFetch, mockPost, holder } = vi.hoisted(() => ({
 
 vi.mock('ofetch', () => ({ $fetch: mockFetch }))
 
+// The brand canvas reads the organization's branding through its own module;
+// that is a separate authenticated request this route has nothing to do with,
+// and the module's `ofetch.create` is not part of the `$fetch` mock above.
+vi.mock('~/app/composables/useCandidateBranding', () => ({
+  useCandidateBranding: () => ({
+    logoUrl: { value: null },
+    organizationName: { value: null },
+    ensureLoaded: vi.fn(),
+  }),
+}))
+
 vi.mock('~/app/composables/useEmbedBridge', () => ({
   useEmbedBridge: () => ({ attach: vi.fn(), detach: vi.fn(), post: mockPost }),
 }))
@@ -94,6 +105,7 @@ beforeEach(() => {
   holder.session = makeSession()
   vi.stubGlobal('definePageMeta', vi.fn())
   vi.stubGlobal('useHead', vi.fn())
+  vi.stubGlobal('useI18n', () => ({ t: (key: string) => key }))
   vi.stubGlobal(
     'useRuntimeConfig',
     vi.fn(() => ({ public: { apiBase: 'https://api.test/api' } }))

@@ -38,6 +38,8 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
+import en from '../../i18n/locales/en.json'
+import itMessages from '../../i18n/locales/it.json'
 
 const { mockFetchImpl } = vi.hoisted(() => ({ mockFetchImpl: vi.fn() }))
 
@@ -230,11 +232,11 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function mountPage(): Promise<VueWrapper> {
+async function mountPage(t: (key: string) => string = (key) => key): Promise<VueWrapper> {
   const { default: Page } = await import('~/app/pages/interview/reusable.vue')
   const wrapper = mount(Page, {
     attachTo: document.body,
-    global: { mocks: { $t: (key: string) => key } },
+    global: { mocks: { $t: t } },
   })
   mounted.push(wrapper)
 
@@ -244,10 +246,27 @@ async function mountPage(): Promise<VueWrapper> {
 }
 
 /** Opens the link the way a visitor does: the fragment is on the URL when the page mounts. */
-async function openLink(token: string = REUSABLE_LINK_TOKEN): Promise<VueWrapper> {
+async function openLink(
+  token: string = REUSABLE_LINK_TOKEN,
+  t?: (key: string) => string
+): Promise<VueWrapper> {
   visit(`${REUSABLE_PATH}#${token}`)
 
-  return mountPage()
+  return mountPage(t)
+}
+
+/** A `$t` over a real locale file, so a test can see the words a visitor would read. */
+function translator(messages: Record<string, unknown>): (key: string) => string {
+  return (key) => {
+    const found = key
+      .split('.')
+      .reduce<unknown>(
+        (node, part) => (node as Record<string, unknown> | undefined)?.[part],
+        messages
+      )
+
+    return typeof found === 'string' ? found : key
+  }
 }
 
 /** Types into the form and submits it, the way a visitor does. */
@@ -873,6 +892,40 @@ describe('interview/reusable.vue — 429, network failure and 5xx are retryable 
 
     expect(wrapper.find(LOADING).exists()).toBe(true)
     expect(wrapper.text()).toContain('interview.reusable.loading')
+  })
+
+  it.each([
+    ['en', en],
+    ['it', itMessages],
+  ])(
+    'names the loading heading with the page-specific copy, not the generic one (%s)',
+    async (_locale, messages) => {
+      mockFetchImpl.mockRejectedValueOnce(httpError(429))
+      mockFetchImpl.mockReturnValueOnce(new Promise(() => undefined))
+      const wrapper = await openLink(REUSABLE_LINK_TOKEN, translator(messages))
+      await submitIdentity(wrapper)
+      await wrapper.get(RETRY).trigger('click')
+
+      const heading = wrapper.get(`${LOADING} h1`)
+
+      expect(heading.text()).toBe(messages.interview.reusable.loading)
+      expect(heading.text()).not.toBe(messages.shell.loading.title)
+    }
+  )
+
+  it('labels the loading landmark by that heading and marks it busy', async () => {
+    mockFetchImpl.mockRejectedValueOnce(httpError(429))
+    mockFetchImpl.mockReturnValueOnce(new Promise(() => undefined))
+    const wrapper = await openLink()
+    await submitIdentity(wrapper)
+    await wrapper.get(RETRY).trigger('click')
+
+    const landmark = wrapper.get(LOADING)
+    const headingId = landmark.attributes('aria-labelledby')
+
+    expect(headingId).toBeTruthy()
+    expect(landmark.get(`#${headingId}`).element.tagName).toBe('H1')
+    expect(landmark.attributes('aria-busy')).toBe('true')
   })
 
   it('a reload after a busy state has no token any more: the flag turns it into the reopen terminal', async () => {

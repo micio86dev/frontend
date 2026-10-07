@@ -1,8 +1,60 @@
 <template>
-  <main
-    class="flex min-h-screen flex-col items-center justify-center bg-background p-4"
+  <BrandCanvas
+    test-id="interview-session"
     :aria-label="$t('interview.document_title')"
+    :surface="false"
+    :footer="false"
+    :load-branding="false"
   >
+    <!--
+      The whole interview sits on the brand canvas the candidate arrived on
+      (DESIGN.md §7.0.1, §7.2): every state is a white surface on it, and the
+      avatar panel keeps its own dark surface. `load-branding` is off because
+      `useExitRedirect` reads the same session on mount and primes the branding
+      from it; a second reader would be a second request. No tagline footer:
+      inside the session the vertical room belongs to the device check and
+      the avatar, which already fill a 1440x900 viewport.
+
+      The header carries the where-am-I chrome: the three steps on the two
+      pre-interview screens, the question, progress and timer while live.
+    -->
+    <template v-if="preInterviewStep" #header-end>
+      <InterviewSteps :current="preInterviewStep" />
+    </template>
+    <template v-else-if="session.state.value === 'live' && avatarMounted" #header-end>
+      <!--
+        A white pill, like the logo plate: the timer turns red in its last ten
+        seconds, and red only has a measured contrast on white, never on an
+        arbitrary client colour.
+      -->
+      <div
+        data-testid="interview-status"
+        class="flex h-11 items-center gap-4 rounded-full bg-card px-5 text-card-foreground shadow-sm"
+      >
+        <!-- Beta testing aid (no product/UX polish intended): labels the
+             current avatar turn as "N" for the competency's primary
+             question or "N.k" for its k-th adaptive follow-up. HEURISTIC,
+             not ground truth — see questionLabel's docblock. -->
+        <span class="text-sm font-semibold" data-testid="question-label">
+          {{ $t('interview.live.question_label', { n: questionLabel }) }}
+        </span>
+        <template v-if="session.totalCompetencies.value">
+          <span aria-hidden="true" class="h-5 w-px bg-border" />
+          <InterviewProgressBar
+            compact
+            :current="session.endedCompetencies.value ?? 0"
+            :total="session.totalCompetencies.value"
+          />
+        </template>
+        <span aria-hidden="true" class="h-5 w-px bg-border" />
+        <InterviewTimer
+          :seconds="questionRemaining"
+          @tick="questionRemaining = $event"
+          @expired="onTimerExpired"
+        />
+      </div>
+    </template>
+
     <!--
       Player mount layer (invisible-competency-handover D3/D5/D6) — ALWAYS
       rendered whenever `session.players` is non-empty, entirely independent
@@ -28,7 +80,8 @@
     -->
     <div
       v-if="session.players.value.length > 0"
-      class="relative mx-auto w-full max-w-3xl overflow-hidden rounded-xl shadow-avatar"
+      data-slot="avatar-layer"
+      class="relative mx-auto w-full max-w-3xl overflow-hidden rounded-surface shadow-avatar"
       :class="hasLivePlayer ? '' : 'sr-only'"
     >
       <template v-for="p in session.players.value" :key="p.key">
@@ -51,16 +104,19 @@
     <!-- Consent screen -->
     <section
       v-if="session.state.value === 'idle'"
-      class="flex max-w-lg flex-col gap-6 rounded-xl border border-border bg-card p-8 shadow-md"
+      class="flex flex-col gap-6 w-full max-w-[34rem] rounded-surface bg-card p-6 text-card-foreground shadow-surface lg:p-9 brand-canvas__surface"
       aria-labelledby="consent-heading"
     >
-      <h1 id="consent-heading" class="text-2xl font-semibold text-foreground">
+      <h1
+        id="consent-heading"
+        class="text-2xl leading-tight font-semibold tracking-[-0.01em] text-balance text-foreground"
+      >
         {{ $t('interview.consent.title') }}
       </h1>
-      <p class="text-sm text-muted-foreground">{{ $t('interview.consent.body') }}</p>
+      <p class="text-sm leading-6 text-muted-foreground">{{ $t('interview.consent.body') }}</p>
       <Separator />
       <InterviewGuide />
-      <Button @click="session.acceptConsent()">
+      <Button class="h-(--spacing-control) px-6" @click="session.acceptConsent()">
         {{ $t('interview.consent.accept') }}
       </Button>
     </section>
@@ -70,7 +126,7 @@
          and the mic meter do not fit a 448px card. -->
     <section
       v-else-if="session.state.value === 'device_check'"
-      class="w-full max-w-xl rounded-xl border border-border bg-card shadow-md"
+      class="brand-canvas__surface w-full max-w-xl rounded-surface bg-card text-card-foreground shadow-surface"
       aria-labelledby="device-check-heading"
     >
       <h1 id="device-check-heading" class="sr-only">{{ $t('interview.device_check.title') }}</h1>
@@ -91,7 +147,7 @@
     <section
       v-else-if="session.state.value === 'connecting' && !avatarMounted && hasRunACompetency"
       data-testid="transition-panel"
-      class="flex max-w-lg flex-col items-center gap-4 rounded-xl border border-border bg-card p-8 shadow-md"
+      class="flex flex-col items-center gap-4 text-center w-full max-w-[34rem] rounded-surface bg-card p-6 text-card-foreground shadow-surface lg:p-9 brand-canvas__surface"
       aria-labelledby="transition-heading"
       aria-live="polite"
       aria-busy="true"
@@ -113,12 +169,20 @@
     -->
     <section
       v-else-if="session.state.value === 'connecting' && !avatarMounted"
-      class="flex flex-col items-center gap-4"
+      class="flex w-full max-w-3xl flex-col items-center gap-4"
       aria-live="polite"
       aria-busy="true"
     >
-      <Skeleton class="h-48 w-full max-w-2xl rounded-lg" />
-      <Skeleton class="h-4 w-48 rounded" />
+      <!--
+        The avatar's own dark panel, at the size the avatar will take, so the
+        page does not jump when it paints. Still, no pulse: nothing on the
+        canvas loops (DESIGN.md §7.0.1).
+      -->
+      <div
+        aria-hidden="true"
+        class="aspect-video w-full rounded-surface bg-avatar-bg shadow-avatar"
+      />
+      <p class="text-sm text-on-primary-muted">{{ $t('shell.loading.title') }}</p>
     </section>
 
     <!--
@@ -152,7 +216,7 @@
     -->
     <section
       v-else-if="session.state.value === 'paused'"
-      class="flex w-full max-w-3xl flex-col items-center gap-4 rounded-xl border border-border bg-card p-6"
+      class="flex flex-col items-center gap-4 text-center w-full max-w-[34rem] rounded-surface bg-card p-6 text-card-foreground shadow-surface lg:p-9 brand-canvas__surface"
       aria-labelledby="paused-heading"
       data-testid="paused-live-panel"
     >
@@ -182,14 +246,14 @@
       >
         {{ $t('interview.paused.network_reconnecting') }}
       </p>
-      <Button @click="onResumeClicked">
+      <Button class="h-(--spacing-control) px-6" @click="onResumeClicked">
         {{ $t('interview.paused.resume') }}
       </Button>
     </section>
 
     <section
       v-else-if="avatarMounted"
-      class="flex w-full max-w-3xl flex-col gap-4"
+      class="flex w-full max-w-3xl flex-col"
       :aria-label="$t('interview.live.region_label')"
     >
       <!--
@@ -202,22 +266,30 @@
       -->
 
       <template v-if="session.state.value === 'live'">
-        <InterviewCaption :text="currentCaption" />
-
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <!-- Beta testing aid (no product/UX polish intended): labels the
-                 current avatar turn as "N" for the competency's primary
-                 question or "N.k" for its k-th adaptive follow-up. HEURISTIC,
-                 not ground truth — see questionLabel's docblock. -->
-            <span class="text-muted-foreground text-xs" data-testid="question-label">
-              {{ $t('interview.live.question_label', { n: questionLabel }) }}
-            </span>
-            <InterviewTimer
-              :seconds="questionRemaining"
-              @tick="questionRemaining = $event"
-              @expired="onTimerExpired"
-            />
+        <!--
+          The live dock: ONE white surface under the avatar for the caption and
+          the one control. The caption reads on white whatever the client
+          colour; on the bare canvas it would depend on it. The question label
+          and the timer live in the header's status pill.
+        -->
+        <div
+          data-testid="live-dock"
+          class="brand-canvas__surface flex min-h-18 items-center gap-6 rounded-surface bg-card px-6 py-4 text-card-foreground shadow-surface"
+        >
+          <!--
+            Caption and hint share one grid cell: the caption stays mounted (it
+            is the live region that announces each question) and the hint sits
+            in its place until the first question arrives.
+          -->
+          <div class="grid min-w-0 flex-1 items-center">
+            <InterviewCaption class="[grid-area:1/1]" :text="currentCaption" />
+            <p
+              v-if="!currentCaption"
+              data-testid="live-hint"
+              class="text-sm leading-7 text-muted-foreground [grid-area:1/1]"
+            >
+              {{ $t('interview.live.listen_hint') }}
+            </p>
           </div>
           <!-- No Skip control: a competency must not be skippable. The timer is
                the only client-side early end, so a question cannot hang the
@@ -229,7 +301,7 @@
                pause was fixed for. -->
           <Button
             variant="outline"
-            size="sm"
+            class="h-(--spacing-control) shrink-0 px-5"
             :loading="session.handoverInFlight.value"
             @click="onPauseClicked"
           >
@@ -251,7 +323,7 @@
     <!-- End of Question screen -->
     <section
       v-else-if="session.state.value === 'end_of_question'"
-      class="flex max-w-lg flex-col gap-6 rounded-xl border border-border bg-card p-8 shadow-md"
+      class="flex flex-col gap-6 w-full max-w-[34rem] rounded-surface bg-card p-6 text-card-foreground shadow-surface lg:p-9 brand-canvas__surface"
       aria-labelledby="end-of-question-heading"
     >
       <h1 id="end-of-question-heading" class="text-2xl font-semibold text-foreground">
@@ -265,12 +337,9 @@
         :current="session.endedCompetencies.value ?? 0"
         :total="session.totalCompetencies.value ?? 0"
       />
-      <p class="text-sm text-muted-foreground">
-        {{ session.endedCompetencies.value ?? 0 }} / {{ session.totalCompetencies.value ?? 0 }}
-      </p>
       <!-- One control only. This screen IS the pause, so a secondary Pause
            button on it would be meaningless. -->
-      <Button @click="onNextCompetency">
+      <Button class="h-(--spacing-control) px-6" @click="onNextCompetency">
         {{ $t('interview.scheduled_pause.resume') }}
       </Button>
     </section>
@@ -278,7 +347,7 @@
     <!-- Done screen -->
     <section
       v-else-if="session.state.value === 'done'"
-      class="flex max-w-lg flex-col gap-6 rounded-xl border border-border bg-card p-8 shadow-md"
+      class="flex flex-col gap-6 w-full max-w-[34rem] rounded-surface bg-card p-6 text-card-foreground shadow-surface lg:p-9 brand-canvas__surface"
       aria-labelledby="done-heading"
       data-testid="done-screen"
     >
@@ -301,7 +370,7 @@
     -->
     <section
       v-else-if="showExpiredSessionVariant"
-      class="flex max-w-lg flex-col gap-6 rounded-xl border border-border bg-card p-8 shadow-md"
+      class="flex flex-col gap-6 w-full max-w-[34rem] rounded-surface bg-card p-6 text-card-foreground shadow-surface lg:p-9 brand-canvas__surface"
       aria-labelledby="session-expired-heading"
       data-testid="session-expired-screen"
     >
@@ -316,14 +385,14 @@
     <!-- Error + Retry screen -->
     <section
       v-else-if="session.state.value === 'error'"
-      class="flex max-w-lg flex-col gap-6 rounded-xl border border-border bg-card p-8 shadow-md"
+      class="flex flex-col gap-6 w-full max-w-[34rem] rounded-surface bg-card p-6 text-card-foreground shadow-surface lg:p-9 brand-canvas__surface"
       aria-labelledby="error-heading"
       data-testid="error-screen"
     >
       <Alert variant="destructive">
         <AlertTitle id="error-heading">{{ $t('interview.error.title') }}</AlertTitle>
       </Alert>
-      <Button data-testid="retry-button" @click="onRetry">
+      <Button data-testid="retry-button" class="h-(--spacing-control) px-6" @click="onRetry">
         {{ $t('interview.error.retry') }}
       </Button>
     </section>
@@ -331,7 +400,7 @@
     <!-- Terminal screen -->
     <section
       v-else-if="session.state.value === 'terminal'"
-      class="flex max-w-lg flex-col gap-6 rounded-xl border border-border bg-card p-8 shadow-md"
+      class="flex flex-col gap-6 w-full max-w-[34rem] rounded-surface bg-card p-6 text-card-foreground shadow-surface lg:p-9 brand-canvas__surface"
       aria-labelledby="terminal-heading"
       data-testid="terminal-screen"
     >
@@ -358,7 +427,7 @@
         </p>
         <a
           href="mailto:support@beai.app"
-          class="text-sm text-primary underline underline-offset-4 hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          class="text-sm font-medium text-primary-ink underline underline-offset-4 hover:no-underline"
           data-testid="terminal-contact"
         >
           {{ $t('interview.terminal.absent_phrase.contact') }}
@@ -373,7 +442,7 @@
         </p>
         <a
           href="mailto:support@beai.app"
-          class="text-sm text-primary underline underline-offset-4 hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          class="text-sm font-medium text-primary-ink underline underline-offset-4 hover:no-underline"
           data-testid="terminal-contact"
         >
           {{ $t('interview.terminal.malformed_response.contact') }}
@@ -386,14 +455,14 @@
         <p class="text-sm text-muted-foreground">{{ $t('interview.terminal.generic.body') }}</p>
         <a
           href="mailto:support@beai.app"
-          class="text-sm text-primary underline underline-offset-4 hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          class="text-sm font-medium text-primary-ink underline underline-offset-4 hover:no-underline"
           data-testid="terminal-contact"
         >
           {{ $t('interview.terminal.generic.contact') }}
         </a>
       </template>
     </section>
-  </main>
+  </BrandCanvas>
 </template>
 
 <script setup lang="ts">
@@ -441,12 +510,13 @@ import { useTabVisibilityGuard } from '~/composables/useTabVisibilityGuard'
 import { useNetworkGuard } from '~/composables/useNetworkGuard'
 import { Button } from '~/components/ui/button'
 import { Alert, AlertTitle } from '~/components/ui/alert'
-import { Skeleton } from '~/components/ui/skeleton'
 import InterviewTimer from '~/components/InterviewTimer.vue'
 import InterviewCaption from '~/components/InterviewCaption.vue'
 import InterviewGuide from '~/components/molecules/InterviewGuide.vue'
 import { Separator } from '~/components/ui/separator'
 import InterviewProgressBar from '~/components/ProgressBar.vue'
+import InterviewSteps from '~/components/molecules/InterviewSteps.vue'
+import BrandCanvas from '~/components/organisms/BrandCanvas.vue'
 import type { IntegrityEventInternal } from '~/utils/proctor-config'
 
 const { t } = useI18n()
@@ -612,6 +682,16 @@ const hasLivePlayer = computed(() => session.players.value.some((p) => p.role ==
  * yet". A page-local boolean would be a second source for a fact the server
  * already states — the shape of the defect this whole change removes.
  */
+/**
+ * The step the header's indicator marks on the two pre-interview screens, or
+ * null once the interview runs (the header then carries the live status).
+ */
+const preInterviewStep = computed(() => {
+  if (session.state.value === 'idle') return 'consent' as const
+  if (session.state.value === 'device_check') return 'device_check' as const
+  return null
+})
+
 const hasRunACompetency = computed(() => (session.endedCompetencies.value ?? 0) > 0)
 
 const currentCaption = ref('')

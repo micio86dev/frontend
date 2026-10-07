@@ -1,6 +1,6 @@
 <template>
   <div
-    class="flex flex-col gap-6 p-6"
+    class="flex flex-col gap-5 p-5"
     role="region"
     :aria-label="$t('interview.device_check.title')"
   >
@@ -147,9 +147,12 @@
          role=status announcement on the threshold crossing. -->
     <div class="flex flex-col gap-2">
       <div class="relative">
+        <!-- Brand ink on a brand tint, not the vendored `bg-primary` on
+             `bg-muted`: a light client colour on white is ~1.1:1, under the
+             3:1 a meaningful graphic needs (DESIGN.md §3.1 rule 3, §9.1). -->
         <Progress
           data-testid="mic-meter"
-          class="h-2"
+          class="h-2 bg-primary-surface [&_[data-slot=progress-indicator]]:bg-primary-ink"
           :model-value="micMeterPercent"
           :aria-label="$t('interview.device_check.mic_instruction')"
         />
@@ -169,13 +172,8 @@
          Retry. No failure state on this screen may be terminal. -->
     <Alert v-if="showRecovery" variant="destructive" data-testid="recovery-alert">
       <AlertTitle>{{ $t('interview.device_check.recovery_title') }}</AlertTitle>
-      <!-- The vendored destructive variant sets *:data-[slot=alert-description]:text-destructive/90
-           on the Alert root, but AlertDescription also hardcodes text-muted-foreground on
-           itself; both are single-class-selector specificity, so which one wins depends on
-           Tailwind's generated CSS order rather than markup nesting — an axe-caught AA
-           contrast failure. Passing the same color explicitly here lets tailwind-merge (used
-           inside AlertDescription's own cn()) deterministically drop text-muted-foreground. -->
-      <AlertDescription class="text-destructive/90">
+      <!-- The description takes its colour from the variant (ui/alert/index.ts), not from here. -->
+      <AlertDescription>
         {{ recoveryMessage }}
       </AlertDescription>
     </Alert>

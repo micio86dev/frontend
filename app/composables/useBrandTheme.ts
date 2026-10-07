@@ -34,7 +34,7 @@
  */
 
 import { ref } from 'vue'
-import { ensureContrast, mix } from '~/app/utils/brand-color'
+import { contrastRatio, ensureContrast, mix, readableForeground } from '~/app/utils/brand-color'
 
 /** The same shape the API enforces. Duplicated deliberately — see below. */
 const HEX = /^#[0-9a-f]{6}$/i
@@ -100,6 +100,72 @@ export const BRAND_DERIVED_TOKENS = [
 ] as const
 
 /**
+ * Tokens for anything drawn ON the tenant's primary colour (the candidate
+ * canvas). The primary is arbitrary, so the text on it cannot be a constant:
+ * white on saturated yellow is unreadable.
+ *
+ * - `--color-on-primary`: black or white, whichever contrasts more.
+ * - `--color-on-primary-muted`: softer text for secondary lines, mixed from
+ *   on-primary toward the primary only as far as it stays at 4.5:1.
+ * - `--color-primary-surface` / `--color-on-primary-surface`: a very light tint
+ *   of the primary for cards and chips, and dark text held at 4.5:1 on it.
+ * - `--color-primary-ink`: the primary darkened until it reads at 4.5:1 on a
+ *   white surface — the brand colour as a link, a focus ring or a meter inside
+ *   a card, where the raw primary can be invisible (yellow on white is 1.07:1).
+ * - `--color-canvas-tone`: the primary moved AWAY from on-primary (deeper when
+ *   the text is white, lighter when it is black). The canvas decoration paints
+ *   only with it, so it can only raise the contrast of the text above it.
+ *
+ * Concrete hex only, never `color-mix()` (see `app/utils/brand-color`).
+ */
+export const BRAND_ON_PRIMARY_TOKENS = [
+  '--color-on-primary',
+  '--color-on-primary-muted',
+  '--color-primary-surface',
+  '--color-on-primary-surface',
+  '--color-primary-ink',
+  '--color-canvas-tone',
+] as const
+
+/** WCAG AA for body text. */
+const TEXT_MIN_RATIO = 4.5
+
+/** Share of on-primary kept when softening, softest first. */
+const MUTED_WEIGHTS = [0.78, 0.84, 0.9, 0.95] as const
+
+/** The on-primary tokens for a validated `#rrggbb` brand colour. */
+export function deriveOnPrimaryTokens(
+  color: string
+): Record<(typeof BRAND_ON_PRIMARY_TOKENS)[number], string> {
+  const onPrimary = readableForeground(color)
+
+  const muted =
+    MUTED_WEIGHTS.map((weight) => mix(onPrimary, color, weight)).find(
+      (candidate) => contrastRatio(candidate, color) >= TEXT_MIN_RATIO
+    ) ?? onPrimary
+
+  const surface = mix(color, '#ffffff', 0.08)
+  const onSurface =
+    contrastRatio(AVATAR_PANEL, surface) >= TEXT_MIN_RATIO ? AVATAR_PANEL : '#000000'
+
+  const ink = ensureContrast(color, '#ffffff', TEXT_MIN_RATIO, '#000000')
+
+  // A channel lerp toward black only lowers every channel, toward white only
+  // raises it, so the tone is monotonically further from on-primary than the
+  // canvas is: any blend of the two reads at least as well as the bare canvas.
+  const tone = onPrimary === '#ffffff' ? mix(color, '#000000', 0.55) : mix(color, '#ffffff', 0.3)
+
+  return {
+    '--color-on-primary': onPrimary,
+    '--color-on-primary-muted': muted,
+    '--color-primary-surface': surface,
+    '--color-on-primary-surface': onSurface,
+    '--color-primary-ink': ink,
+    '--color-canvas-tone': tone,
+  }
+}
+
+/**
  * The interview panel these canvas marks are measured against.
  *
  * Duplicated from `main.css`'s `--color-avatar-bg`, and it has to be: the
@@ -132,12 +198,11 @@ const DERIVE: Record<(typeof BRAND_DERIVED_TOKENS)[number], (color: string) => s
 
   // The "active / pressed" shade — also aliased by `--color-accent-dark` in
   // main.css, so this ONE derivation covers both roles. Darkening toward
-  // black only ever RAISES contrast against white text (the opposite
-  // direction from `--color-primary-light`'s guard, which is why this needs
-  // no `ensureContrast` loop of its own): the product's own #431695 already
-  // clears the DESIGN.md-documented ≥4.5:1 white-text floor at 11.75:1, and
-  // every tenant colour darkened the same 15% clears it by at least as much,
-  // since white's luminance is fixed and the other side can only fall.
+  // black raises contrast against white text only when the tenant colour is
+  // dark to begin with: a light colour (yellow `#ffff00` -> `#d9d900`) stays
+  // light, so WHITE text on this shade is NOT guaranteed 4.5:1. The text on it
+  // must come from `readableForeground(primary-dark)`, never a constant white;
+  // the product's own #431695 happens to clear white at 11.75:1.
   '--color-primary-dark': (color) => mix(color, '#000000', 0.85),
 
   // The ribbon CENTRE and the resting baseline — the only mark on screen while
@@ -174,7 +239,11 @@ export function applyBrandColor(color: string | null | undefined): void {
     // Every token, including the derived ones — clearing only what the last
     // call wrote would leave a stale override from the one before it, and the
     // product palette would never come back.
-    for (const token of [...BRAND_COLOR_TOKENS, ...BRAND_DERIVED_TOKENS]) {
+    for (const token of [
+      ...BRAND_COLOR_TOKENS,
+      ...BRAND_DERIVED_TOKENS,
+      ...BRAND_ON_PRIMARY_TOKENS,
+    ]) {
       root.style.removeProperty(token)
     }
 
@@ -199,6 +268,10 @@ export function applyBrandColor(color: string | null | undefined): void {
   // Interpolated only AFTER the hex has passed the regex above.
   for (const token of BRAND_DERIVED_TOKENS) {
     root.style.setProperty(token, DERIVE[token](color))
+  }
+
+  for (const [token, value] of Object.entries(deriveOnPrimaryTokens(color))) {
+    root.style.setProperty(token, value)
   }
 
   brandColorRevision.value += 1

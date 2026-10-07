@@ -1,5 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import ConsentBanner from '../../app/components/ConsentBanner.vue'
 import { ANALYTICS_CONSENT_EVENT, ANALYTICS_CONSENT_KEY } from '../../app/utils/analytics-consent'
 
@@ -165,5 +167,63 @@ describe('accessibility', () => {
     const wrapper = mountBanner()
 
     expect(wrapper.text()).toContain('analytics_consent.')
+  })
+})
+
+describe('the banner on the brand canvas', () => {
+  const source = readFileSync(resolve(__dirname, '../../app/components/ConsentBanner.vue'), 'utf-8')
+  const style = source.slice(source.indexOf('<style'))
+
+  it('takes every colour from a design token, with no hardcoded fallback', () => {
+    // The fallbacks (#fff, #e5e7eb, #111827, #6b7280, #2563eb) were a second,
+    // unbranded palette that would surface the moment a token failed to load.
+    expect(style).not.toMatch(/#[0-9a-f]{3,8}\b/i)
+    expect(style).not.toMatch(/var\(--[a-z-]+,/)
+  })
+
+  it('floats as a surface above the canvas, using the card tokens', () => {
+    expect(style).toContain('var(--color-card)')
+    expect(style).toContain('var(--color-card-foreground)')
+  })
+
+  it('draws its focus ring in the brand ink, which reads on white for any client colour', () => {
+    expect(style).toMatch(/:focus-visible\s*\{[^}]*var\(--color-primary-ink\)/)
+  })
+})
+
+describe('room on the canvas', () => {
+  // The banner floats over the bottom of the brand canvas. It publishes how
+  // much room it takes so the canvas can keep its footer clear of it, and takes
+  // that back the moment it is answered.
+  const clearance = () =>
+    document.documentElement.style.getPropertyValue('--consent-banner-clearance')
+
+  it('publishes its clearance while it is open', () => {
+    const wrapper = mountBanner()
+
+    // Plus the safe-area inset the banner itself sits above on notched devices.
+    expect(clearance()).toMatch(/^calc\(\d+px \+ env\(safe-area-inset-bottom, 0px\)\)$/)
+    wrapper.unmount()
+  })
+
+  it('takes the clearance back once answered', async () => {
+    const wrapper = mountBanner()
+    await wrapper.get('[data-testid="analytics-consent-reject"]').trigger('click')
+
+    expect(clearance()).toBe('')
+    wrapper.unmount()
+  })
+
+  it('takes the clearance back when it unmounts', () => {
+    mountBanner().unmount()
+
+    expect(clearance()).toBe('')
+  })
+
+  it('publishes nothing when it never opens', () => {
+    mountBanner({ enabled: false }).unmount()
+    mountBanner({ enabled: false })
+
+    expect(clearance()).toBe('')
   })
 })

@@ -188,6 +188,16 @@ describe('DeviceCheck.client.vue — preview geometry (D1)', () => {
 // ---------------------------------------------------------------------------
 
 describe('DeviceCheck.client.vue — mic level meter (D5)', () => {
+  it('fills the meter with the brand ink, a mark that reads on the white card for any client colour', async () => {
+    const wrapper = await mountComponent(makeDeviceCheck({ micLevel: ref(0.175) }))
+    const meter = wrapper.get('[data-testid="mic-meter"]')
+
+    // The vendored indicator is `bg-primary`: yellow on white is 1.07:1, under
+    // the 3:1 a meaningful graphic needs (DESIGN.md §9.1).
+    expect(meter.classes()).toContain('[&_[data-slot=progress-indicator]]:bg-primary-ink')
+    expect(meter.classes()).toContain('bg-primary-surface')
+  })
+
   it('scales micLevel to a 0-100 display value: min(100, round(micLevel/0.35*100))', async () => {
     // 0.175 / 0.35 * 100 = 50
     const dc = makeDeviceCheck({ micLevel: ref(0.175) })

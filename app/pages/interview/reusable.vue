@@ -1,17 +1,9 @@
 <template>
-  <main
+  <CanvasLoading
     v-if="state === 'loading'"
-    class="flex min-h-screen flex-col items-center justify-center bg-background p-4"
-    aria-live="polite"
-    aria-busy="true"
-    data-testid="reusable-loading"
-  >
-    <span class="sr-only">{{ $t('interview.reusable.loading') }}</span>
-    <div class="flex flex-col items-center gap-4">
-      <Skeleton class="h-48 w-full max-w-2xl rounded-lg" />
-      <Skeleton class="h-4 w-48 rounded" />
-    </div>
-  </main>
+    test-id="reusable-loading"
+    :title="$t('interview.reusable.loading')"
+  />
 
   <!--
     The identity step. Rendered in the shell's default slot so the form is the page's
@@ -44,7 +36,12 @@
     :message="$t('interview.reusable.busy.body')"
   >
     <div>
-      <Button size="lg" data-testid="reusable-retry" @click="retry">
+      <Button
+        size="lg"
+        class="h-(--spacing-control) px-6"
+        data-testid="reusable-retry"
+        @click="retry"
+      >
         {{ $t('interview.reusable.retry') }}
       </Button>
     </div>
@@ -59,7 +56,12 @@
     :message="$t('interview.reusable.failed.body')"
   >
     <div>
-      <Button size="lg" data-testid="reusable-retry" @click="retry">
+      <Button
+        size="lg"
+        class="h-(--spacing-control) px-6"
+        data-testid="reusable-retry"
+        @click="retry"
+      >
         {{ $t('interview.reusable.retry') }}
       </Button>
     </div>
@@ -130,7 +132,7 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import NoticeShell from '~/components/molecules/NoticeShell.vue'
 import ReusableIdentityForm from '~/components/molecules/ReusableIdentityForm.vue'
 import { Button } from '~/components/ui/button'
-import { Skeleton } from '~/components/ui/skeleton'
+import CanvasLoading from '~/components/molecules/CanvasLoading.vue'
 import { useCandidateSession } from '~/app/composables/useCandidateSession'
 import {
   useReusableLinkRedeem,

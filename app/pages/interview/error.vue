@@ -7,7 +7,12 @@
     :message="$t('interview.error.body')"
   >
     <div>
-      <Button size="lg" data-testid="retry-button" @click="handleRetry">
+      <Button
+        size="lg"
+        class="h-(--spacing-control) px-6"
+        data-testid="retry-button"
+        @click="handleRetry"
+      >
         {{ $t('interview.error.retry') }}
       </Button>
     </div>
@@ -29,7 +34,11 @@ import NoticeShell from '~/components/molecules/NoticeShell.vue'
 import { Button } from '~/components/ui/button'
 
 definePageMeta({ ssr: false })
-useHead({ meta: [{ name: 'robots', content: 'noindex, nofollow' }] })
+const { t: tTitle } = useI18n()
+useHead({
+  title: tTitle('interview.error.title'),
+  meta: [{ name: 'robots', content: 'noindex, nofollow' }],
+})
 
 const router = useRouter()
 

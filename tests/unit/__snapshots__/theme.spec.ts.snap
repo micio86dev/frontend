@@ -8,7 +8,10 @@ exports[`brand theme token source (regression guard) > :root semantic block matc
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.455 0.213 307.581); /* #771aaf — Quint purple */
-  --primary-foreground: oklch(0.985 0 0);
+  /* Was a constant near-white, which is unreadable on a light client colour
+     (white on #ffd400 is 1.5:1). It follows the derived on-primary token, so a
+     primary Button reads on any brand (DESIGN.md §3.1). */
+  --primary-foreground: var(--color-on-primary);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
@@ -85,6 +88,17 @@ exports[`brand theme token source (regression guard) > @theme literal block matc
   /* 15% darker than the prior #4f1aaf — still 11.75:1 against white (was
      10:1), so the ≥4.5:1 white-text floor stays comfortably clear. */
   --color-primary-dark: #431695;
+  /* On-primary family: what to draw ON the tenant's primary colour. These are
+     the Quint defaults; useBrandTheme.ts derives them per tenant, and
+     token-parity.spec.ts asserts they equal that derivation for #771aaf. */
+  --color-on-primary: #ffffff;
+  --color-on-primary-muted: #e1cded;
+  --color-primary-surface: #f4edf9;
+  --color-on-primary-surface: #0f172a;
+  /* The brand as text/marks on a white surface, and the only colour the
+     canvas decoration may use (DESIGN.md §3.1 "Candidate brand canvas"). */
+  --color-primary-ink: #771aaf;
+  --color-canvas-tone: #410e60;
   --color-accent: #e45526;
   --color-accent-light: #f19823;
   /* Aliased to --color-primary-dark, not a second literal: the "active /
@@ -126,6 +140,9 @@ exports[`brand theme token source (regression guard) > @theme literal block matc
   --color-warning-dark: #92400e;
   --color-error: #ef4444;
   --color-error-light: #fee2e2;
+  /* Text-safe error pair, like the success/warning/info \`-dark\` tokens: 5.30:1 on
+     \`--color-error-light\` (\`--destructive\`'s oklch value measured 3.90:1 there). */
+  --color-error-dark: #b91c1c;
   --color-info: #3b82f6;
   --color-info-light: #dbeafe;
   /* Kept identical to the backoffice per DESIGN.md §17. \`--color-info\` on
@@ -161,10 +178,14 @@ exports[`brand theme token source (regression guard) > @theme literal block matc
   --radius-lg: 0.75rem;
   --radius-xl: 1rem;
   --radius-full: 9999px;
+  /* The elevated content surface on the brand canvas (DESIGN.md §3.4, §7.0.1). */
+  --radius-surface: 1.25rem;
 
   /* === Shadows === */
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
-  --shadow-avatar: 0 25px 50px -12px rgb(0 0 0 / 0.5);"
+  --shadow-avatar: 0 25px 50px -12px rgb(0 0 0 / 0.5);
+  /* Lifts the content surface off the brand canvas (DESIGN.md §3.5). */
+  --shadow-surface: 0 1px 2px rgb(15 23 42 / 0.08), 0 24px 56px -20px rgb(15 23 42 / 0.45);"
 `;
