@@ -56,6 +56,13 @@
     </template>
 
     <!--
+      The one Toaster of the interview: IntegrityToast (inside ProctorOverlay)
+      fires its notices into it. Outside every state branch, so it is mounted
+      exactly once and a notice survives the live screen giving way to another.
+    -->
+    <IntegrityToaster />
+
+    <!--
       Player mount layer (invisible-competency-handover D3/D5/D6) — ALWAYS
       rendered whenever `session.players` is non-empty, entirely independent
       of which "screen" below is currently showing. This is what makes the
@@ -516,6 +523,7 @@ import InterviewGuide from '~/components/molecules/InterviewGuide.vue'
 import { Separator } from '~/components/ui/separator'
 import InterviewProgressBar from '~/components/ProgressBar.vue'
 import InterviewSteps from '~/components/molecules/InterviewSteps.vue'
+import IntegrityToaster from '~/components/molecules/IntegrityToaster.vue'
 import BrandCanvas from '~/components/organisms/BrandCanvas.vue'
 import type { IntegrityEventInternal } from '~/utils/proctor-config'
 

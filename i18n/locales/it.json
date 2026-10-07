@@ -191,6 +191,66 @@
     },
     "progress": {
       "label": "Avanzamento del colloquio"
+    },
+    "integrity_toast": {
+      "region_label": "Avvisi del colloquio",
+      "close": "Chiudi l’avviso",
+      "generic": {
+        "title": "Concentrati sul colloquio",
+        "description": "Mantieni il viso nell’inquadratura e lo sguardo sullo schermo."
+      },
+      "tab_hidden": {
+        "title": "Resta su questa scheda",
+        "description": "Tieni aperta la scheda del colloquio fino alla fine."
+      },
+      "focus_lost": {
+        "title": "Resta in questa finestra",
+        "description": "Tieni questa finestra in primo piano mentre rispondi."
+      },
+      "second_monitor": {
+        "title": "Usa un solo schermo",
+        "description": "Se puoi, scollega gli schermi aggiuntivi e usa solo questo."
+      },
+      "face_absent": {
+        "title": "Resta nell’inquadratura",
+        "description": "Mantieni il viso visibile alla videocamera."
+      },
+      "looking_away": {
+        "title": "Guarda lo schermo",
+        "description": "Tieni lo sguardo sullo schermo mentre rispondi."
+      },
+      "looking_down": {
+        "title": "Alza lo sguardo",
+        "description": "Tieni la testa alta e lo sguardo sullo schermo."
+      },
+      "too_far": {
+        "title": "Avvicinati un po’",
+        "description": "Siediti più vicino, così la videocamera vede bene il tuo viso."
+      },
+      "multiple_faces": {
+        "title": "Solo tu nell’inquadratura",
+        "description": "Assicurati che la videocamera veda solo il tuo viso."
+      },
+      "fullscreen_exit": {
+        "title": "Torna a schermo intero",
+        "description": "Se puoi, torna a schermo intero per il resto del colloquio."
+      },
+      "clipboard_copy": {
+        "title": "Rispondi con parole tue",
+        "description": "Durante il colloquio non serve copiare testo."
+      },
+      "clipboard_paste": {
+        "title": "Rispondi con parole tue",
+        "description": "Rispondi a voce: non serve incollare testo."
+      },
+      "second_voice": {
+        "title": "Mantieni la stanza silenziosa",
+        "description": "Assicurati che si senta solo la tua voce mentre rispondi."
+      },
+      "phone_detected": {
+        "title": "Metti via il telefono",
+        "description": "Tieni il telefono lontano fino alla fine del colloquio."
+      }
     }
   },
   "analytics_consent": {

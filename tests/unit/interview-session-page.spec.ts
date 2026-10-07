@@ -976,7 +976,8 @@ describe('interview session — on the brand canvas in every state', () => {
     'puts the %s content on an elevated white surface with the ink focus ring',
     async (state) => {
       const wrapper = await mountPage(makeSession({ state, provider: null }))
-      const surface = wrapper.get('main section')
+      // `main > section`: the Toaster's live region is a <section> inside main too.
+      const surface = wrapper.get('main > section')
 
       expect(surface.classes()).toContain('bg-card')
       expect(surface.classes()).toContain('rounded-surface')
