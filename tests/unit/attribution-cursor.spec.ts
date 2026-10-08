@@ -40,3 +40,62 @@ describe('AttributionCursor', () => {
     expect(b.current).toBe(1)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Input contract (FE-03 follow-up): a session id is a positive safe integer; an
+// invalid id is refused at the write, and advancing to the same id is a no-op
+// that still returns a ticket.
+// ---------------------------------------------------------------------------
+
+const INVALID_IDS: Array<[string, number]> = [
+  ['NaN', Number.NaN],
+  ['Infinity', Number.POSITIVE_INFINITY],
+  ['-Infinity', Number.NEGATIVE_INFINITY],
+  ['zero', 0],
+  ['a negative id', -3],
+  ['a fractional id', 4.5],
+  ['an id beyond the safe integer range', Number.MAX_SAFE_INTEGER + 2],
+]
+
+describe('AttributionCursor — construction', () => {
+  it('starts on a valid initial id', () => {
+    expect(new AttributionCursor(42).current).toBe(42)
+  })
+
+  it.each(INVALID_IDS)('rejects %s as the initial id', (_label, id) => {
+    expect(() => new AttributionCursor(id)).toThrow(RangeError)
+  })
+
+  it('names the offending value in the error', () => {
+    expect(() => new AttributionCursor(-3)).toThrow(/-3/)
+  })
+})
+
+describe('AttributionCursor — advance', () => {
+  it('moves to a new valid id and mints a ticket carrying it', () => {
+    const cursor = new AttributionCursor(42)
+
+    const ticket = cursor.advance(77)
+
+    expect(cursor.current).toBe(77)
+    expect(ticket.sessionId).toBe(77)
+  })
+
+  it.each(INVALID_IDS)('rejects %s and leaves the cursor where it was', (_label, id) => {
+    const cursor = new AttributionCursor(42)
+
+    expect(() => cursor.advance(id)).toThrow(RangeError)
+
+    expect(cursor.current).toBe(42)
+  })
+
+  it('advancing to the SAME id is an idempotent no-op that still returns a ticket', () => {
+    const cursor = new AttributionCursor(42)
+
+    const ticket = cursor.advance(42)
+
+    expect(cursor.current).toBe(42)
+    expect(ticket.sessionId).toBe(42)
+    expect(cursor.advance(42).sessionId).toBe(42)
+  })
+})

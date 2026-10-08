@@ -19,6 +19,14 @@
  * returns an {@link AdvanceTicket}, the capability a boundary sender requires, so
  * "send before moving the cursor" is not expressible rather than merely
  * discouraged.
+ *
+ * Input contract. A session id is a positive safe integer (it is a DB primary
+ * key). Anything else — NaN, 0, a negative, a fraction — is refused with a
+ * `RangeError` at the write, before it can be POSTed as `session_id` and rejected
+ * by the API far from the cause. A refused `advance()` leaves the cursor where it
+ * was. Advancing to the id the cursor already holds is an idempotent no-op that
+ * still returns a ticket, so a caller that re-asserts the current row is not
+ * forced to special-case it.
  */
 
 declare const ticketBrand: unique symbol
@@ -29,10 +37,20 @@ export interface AdvanceTicket {
   readonly sessionId: number
 }
 
+/** Throws `RangeError` unless `id` is a positive safe integer. */
+export function assertSessionId(id: number): void {
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw new RangeError(
+      `Invalid interview session id: ${String(id)} (expected a positive integer)`
+    )
+  }
+}
+
 export class AttributionCursor {
   #id: number
 
   constructor(initial: number) {
+    assertSessionId(initial)
     this.#id = initial
   }
 
@@ -41,8 +59,13 @@ export class AttributionCursor {
     return this.#id
   }
 
-  /** The ONLY writer, and the ONLY minter of {@link AdvanceTicket}. */
+  /**
+   * The ONLY writer, and the ONLY minter of {@link AdvanceTicket}. Throws
+   * `RangeError` (cursor unchanged) for an invalid id; the same id is a no-op
+   * that still returns a ticket.
+   */
   advance(nextSessionId: number): AdvanceTicket {
+    assertSessionId(nextSessionId)
     this.#id = nextSessionId
     return { sessionId: nextSessionId } as AdvanceTicket
   }
