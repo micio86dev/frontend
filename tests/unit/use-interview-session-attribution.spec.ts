@@ -80,6 +80,7 @@ function startResponse(sessionId: number, provider = 'tavus') {
 
 const A = 42 // the handle's creation-time id
 const B = 77 // the competency row the cursor moves to
+const C = 103 // a second hop: A -> B -> C
 
 async function flush() {
   for (let i = 0; i < 20; i++) await nextTick()
@@ -111,6 +112,7 @@ function utterances(): Array<[number, string]> {
 beforeEach(() => {
   vi.clearAllMocks()
   mockCandidateFetch.mockReset()
+  mockFlushIntegrityKeepalive.mockReset()
   mockCandidateFetch.mockResolvedValue(undefined)
   vi.useFakeTimers()
   providers = []
@@ -345,6 +347,61 @@ describe('useInterviewSession — advanceAttribution failure modes', () => {
     expect(onFlushed).not.toHaveBeenCalled()
     expect(sendBoundary).not.toHaveBeenCalled()
     expect(session.sessionId.value).toBe(A)
+  })
+})
+
+describe('useInterviewSession — multi-hop cursor (A -> B -> C)', () => {
+  /** Stays pending on every hop: the getter returns it again until it is acknowledged. */
+  const pendingEvent = () => [{ type: 'tab_hidden', ts: 1 } as IntegrityEventInternal]
+
+  it('every reader follows each hop and each integrity flush is addressed to the OUTGOING row', async () => {
+    const flushedTo: Array<number | null> = []
+    mockFlushIntegrityKeepalive.mockImplementation((p: { session_id: number | null }) => {
+      flushedTo.push(p.session_id)
+    })
+    const pending = pendingEvent()
+    const session = await liveSession({ getPendingIntegrityEvents: () => pending })
+    const emit = (text: string) =>
+      providers[0]!._emit('transcript', { role: 'user', text, ts: Date.now() })
+
+    emit('on A')
+    session.advanceAttribution(B)
+    expect(session.sessionId.value).toBe(B)
+    emit('on B')
+    session.advanceAttribution(C)
+    expect(session.sessionId.value).toBe(C)
+    emit('on C')
+    await flush()
+
+    // Hop 1 flushed against A (outgoing) and hop 2 against B (outgoing) — never
+    // against the row the cursor was moving TO.
+    expect(flushedTo).toEqual([A, B])
+    expect(utterances()).toEqual([
+      [A, 'on A'],
+      [B, 'on B'],
+      [C, 'on C'],
+    ])
+
+    // /end follows the last hop, not any earlier row.
+    mockCandidateFetch.mockResolvedValueOnce({ next_action: 'done' })
+    providers[0]!._emit('state', 'complete')
+    await flush()
+    expect(callsTo('/candidate/interview/end')).toHaveLength(1)
+    expect(callsTo('/candidate/interview/end')[0]![1]).toMatchObject({ body: { session_id: C } })
+  })
+
+  it('/suspend follows the last hop', async () => {
+    const session = await liveSession()
+    session.advanceAttribution(B)
+    session.advanceAttribution(C)
+
+    session.pause()
+    await flush()
+
+    expect(callsTo('/candidate/interview/suspend')).toHaveLength(1)
+    expect(callsTo('/candidate/interview/suspend')[0]![1]).toMatchObject({
+      body: { session_id: C },
+    })
   })
 })
 
