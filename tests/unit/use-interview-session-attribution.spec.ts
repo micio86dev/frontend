@@ -81,15 +81,19 @@ function startResponse(sessionId: number, provider = 'tavus') {
 const A = 42 // the handle's creation-time id
 const B = 77 // the competency row the cursor moves to
 const C = 103 // a second hop: A -> B -> C
+const INCOMING = 99 // the HeyGen handover's next-competency handle
 
 async function flush() {
   for (let i = 0; i < 20; i++) await nextTick()
 }
 
-async function liveSession(options: Parameters<typeof useInterviewSession>[0] = {}) {
+async function liveSession(
+  options: Parameters<typeof useInterviewSession>[0] = {},
+  provider = 'tavus'
+) {
   const session = useInterviewSession(options)
   session.acceptConsent()
-  mockCandidateFetch.mockResolvedValueOnce(startResponse(A))
+  mockCandidateFetch.mockResolvedValueOnce(startResponse(A, provider))
   session.confirmDevices()
   await flush()
   providers[0]!._emit('state', 'ready')
@@ -402,6 +406,61 @@ describe('useInterviewSession — multi-hop cursor (A -> B -> C)', () => {
     expect(callsTo('/candidate/interview/suspend')[0]![1]).toMatchObject({
       body: { session_id: C },
     })
+  })
+})
+
+describe('useInterviewSession — advanceAttribution during a handover window', () => {
+  /** HeyGen: the live handle completes, /end says continue, an incoming handle is minted. */
+  async function overlap(options: Parameters<typeof useInterviewSession>[0] = {}) {
+    const session = await liveSession(options, 'heygen')
+    mockCandidateFetch.mockResolvedValueOnce({
+      ended_competencies: 1,
+      total_competencies: 3,
+      next_action: 'continue',
+    })
+    mockCandidateFetch.mockResolvedValueOnce(startResponse(INCOMING, 'heygen'))
+    providers[0]!._emit('state', 'complete')
+    await flush()
+    expect(providers).toHaveLength(2)
+    expect(session.handoverInFlight.value).toBe(true)
+    return session
+  }
+
+  it('moves only the ACTIVE handle cursor; the incoming keeps its own row', async () => {
+    const pending: IntegrityEventInternal[] = [
+      { type: 'tab_hidden', ts: 1 } as IntegrityEventInternal,
+    ]
+    const session = await overlap({ getPendingIntegrityEvents: () => pending })
+    mockFlushIntegrityKeepalive.mockClear()
+
+    const ticket = session.advanceAttribution(B)
+
+    // The active (outgoing) handle moved, and its integrity flush went to its OLD row.
+    expect(ticket?.sessionId).toBe(B)
+    expect(session.sessionId.value).toBe(B)
+    expect(mockFlushIntegrityKeepalive).toHaveBeenCalledWith(
+      expect.objectContaining({ session_id: A })
+    )
+
+    providers[0]!._emit('transcript', { role: 'avatar', text: 'outgoing tail', ts: 1 })
+    providers[1]!._emit('transcript', { role: 'avatar', text: 'incoming opening', ts: 2 })
+    await flush()
+    expect(utterances()).toEqual([
+      [B, 'outgoing tail'],
+      [INCOMING, 'incoming opening'],
+    ])
+  })
+
+  it('promotion hands sessionId to the incoming cursor, untouched by the earlier move', async () => {
+    const session = await overlap()
+    session.advanceAttribution(B)
+
+    session.notifyPainted(INCOMING)
+    await vi.advanceTimersByTimeAsync(1000)
+    await flush()
+
+    expect(session.sessionId.value).toBe(INCOMING)
+    expect(session.players.value.map((p) => p.key)).toEqual([INCOMING])
   })
 })
 

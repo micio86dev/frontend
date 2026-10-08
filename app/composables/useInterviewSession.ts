@@ -304,6 +304,10 @@ export interface UseInterviewSessionReturn {
    * events are flushed against the outgoing row first. Returns the ticket, or
    * `null` (nothing moved, nothing sent) when no handle is live.
    *
+   * Handover window. Only the ACTIVE handle moves: a hidden `incomingSession`
+   * keeps its own cursor (its creation-time row) and becomes `sessionId` when it
+   * is promoted.
+   *
    * Failure contract. An invalid `nextSessionId` throws `RangeError` before
    * anything is flushed, moved or sent. If `sendBoundary` throws, the cursor
    * STAYS advanced (write-before-send; the flush and the move are irreversible)
