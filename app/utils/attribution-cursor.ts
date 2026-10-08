@@ -46,6 +46,28 @@ export function assertSessionId(id: number): void {
   }
 }
 
+/**
+ * Thrown (and only thrown) when the boundary sender fails AFTER the cursor has
+ * already moved. The move is irreversible by design — write-before-send — so the
+ * caller must not assume the row is unchanged; the minted {@link AdvanceTicket}
+ * rides on the error so it can still retry the send, and the sender's own error
+ * is its `cause`.
+ */
+export class BoundarySendError extends Error {
+  readonly ticket: AdvanceTicket
+
+  constructor(ticket: AdvanceTicket, cause: unknown) {
+    super(
+      `Boundary signal failed after the attribution cursor moved to session ${ticket.sessionId}: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+      { cause }
+    )
+    this.name = 'BoundarySendError'
+    this.ticket = ticket
+  }
+}
+
 export class AttributionCursor {
   #id: number
 

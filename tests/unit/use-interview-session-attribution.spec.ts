@@ -15,6 +15,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { nextTick } from 'vue'
 import type { IntegrityEventInternal } from '~/app/utils/proctor-config'
+import { BoundarySendError } from '~/app/utils/attribution-cursor'
 
 const { mockCandidateFetch, mockFlushIntegrityKeepalive, mockCreateProvider } = vi.hoisted(() => {
   class MockCandidateUnauthorizedError extends Error {}
@@ -276,6 +277,74 @@ describe('useInterviewSession — cursor-before-send ordering', () => {
     expect(session.advanceAttribution(B, sendBoundary)).toBeNull()
     expect(sendBoundary).not.toHaveBeenCalled()
     expect(session.sessionId.value).toBeNull()
+  })
+})
+
+describe('useInterviewSession — advanceAttribution failure modes', () => {
+  it('a throwing sendBoundary leaves the cursor advanced and rethrows with the ticket attached', async () => {
+    const session = await liveSession()
+    const boom = new Error('data channel closed')
+
+    let thrown: unknown
+    try {
+      session.advanceAttribution(B, () => {
+        throw boom
+      })
+    } catch (err) {
+      thrown = err
+    }
+
+    // Not swallowed, and recoverable: the minted ticket and the original error
+    // both travel on the thrown value.
+    expect(thrown).toBeInstanceOf(BoundarySendError)
+    const failure = thrown as BoundarySendError
+    expect(failure.ticket.sessionId).toBe(B)
+    expect(failure.cause).toBe(boom)
+    expect(failure.message).toContain('data channel closed')
+
+    // Write-before-send is the rule: the move is irreversible, so a failed send
+    // does not roll it back. Every reader keeps following the new row.
+    expect(session.sessionId.value).toBe(B)
+    providers[0]!._emit('transcript', { role: 'user', text: 'after the failed send', ts: 3 })
+    await flush()
+    expect(utterances()).toEqual([[B, 'after the failed send']])
+  })
+
+  it('wraps a non-Error throw too, keeping it as the cause', async () => {
+    const session = await liveSession()
+
+    let thrown: unknown
+    try {
+      session.advanceAttribution(B, () => {
+        throw 'plain string'
+      })
+    } catch (err) {
+      thrown = err
+    }
+
+    expect(thrown).toBeInstanceOf(BoundarySendError)
+    expect((thrown as BoundarySendError).cause).toBe('plain string')
+    expect((thrown as BoundarySendError).ticket.sessionId).toBe(B)
+  })
+
+  it('an invalid next id is refused BEFORE anything is flushed, moved or sent', async () => {
+    const pending: IntegrityEventInternal[] = [
+      { type: 'tab_hidden', ts: 1 } as IntegrityEventInternal,
+    ]
+    const onFlushed = vi.fn()
+    const session = await liveSession({
+      getPendingIntegrityEvents: () => pending,
+      onIntegrityEventsFlushed: onFlushed,
+    })
+    mockFlushIntegrityKeepalive.mockClear()
+    const sendBoundary = vi.fn()
+
+    expect(() => session.advanceAttribution(0, sendBoundary)).toThrow(RangeError)
+
+    expect(mockFlushIntegrityKeepalive).not.toHaveBeenCalled()
+    expect(onFlushed).not.toHaveBeenCalled()
+    expect(sendBoundary).not.toHaveBeenCalled()
+    expect(session.sessionId.value).toBe(A)
   })
 })
 

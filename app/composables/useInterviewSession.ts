@@ -112,7 +112,12 @@ import {
 } from '~/app/utils/candidate-api'
 import { useCandidateSession } from '~/app/composables/useCandidateSession'
 import { createCancelableTimer } from '~/app/utils/cancelable-timer'
-import { AttributionCursor, type AdvanceTicket } from '~/app/utils/attribution-cursor'
+import {
+  AttributionCursor,
+  BoundarySendError,
+  assertSessionId,
+  type AdvanceTicket,
+} from '~/app/utils/attribution-cursor'
 
 /**
  * The `/candidate/interview/start` success body, DERIVED from the generated
@@ -298,6 +303,12 @@ export interface UseInterviewSessionReturn {
    * only then) hand the resulting ticket to `sendBoundary`. Unsent integrity
    * events are flushed against the outgoing row first. Returns the ticket, or
    * `null` (nothing moved, nothing sent) when no handle is live.
+   *
+   * Failure contract. An invalid `nextSessionId` throws `RangeError` before
+   * anything is flushed, moved or sent. If `sendBoundary` throws, the cursor
+   * STAYS advanced (write-before-send; the flush and the move are irreversible)
+   * and a `BoundarySendError` is thrown carrying the minted `ticket` and the
+   * sender's error as `cause` — never swallowed, never rolled back.
    *
    * No caller yet: the single-conversation boundary flow (FE-04) is the first.
    */
@@ -1490,6 +1501,11 @@ export function useInterviewSession(
     const handle = activeSession.value
     if (!handle) return null
 
+    // Refuse an invalid id BEFORE the irreversible steps below: the flush
+    // acknowledges the proctor's events, and none of that should happen for a
+    // move that is going to be rejected anyway.
+    assertSessionId(nextSessionId)
+
     // Events the proctor buffered while the outgoing row was current belong to
     // that row: ship them before the cursor moves, or they would be re-addressed.
     flushPendingIntegrity(handle.attribution.current)
@@ -1498,7 +1514,17 @@ export function useInterviewSession(
     // transcribes from here on is the new competency's.
     const ticket = handle.attribution.advance(nextSessionId)
     sessionId.value = handle.attribution.current
-    sendBoundary?.(ticket)
+    if (sendBoundary) {
+      try {
+        sendBoundary(ticket)
+      } catch (err) {
+        // The move above cannot be undone, so a failed send does NOT roll the
+        // cursor back (transcript that already landed on the new row must stay
+        // there). Rethrown — never swallowed — with the ticket attached, so the
+        // caller can retry the send without minting a second move.
+        throw new BoundarySendError(ticket, err)
+      }
+    }
     return ticket
   }
 
