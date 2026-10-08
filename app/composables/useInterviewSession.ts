@@ -112,6 +112,7 @@ import {
 } from '~/app/utils/candidate-api'
 import { useCandidateSession } from '~/app/composables/useCandidateSession'
 import { createCancelableTimer } from '~/app/utils/cancelable-timer'
+import { AttributionCursor, type AdvanceTicket } from '~/app/utils/attribution-cursor'
 
 /**
  * The `/candidate/interview/start` success body, DERIVED from the generated
@@ -193,7 +194,16 @@ export type EndQuestionReason = 'timeout'
 export interface ProviderSession {
   provider: InterviewProvider
   config: StartConfig
+  /**
+   * Identifies the PLAYER only: the `players` key, the keyed `v-for`, and
+   * `notifyPainted` matching. It is the id this handle was created for and never
+   * changes. Everything that means "the competency row being attributed to now"
+   * (`/end`, `/suspend`, utterances, `sessionId`, snapshots, integrity) reads
+   * {@link ProviderSession.attribution} instead (A2).
+   */
   dbSessionId: number
+  /** Which interview-session row this handle's transcript, `/end` and `/suspend` belong to now. */
+  readonly attribution: AttributionCursor
   /** From the `/start` response. Never surfaced to the UI (D9) — provider-anonymity. */
   providerName: ProviderName
   /**
@@ -283,6 +293,18 @@ export interface UseInterviewSessionReturn {
    * handle — the live handle's own paint only drives its own opacity (D6).
    */
   notifyPainted: (dbSessionId: number) => void
+  /**
+   * Move the attribution cursor of the LIVE handle to `nextSessionId`, then (and
+   * only then) hand the resulting ticket to `sendBoundary`. Unsent integrity
+   * events are flushed against the outgoing row first. Returns the ticket, or
+   * `null` (nothing moved, nothing sent) when no handle is live.
+   *
+   * No caller yet: the single-conversation boundary flow (FE-04) is the first.
+   */
+  advanceAttribution: (
+    nextSessionId: number,
+    sendBoundary?: (ticket: AdvanceTicket) => void
+  ) => AdvanceTicket | null
 }
 
 // ---------------------------------------------------------------------------
@@ -574,6 +596,22 @@ export function useInterviewSession(
     }
   }
 
+  /**
+   * Hand every unsent integrity event to the keepalive transport, addressed to
+   * `sessionId`, and acknowledge them on dispatch. Shared by the resize flush
+   * and by `advanceAttribution()`, which must flush against the OUTGOING row
+   * before the cursor moves.
+   */
+  function flushPendingIntegrity(sessionId: number | null) {
+    const pending = options.getPendingIntegrityEvents?.() ?? []
+    if (pending.length === 0) return
+    flushIntegrityKeepalive({
+      session_id: sessionId,
+      events: pending.map((e) => ({ kind: e.type, ts: e.ts, payload: e.meta ?? null })),
+    })
+    options.onIntegrityEventsFlushed?.(pending)
+  }
+
   function attachResizeListener() {
     if (typeof window === 'undefined') return
 
@@ -590,15 +628,7 @@ export function useInterviewSession(
         // gone from the pending buffer, with only a console.warn (from a page
         // that is about to navigate away) marking the loss. Same ceiling
         // sendBeacon already had; written down here because it was not before.
-        const pending = options.getPendingIntegrityEvents?.() ?? []
-        if (pending.length > 0) {
-          const payload = {
-            session_id: activeSession.value?.dbSessionId ?? null,
-            events: pending.map((e) => ({ kind: e.type, ts: e.ts, payload: e.meta ?? null })),
-          }
-          flushIntegrityKeepalive(payload)
-          options.onIntegrityEventsFlushed?.(pending)
-        }
+        flushPendingIntegrity(activeSession.value?.attribution.current ?? null)
 
         // Stop provider before navigating (suppress errors — non-fatal during teardown).
         // Pre-existing, unrelated to the handover machinery — kept explicit and
@@ -928,7 +958,7 @@ export function useInterviewSession(
     // ~200ms crossfade window, with two unmuted mics again.
     incoming.provider.setMicMuted(false).catch(() => {})
     activeSession.value = incoming
-    sessionId.value = incoming.dbSessionId
+    sessionId.value = incoming.attribution.current
     // The machine stays `live` for the whole handover (D2); this also covers
     // a LATE promotion reached from the bound-exceeded `connecting` fallback.
     transitionTo('live')
@@ -979,13 +1009,17 @@ export function useInterviewSession(
     handle.provider.on('transcript', (payload) => {
       const entry = payload as { role: 'user' | 'avatar'; text: string; ts: number }
       const speaker = entry.role === 'user' ? 'candidate' : 'avatar'
-      // D2: resolved by the EMITTING handle's own dbSessionId — never shared
-      // module state. This is the permanent fix for the api v0.26.4-shaped
+      // D2: resolved by the EMITTING handle's own attribution cursor — never
+      // shared module state. This is the permanent fix for the api v0.26.4-shaped
       // defect: an outgoing's tail transcript can never land on the
-      // incoming's row, because it never reads the incoming's id at all.
+      // incoming's row, because it never reads the incoming's cursor at all.
+      // Read at EMIT time, not captured when the handler is wired: a cursor
+      // that moves between two lines must attribute each to its own row.
       // Tracked, not merely fired: `callEnd()` drains this set before it runs,
       // so the tail cannot be 409-dropped by its own /end.
-      const inFlight = sendUtterance(handle.dbSessionId, entry.text, speaker).catch(() => {})
+      const inFlight = sendUtterance(handle.attribution.current, entry.text, speaker).catch(
+        () => {}
+      )
       inFlightUtterances.add(inFlight)
       void inFlight.finally(() => inFlightUtterances.delete(inFlight))
     })
@@ -1128,7 +1162,7 @@ export function useInterviewSession(
     }
 
     // Avatar signalled completion → call /end with 'completed'
-    callEnd(handle.dbSessionId, 'completed')
+    callEnd(handle.attribution.current, 'completed')
       .then((directive) => {
         if (isHeyGen && handle === activeSession.value) {
           handleHandoverDirective(directive, handle)
@@ -1204,6 +1238,7 @@ export function useInterviewSession(
         provider: withIdempotentStop(createProvider(providerName, isMock())),
         config: startConfig,
         dbSessionId,
+        attribution: new AttributionCursor(dbSessionId),
         providerName,
         // `=== true`, not a truthy read: an older API that does not send the
         // field must resolve to "show the avatar", and `undefined` must never
@@ -1219,7 +1254,7 @@ export function useInterviewSession(
       if (target === 'incoming') {
         incomingSession.value = handle
       } else {
-        sessionId.value = dbSessionId
+        sessionId.value = handle.attribution.current
         activeSession.value = handle
       }
     } catch (err) {
@@ -1375,7 +1410,7 @@ export function useInterviewSession(
     handle?.provider.stop().catch(() => {})
 
     if (handle) {
-      void callSuspend(handle.dbSessionId)
+      void callSuspend(handle.attribution.current)
     }
 
     clearActiveProvider()
@@ -1443,9 +1478,28 @@ export function useInterviewSession(
     const handle = activeSession.value
     if (!handle) return
 
-    const directive = await callEnd(handle.dbSessionId, reason)
+    const directive = await callEnd(handle.attribution.current, reason)
     handle.provider.stop().catch(() => {})
     advanceAfterQuestion(directive)
+  }
+
+  function advanceAttribution(
+    nextSessionId: number,
+    sendBoundary?: (ticket: AdvanceTicket) => void
+  ): AdvanceTicket | null {
+    const handle = activeSession.value
+    if (!handle) return null
+
+    // Events the proctor buffered while the outgoing row was current belong to
+    // that row: ship them before the cursor moves, or they would be re-addressed.
+    flushPendingIntegrity(handle.attribution.current)
+
+    // The cursor is written BEFORE the signal is sent: anything the provider
+    // transcribes from here on is the new competency's.
+    const ticket = handle.attribution.advance(nextSessionId)
+    sessionId.value = handle.attribution.current
+    sendBoundary?.(ticket)
+    return ticket
   }
 
   async function teardown() {
@@ -1492,5 +1546,6 @@ export function useInterviewSession(
     endQuestion,
     teardown,
     notifyPainted,
+    advanceAttribution,
   }
 }
