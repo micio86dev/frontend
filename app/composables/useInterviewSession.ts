@@ -203,8 +203,10 @@ export interface ProviderSession {
    * Identifies the PLAYER only: the `players` key, the keyed `v-for`, and
    * `notifyPainted` matching. It is the id this handle was created for and never
    * changes. Everything that means "the competency row being attributed to now"
-   * (`/end`, `/suspend`, utterances, `sessionId`, snapshots, integrity) reads
-   * {@link ProviderSession.attribution} instead (A2).
+   * (`/end`, `/suspend`, utterances, the resize integrity flush and `sessionId`)
+   * reads {@link ProviderSession.attribution} instead (A2). Snapshots do not read
+   * it directly: `ProctorOverlay` is fed `sessionId.value` (the cursor-fed ref),
+   * which `useProctor` reads at snapshot time.
    */
   dbSessionId: number
   /** Which interview-session row this handle's transcript, `/end` and `/suspend` belong to now. */

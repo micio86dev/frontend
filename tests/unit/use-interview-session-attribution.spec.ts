@@ -16,6 +16,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { nextTick } from 'vue'
 import type { IntegrityEventInternal } from '~/app/utils/proctor-config'
 import { BoundarySendError } from '~/app/utils/attribution-cursor'
+import { useProctor } from '~/app/composables/useProctor'
 
 const { mockCandidateFetch, mockFlushIntegrityKeepalive, mockCreateProvider } = vi.hoisted(() => {
   class MockCandidateUnauthorizedError extends Error {}
@@ -138,6 +139,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   vi.useRealTimers()
   vi.unstubAllGlobals()
 })
@@ -227,6 +229,45 @@ describe('useInterviewSession — attribution cursor readers', () => {
 
     expect(utterances()).toEqual([[A, 'x']])
     expect(callsTo('/candidate/interview/end')[0]![1]).toMatchObject({ body: { session_id: A } })
+  })
+})
+
+describe('useInterviewSession — snapshots follow the cursor', () => {
+  // InterviewSession.vue renders `<ProctorOverlay :session-id="session.sessionId.value">`
+  // and the overlay hands useProctor `getSessionId: () => props.sessionId`. Composing
+  // useProctor with the same getter over the real composable proves the snapshot's
+  // session_id is read from `sessionId.value` at SNAPSHOT time (the template prop
+  // passthrough itself is not mounted here).
+  it('POST /snapshot is addressed to the row the cursor is on when the snapshot is taken', async () => {
+    const realCreateElement = document.createElement.bind(document)
+    vi.spyOn(document, 'createElement').mockImplementation(((tag: string) =>
+      tag === 'canvas'
+        ? ({
+            width: 0,
+            height: 0,
+            getContext: () => ({ drawImage: vi.fn() }),
+            toDataURL: () => 'data:image/jpeg;base64,test',
+          } as unknown as HTMLCanvasElement)
+        : realCreateElement(tag)) as typeof document.createElement)
+    const session = await liveSession()
+    const proctor = useProctor({ getSessionId: () => session.sessionId.value })
+    proctor.injectSelfView({
+      readyState: 4,
+      videoWidth: 320,
+      videoHeight: 240,
+    } as unknown as HTMLVideoElement)
+    const snapshotSessionIds = () =>
+      callsTo('/candidate/interview/snapshot').map(
+        (c: unknown[]) => (c[1] as { body: { session_id: number } }).body.session_id
+      )
+
+    proctor.triggerSnapshot()
+    session.advanceAttribution(B)
+    proctor.triggerSnapshot()
+    session.advanceAttribution(C)
+    proctor.triggerSnapshot()
+
+    expect(snapshotSessionIds()).toEqual([A, B, C])
   })
 })
 
