@@ -278,3 +278,44 @@ describe('useInterviewSession — cursor-before-send ordering', () => {
     expect(session.sessionId.value).toBeNull()
   })
 })
+
+describe('useInterviewSession — attribution tape across a cursor move', () => {
+  it('[u1(A), end, u2(window), u3(B)] posts exactly the expected (session_id, text) multiset', async () => {
+    const session = await liveSession()
+    const provider = providers[0]!
+    const emit = (role: 'user' | 'avatar', text: string) =>
+      provider._emit('transcript', { role, text, ts: Date.now() })
+
+    emit('user', 'u1 answer on A') // u1 — before the move: row A
+    emit('avatar', 'Passiamo alla prossima domanda.') // end — the closing line is still A's
+    session.advanceAttribution(B, () => {
+      // u2 — fires inside the window: after the cursor write, before the signal
+      // reaches the provider. It belongs to the NEW row, never the old one.
+      emit('user', 'u2 inside the window')
+    })
+    emit('avatar', 'u3 opening of B') // u3 — after the move: row B
+    await flush()
+
+    const sortKey = (p: [number, string]) => `${p[0]}|${p[1]}`
+    expect(utterances().sort((x, y) => sortKey(x).localeCompare(sortKey(y)))).toEqual(
+      (
+        [
+          [A, 'u1 answer on A'],
+          [A, 'Passiamo alla prossima domanda.'],
+          [B, 'u2 inside the window'],
+          [B, 'u3 opening of B'],
+        ] as Array<[number, string]>
+      ).sort((x, y) => sortKey(x).localeCompare(sortKey(y)))
+    )
+  })
+
+  it('/end for the outgoing row is posted for A while the cursor is still on A', async () => {
+    const session = await liveSession()
+    mockCandidateFetch.mockResolvedValueOnce({ next_action: 'continue' })
+    // endQuestion on a live Tavus handle: /end(A) with the cursor still on A.
+    await session.endQuestion('timeout')
+
+    expect(callsTo('/candidate/interview/end')).toHaveLength(1)
+    expect(callsTo('/candidate/interview/end')[0]![1]).toMatchObject({ body: { session_id: A } })
+  })
+})
