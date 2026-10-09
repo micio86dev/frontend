@@ -15,7 +15,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { ref, defineComponent, h, markRaw, onMounted, onUnmounted } from 'vue'
+import { ref, defineComponent, h, markRaw, onBeforeUnmount, onMounted, onUnmounted } from 'vue'
 import type { InterviewProvider } from '~/app/types/interview-provider'
 
 vi.setConfig({ testTimeout: 30000 })
@@ -156,6 +156,9 @@ function startResponse(sessionId: number, provider = 'tavus') {
 /** Mounts and unmounts of the player stub: the R1 guarantee counts instances, not renders. */
 const playerLifecycle = { mounted: 0, unmounted: 0 }
 
+/** When on, the stub says goodbye like the real `AvatarPlayer.client.vue`: `stream` with `null` as it unmounts. */
+const realPlayer = { emitNullOnUnmount: false }
+
 /** Mirrors `AvatarPlayer`: re-emits the provider's own events upwards and stops its provider when it unmounts. */
 const AvatarPlayerStub = defineComponent({
   name: 'AvatarPlayer',
@@ -173,6 +176,9 @@ const AvatarPlayerStub = defineComponent({
     provider.on('state', (payload) => emit('state', payload))
     onMounted(() => {
       playerLifecycle.mounted += 1
+    })
+    onBeforeUnmount(() => {
+      if (realPlayer.emitNullOnUnmount) emit('stream', null)
     })
     onUnmounted(() => {
       playerLifecycle.unmounted += 1
@@ -352,6 +358,7 @@ beforeEach(() => {
   flag.raw = undefined
   playerLifecycle.mounted = 0
   playerLifecycle.unmounted = 0
+  realPlayer.emitNullOnUnmount = false
   overlayLifecycle.mounted = 0
   overlayLifecycle.unmounted = 0
   timerLifecycle.mounted = 0
@@ -1090,5 +1097,27 @@ describe('InterviewSession — the player layer is never re-parented (flag on, R
     expect(providers[0]!._rawStop).toHaveBeenCalledTimes(1)
     expect(providers[1]!._rawStop).not.toHaveBeenCalled()
     expect(wrapper.find('[data-testid="transition-panel"]').exists()).toBe(false)
+  })
+
+  it('forgets the retired player state and stream when it unmounts the way the real player does', async () => {
+    realPlayer.emitNullOnUnmount = true
+    const { wrapper, session } = await mountLive({ provider: 'heygen' })
+    const maps = wrapper.vm as unknown as {
+      playerStates: Map<number, string>
+      playerStreams: Map<number, MediaStream>
+    }
+    wrapper.findComponent(AvatarPlayerStub).vm.$emit('stream', fakeStream())
+    await beginHandover(session)
+    expect(maps.playerStates.size).toBe(1)
+    expect(maps.playerStreams.size).toBe(1)
+
+    const incoming = wrapper.findAllComponents(AvatarPlayerStub)[1]!
+    incoming.vm.$emit('painted')
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    await settle()
+
+    expect(playerLifecycle.unmounted).toBe(1)
+    expect(maps.playerStates.size).toBe(0)
+    expect(maps.playerStreams.size).toBe(0)
   })
 })
