@@ -169,6 +169,10 @@ export default defineNuxtConfig({
       appEnv: 'local',
       // Set NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK=true in E2E to inject the mock provider (D2, W3)
       interviewProviderMock: '',
+      // Candidate interview call screen (candidate-interview-call-ui, D1). Set
+      // NUXT_PUBLIC_CANDIDATE_CALL_UI=true to switch the new screen on; EMPTY
+      // keeps the current one. Read through useCandidateCallUi().
+      candidateCallUi: '',
       // C13 task 5.3 — analytics. EMPTY means the tool does not load at all,
       // which is the correct default: these are per-deployment IDs, and a
       // committed one would have every developer's local session reported into

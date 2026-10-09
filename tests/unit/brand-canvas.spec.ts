@@ -330,3 +330,43 @@ describe("BrandCanvas — the organization's mark, or ours, but never nothing", 
     expect(wrapper.find('[data-testid="brand-canvas-org"]').exists()).toBe(false)
   })
 })
+
+describe('BrandCanvas — the wide option (candidate-interview-call-ui, D1/D11)', () => {
+  // The exact class strings of today's header and main container. The live call
+  // screen is the only caller that opts in; every other candidate page must
+  // render byte-for-byte what it rendered before the option existed.
+  const HEADER_CLASS = 'mx-auto flex w-full max-w-6xl items-center gap-4 px-4 pt-6 lg:px-10'
+  const MAIN_CLASS_SURFACE = 'flex flex-1 items-center justify-center px-4 py-8 lg:px-10 lg:py-10'
+  const MAIN_CLASS_BARE =
+    'flex flex-1 items-center justify-center px-4 py-8 lg:px-10 flex-col gap-5 lg:py-8'
+
+  it('keeps the header and main container classes byte-identical without it', () => {
+    const wrapper = mountCanvas()
+
+    expect(wrapper.get('header').attributes('class')).toBe(HEADER_CLASS)
+    expect(wrapper.get('main').attributes('class')).toBe(MAIN_CLASS_SURFACE)
+  })
+
+  it('keeps the bare (surface off) main container classes byte-identical without it', () => {
+    expect(mountCanvas({ surface: false }).get('main').attributes('class')).toBe(MAIN_CLASS_BARE)
+  })
+
+  it('treats an explicit wide=false exactly like leaving it out', () => {
+    const wrapper = mountCanvas({ wide: false })
+
+    expect(wrapper.get('header').attributes('class')).toBe(HEADER_CLASS)
+    expect(wrapper.get('main').attributes('class')).toBe(MAIN_CLASS_SURFACE)
+  })
+
+  it('widens both the header and the main container to 96rem with it', () => {
+    const wrapper = mountCanvas({ wide: true })
+    const header = wrapper.get('header').classes()
+    const main = wrapper.get('main').classes()
+
+    expect(header).toContain('max-w-[96rem]')
+    expect(header).not.toContain('max-w-6xl')
+    expect(main).toContain('max-w-[96rem]')
+    expect(main).toContain('mx-auto')
+    expect(main).toContain('w-full')
+  })
+})
