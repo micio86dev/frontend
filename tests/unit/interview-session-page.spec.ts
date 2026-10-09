@@ -1103,3 +1103,47 @@ describe('interview session — links on the surface', () => {
     }
   )
 })
+
+describe('interview session — the support URL (candidate-interview-call-ui, UI-08)', () => {
+  const REASONS = ['absent_phrase', 'malformed_response', 'generic'] as const
+
+  async function mountTerminal(reason: (typeof REASONS)[number], supportUrl?: unknown) {
+    // Re-stubbed on top of beforeEach's `{ public: {} }`: the support URL is
+    // read through useRuntimeConfig() when the component sets up.
+    vi.stubGlobal(
+      'useRuntimeConfig',
+      vi.fn(() => ({ public: supportUrl === undefined ? {} : { supportUrl } }))
+    )
+    const session = makeSession({ state: 'terminal', provider: null })
+    ;(session.terminalReason as { value: unknown }).value = reason
+
+    return mountPage(session)
+  }
+
+  it.each(REASONS)(
+    'keeps the %s link on the default mailbox when no support URL is set',
+    async (reason) => {
+      const wrapper = await mountTerminal(reason)
+
+      expect(wrapper.get('[data-testid="terminal-contact"]').attributes('href')).toBe(
+        'mailto:support@beai.app'
+      )
+    }
+  )
+
+  it.each(REASONS)('follows a configured support URL on the %s link', async (reason) => {
+    const wrapper = await mountTerminal(reason, 'https://help.example.com/contact')
+
+    expect(wrapper.get('[data-testid="terminal-contact"]').attributes('href')).toBe(
+      'https://help.example.com/contact'
+    )
+  })
+
+  it.each(REASONS)('refuses an unsafe configured value on the %s link', async (reason) => {
+    const wrapper = await mountTerminal(reason, 'javascript:alert(1)')
+
+    expect(wrapper.get('[data-testid="terminal-contact"]').attributes('href')).toBe(
+      'mailto:support@beai.app'
+    )
+  })
+})

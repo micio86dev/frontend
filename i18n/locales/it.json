@@ -80,6 +80,10 @@
         "title": "Colloquio sospeso",
         "body": "Hai sospeso il colloquio. Per riprendere, riapri il link di invito da questo browser entro le {time}, oppure premi Riprendi.",
         "body_no_deadline": "Hai sospeso il colloquio. Per riprendere, riapri il link di invito da questo browser, oppure premi Riprendi."
+      },
+      "help": {
+        "label": "Problemi con audio o video?",
+        "new_tab": "(si apre in una nuova scheda)"
       }
     },
     "end_of_question": {

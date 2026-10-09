@@ -467,7 +467,7 @@
           {{ $t('interview.terminal.absent_phrase.body') }}
         </p>
         <a
-          href="mailto:support@beai.app"
+          :href="supportUrl"
           class="text-sm font-medium text-primary-ink underline underline-offset-4 hover:no-underline"
           data-testid="terminal-contact"
         >
@@ -482,7 +482,7 @@
           {{ $t('interview.terminal.malformed_response.body') }}
         </p>
         <a
-          href="mailto:support@beai.app"
+          :href="supportUrl"
           class="text-sm font-medium text-primary-ink underline underline-offset-4 hover:no-underline"
           data-testid="terminal-contact"
         >
@@ -495,7 +495,7 @@
         </h1>
         <p class="text-sm text-muted-foreground">{{ $t('interview.terminal.generic.body') }}</p>
         <a
-          href="mailto:support@beai.app"
+          :href="supportUrl"
           class="text-sm font-medium text-primary-ink underline underline-offset-4 hover:no-underline"
           data-testid="terminal-contact"
         >
@@ -552,6 +552,7 @@ import { useNetworkGuard } from '~/composables/useNetworkGuard'
 import { useCandidateSession } from '~/composables/useCandidateSession'
 import { formatDeadline } from '~/utils/call-deadline'
 import { useCandidateCallUi } from '~/composables/useCandidateCallUi'
+import { useSupportUrl } from '~/composables/useSupportUrl'
 import { Button } from '~/components/ui/button'
 import { Alert, AlertTitle } from '~/components/ui/alert'
 import InterviewTimer from '~/components/InterviewTimer.vue'
@@ -746,6 +747,10 @@ const currentCaption = ref('')
 
 /** The new candidate call screen is switched on (candidate-interview-call-ui D1). */
 const callUi = useCandidateCallUi()
+
+// The target of the three terminal-state support links: the configured support
+// URL (https: or mailto: only), else the shipped mailbox.
+const supportUrl = useSupportUrl()
 
 const QUESTION_TIME_LIMIT = 300 // 5 minutes default
 

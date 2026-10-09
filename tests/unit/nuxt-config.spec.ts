@@ -211,3 +211,26 @@ describe('nuxt.config.ts — runtimeConfig.public.candidateCallUi (candidate-int
     expect(serverPart).not.toContain('candidateCallUi')
   })
 })
+
+describe('nuxt.config.ts — runtimeConfig.public.supportUrl (candidate-interview-call-ui, D10)', () => {
+  const source = readFileSync(CONFIG_PATH, 'utf-8')
+  const publicBlock = source.slice(source.indexOf('public: {'))
+
+  it("declares the support URL under runtimeConfig.public, defaulting to ''", () => {
+    // `NUXT_PUBLIC_SUPPORT_URL` can only reach runtimeConfig at runtime if the
+    // key exists here, and an empty value must keep the shipped mailbox.
+    expect(publicBlock).toMatch(/supportUrl:\s*''/)
+  })
+
+  it('does not put the support URL in the server-only part of runtimeConfig', () => {
+    const serverPart = source.slice(source.indexOf('runtimeConfig: {'), source.indexOf('public: {'))
+
+    expect(serverPart).not.toContain('supportUrl')
+  })
+
+  it('documents the environment variable in .env.example', () => {
+    const example = readFileSync(resolve(CONFIG_PATH, '../.env.example'), 'utf-8')
+
+    expect(example).toMatch(/^NUXT_PUBLIC_SUPPORT_URL=$/m)
+  })
+})

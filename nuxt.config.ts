@@ -173,6 +173,11 @@ export default defineNuxtConfig({
       // NUXT_PUBLIC_CANDIDATE_CALL_UI=true to switch the new screen on; EMPTY
       // keeps the current one. Read through useCandidateCallUi().
       candidateCallUi: '',
+      // Where the candidate's support links lead (candidate-interview-call-ui,
+      // D10). Set NUXT_PUBLIC_SUPPORT_URL to an https: page or a mailto: address;
+      // EMPTY (or any other scheme) keeps mailto:support@beai.app. Read through
+      // useSupportUrl(), which sanitizes it.
+      supportUrl: '',
       // C13 task 5.3 — analytics. EMPTY means the tool does not load at all,
       // which is the correct default: these are per-deployment IDs, and a
       // committed one would have every developer's local session reported into

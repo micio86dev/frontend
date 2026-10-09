@@ -45,6 +45,12 @@ async function mountTerminal(locale: 'en' | 'it', query: Record<string, string>)
     'useRoute',
     vi.fn(() => ({ query, params: {} }))
   )
+  // afterEach unstubs every global, wiping the shared setup.ts stub; the page
+  // reads the support URL through useRuntimeConfig(). Unset means the default.
+  vi.stubGlobal(
+    'useRuntimeConfig',
+    vi.fn(() => ({ public: {} }))
+  )
   const { default: Page } = await import('~/app/pages/interview/terminal.vue')
   const wrapper = mount(Page, { global: { mocks: { $t: translator(loadLocale(locale)) } } })
   return Object.assign(wrapper, {
