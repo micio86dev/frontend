@@ -151,6 +151,10 @@ exports[`brand theme token source (regression guard) > @theme literal block matc
 
   --color-recording: #dc2626;
   --color-avatar-bg: #0f172a;
+  /* The white band of the call tile's speaking ring (DESIGN.md §3.1, §3.5).
+     Always drawn between two avatar-bg bands, so it clears 3:1 on any brand
+     colour and any video; a constant, never derived and never tinted. */
+  --color-speaking-ring: #ffffff;
 
   /* === Typography === */
   /* Open Sans — self-hosted via @fontsource/open-sans (GDPR-safe; no Google Fonts runtime call) */
@@ -163,6 +167,8 @@ exports[`brand theme token source (regression guard) > @theme literal block matc
   --spacing-avatar-panel: 2rem;
   --spacing-nav: 4rem;
   --spacing-sidebar: 16rem;
+  /* Width of the call screen's side panel at xl and up (DESIGN.md §3.3, §7.3). */
+  --spacing-call-panel: 18rem;
 
   /* D12 — control sizing. 44px is WCAG 2.2 SC 2.5.5 (Enhanced, AAA); a
      deliberate step above the 24px AA floor the previous 32px already
