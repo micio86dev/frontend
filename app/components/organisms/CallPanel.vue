@@ -2,9 +2,13 @@
   <aside
     data-testid="call-panel"
     :aria-label="$t('interview.call.panel_label')"
-    class="brand-canvas__surface flex flex-col gap-5 rounded-surface bg-card p-6 text-card-foreground shadow-surface"
+    class="brand-canvas__surface flex flex-row flex-wrap items-center gap-x-8 gap-y-4 rounded-surface bg-card p-6 text-card-foreground shadow-surface xl:flex-col xl:flex-nowrap xl:items-stretch xl:gap-5"
   >
-    <section v-if="hasTotal" data-testid="call-panel-progress" class="flex flex-col gap-2">
+    <section
+      v-if="hasTotal"
+      data-testid="call-panel-progress"
+      class="flex min-w-56 flex-1 flex-col gap-2 xl:flex-none"
+    >
       <p data-testid="call-panel-progress-text" class="text-base font-semibold">
         {{ $t('interview.call.progress', progress) }}
       </p>
@@ -44,7 +48,7 @@
       @expired="emit('expired')"
     />
 
-    <div class="flex flex-col gap-3">
+    <div class="flex flex-wrap items-center gap-x-6 gap-y-3 xl:flex-col xl:items-stretch">
       <slot name="exit" />
       <slot name="help" />
     </div>
