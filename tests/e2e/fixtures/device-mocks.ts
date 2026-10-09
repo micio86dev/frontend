@@ -145,17 +145,28 @@ export async function injectCallMedia(page: Page): Promise<void> {
         return Promise.resolve()
       }
       createAnalyser() {
-        return {
-          fftSize: 256,
-          get frequencyBinCount() {
-            return this.fftSize / 2
-          },
+        // `frequencyBinCount` is a plain data property, not a getter reading `this`,
+        // so destructuring it keeps working. The app DOES reassign `fftSize`
+        // (useSpeakerTurn, useDeviceCheck, useProctor), so assigning it recomputes
+        // the bin count, as a real AnalyserNode does.
+        let fftSize = 256
+        const analyser = {
+          frequencyBinCount: fftSize / 2,
           getByteTimeDomainData(buffer: Uint8Array) {
             const level = Number(win['__fakeMicLevel'] ?? 0)
             buffer.fill(Math.min(255, Math.round(128 + level * 128)))
           },
           disconnect() {},
         }
+        Object.defineProperty(analyser, 'fftSize', {
+          enumerable: true,
+          get: () => fftSize,
+          set: (value: number) => {
+            fftSize = value
+            analyser.frequencyBinCount = value / 2
+          },
+        })
+        return analyser as typeof analyser & { fftSize: number }
       }
       createMediaStreamSource() {
         return { connect() {}, disconnect() {} }

@@ -36,7 +36,11 @@ const STACK_SPECS = ['stack/**/*.stack.spec.ts']
 
 /** The call screen specs: run by the `*-call` projects against the flag-on server, ignored everywhere else. */
 const CALL_SPECS = ['**/interview-call*.spec.ts']
-const CALL_URL = 'http://127.0.0.1:4177'
+// The ONE place the call server's port lives: its readiness URL, its listen port and
+// its apiBase are all derived from it. (The two servers above spell their port out
+// in each field; this one is derived so a stray-port collision is a one-line change.)
+const CALL_PORT = 4177
+const CALL_URL = `http://127.0.0.1:${CALL_PORT}`
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -184,12 +188,12 @@ export default defineConfig({
           // Its /api proxy only sees what the specs do not mock, and they mock every
           // call the interview makes.
           command: 'node .output/server/index.mjs',
-          url: 'http://127.0.0.1:4177/api/health',
+          url: `${CALL_URL}/api/health`,
           env: {
             HOST: '0.0.0.0',
-            PORT: '4177',
-            NITRO_PORT: '4177',
-            NUXT_PUBLIC_API_BASE: 'http://127.0.0.1:4177/api',
+            PORT: String(CALL_PORT),
+            NITRO_PORT: String(CALL_PORT),
+            NUXT_PUBLIC_API_BASE: `${CALL_URL}/api`,
             NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK: 'true',
             NUXT_PUBLIC_GA_MEASUREMENT_ID: 'G-E2ETEST',
             NUXT_PUBLIC_CANDIDATE_CALL_UI: 'true',

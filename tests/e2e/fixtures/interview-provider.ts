@@ -21,8 +21,6 @@ import type {
  *   emitFinalPhrase() — simulates avatar speaking the final_phrase (HeyGen last-question)
  *   emitToolCall()    — simulates Tavus end_interview tool_call completion
  *   emitTranscript()  — emits an arbitrary transcript entry
- *   emitSpeaking()    — the avatar starts talking (state `speaking`)
- *   emitListening()   — the avatar stops talking (state `listening`)
  *   emitError()       — simulates provider error (absent phrase, SDK failure)
  */
 export class MockInterviewProvider implements InterviewProvider {
@@ -106,21 +104,6 @@ export class MockInterviewProvider implements InterviewProvider {
    */
   emitTranscript(text: string, role: 'user' | 'avatar' = 'avatar'): void {
     this.emit('transcript', { role, text, ts: Date.now() })
-  }
-
-  /**
-   * Simulate the avatar starting to talk. HeyGen reports this as a `speaking`
-   * state; the call screen lights the interviewer's tile on it.
-   */
-  emitSpeaking(): void {
-    this.emitState('speaking')
-  }
-
-  /**
-   * Simulate the avatar finishing its turn and waiting for the candidate.
-   */
-  emitListening(): void {
-    this.emitState('listening')
   }
 
   /**
