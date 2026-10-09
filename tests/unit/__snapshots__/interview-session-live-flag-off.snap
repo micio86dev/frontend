@@ -1,0 +1,36 @@
+<div data-v-3d326f4c="" class="brand-canvas relative isolate flex min-h-screen flex-col overflow-hidden bg-primary text-on-primary">
+  <div data-v-3d326f4c="" data-slot="brand-canvas-decor" aria-hidden="true" class="brand-canvas__decor pointer-events-none absolute inset-0 -z-10"></div>
+  <header data-v-3d326f4c="" class="mx-auto flex w-full max-w-6xl items-center gap-4 px-4 pt-6 lg:px-10">
+    <p data-v-3d326f4c="" class="text-lg leading-none font-semibold tracking-[0.3em]">BEAI</p>
+    <div data-v-3d326f4c="" class="ml-auto flex items-center gap-3">
+      <div data-testid="interview-status" class="flex h-11 items-center gap-4 rounded-full bg-card px-5 text-card-foreground shadow-sm">
+        <span class="text-sm font-semibold" data-testid="question-label">interview.live.question_label|{"n":"1"}</span>
+        <span aria-hidden="true" class="h-5 w-px bg-border"></span>
+        <interview-timer-stub seconds="300"></interview-timer-stub>
+      </div>
+    </div>
+  </header>
+  <main data-v-3d326f4c="" data-testid="interview-session" aria-label="interview.document_title" class="flex flex-1 items-center justify-center px-4 py-8 lg:px-10 flex-col gap-5 lg:py-8">
+    <div data-testid="integrity-toaster" class="fixed z-[500] size-0">
+      <section aria-label="interview.integrity_toast.region_label alt+T" tabindex="-1" aria-live="polite" aria-relevant="additions text" aria-atomic="false">
+        <ol data-sonner-toaster="" data-sonner-theme="light" class="toaster" dir="ltr" tabindex="-1" data-theme="light" data-rich-colors="false" data-y-position="top" data-x-position="right" style="--front-toast-height: 0px; --width: 356px; --gap: 14px; --offset-top: calc(5.25rem + env(safe-area-inset-top, 0px)); --offset-right: calc(max(1rem, (100vw - 72rem) / 2 + 2.5rem) + env(safe-area-inset-right, 0px)); --offset-bottom: calc(1rem + env(safe-area-inset-bottom, 0px)); --offset-left: calc(1rem + env(safe-area-inset-left, 0px)); --mobile-offset-top: calc(5.25rem + env(safe-area-inset-top, 0px)); --mobile-offset-right: calc(max(1rem, (100vw - 72rem) / 2 + 2.5rem) + env(safe-area-inset-right, 0px)); --mobile-offset-bottom: calc(1rem + env(safe-area-inset-bottom, 0px)); --mobile-offset-left: calc(1rem + env(safe-area-inset-left, 0px));"></ol>
+      </section>
+    </div>
+    <div data-slot="avatar-layer" class="relative mx-auto w-full max-w-3xl overflow-hidden rounded-surface shadow-avatar">
+      <div>
+        <div data-testid="avatar-player"></div>
+      </div>
+    </div>
+    <section class="flex w-full max-w-3xl flex-col" aria-label="interview.live.region_label">
+      <div data-testid="live-dock" class="brand-canvas__surface flex min-h-18 items-center gap-6 rounded-surface bg-card px-6 py-4 text-card-foreground shadow-surface">
+        <div class="grid min-w-0 flex-1 items-center">
+          <p data-testid="caption" class="[grid-area:1/1]"></p>
+          <p data-testid="live-hint" class="text-sm leading-7 text-muted-foreground [grid-area:1/1]">interview.live.listen_hint</p>
+        </div>
+        <button data-slot="button" data-variant="outline" data-size="default" class="focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 rounded-lg border bg-clip-padding text-sm font-medium focus-visible:ring-3 aria-invalid:ring-3 active:not-aria-[haspopup]:translate-y-px [&amp;_svg:not([class*=size-])]:size-4 group/button inline-flex items-center justify-center whitespace-nowrap transition-all outline-none select-none disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 border-border bg-background hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 aria-expanded:bg-muted aria-expanded:text-foreground gap-1.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 h-(--spacing-control) shrink-0 px-5">
+          interview.live.pause
+        </button>
+      </div>
+    </section>
+  </main>
+</div>

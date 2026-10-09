@@ -37,6 +37,7 @@
 
     <InterviewTimer
       v-if="questionSeconds !== undefined"
+      :key="timerKey ?? undefined"
       :seconds="questionSeconds"
       :label="$t('interview.call.question_timer_label')"
       @tick="emit('tick', $event)"
@@ -75,14 +76,16 @@
  *   questionSeconds  — what the per-question counter starts from. Omitted: no counter.
  *                      The caller owns the remaining time (see InterviewTimer) and
  *                      re-keys this component's counter on a new competency session.
+ *   timerKey         — identifies the competency session the counter belongs to. The
+ *                      counter only reads `questionSeconds` when it is created, so a new
+ *                      session (which can keep the screen live: a handover never leaves
+ *                      it) needs a new counter to start from the full limit. Not shown.
  *   secondsPerQuestion — the per-question limit the maximum is derived from. Default 300,
  *                      the same limit the session page arms the counter with.
  *
  * Emits: tick / expired — forwarded unchanged from the counter.
  *
  * Slots: exit, help.
- *
- * NOT WIRED INTO ANYTHING YET. Assembly into the call screen is its own slice.
  */
 import { computed } from 'vue'
 import InterviewTimer from '~/app/components/InterviewTimer.vue'
@@ -95,9 +98,10 @@ const props = withDefaults(
     total: number | null
     elapsedSeconds: number
     questionSeconds?: number
+    timerKey?: number | null
     secondsPerQuestion?: number
   }>(),
-  { questionSeconds: undefined, secondsPerQuestion: 300 }
+  { questionSeconds: undefined, timerKey: null, secondsPerQuestion: 300 }
 )
 
 const emit = defineEmits<{

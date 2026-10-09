@@ -29,7 +29,7 @@
  * COST: one `setInterval` reading two analysers, started when the session becomes
  * `live` and cleared otherwise. Nothing runs while paused.
  *
- * NOT WIRED INTO ANYTHING YET. Assembly into the call screen is its own slice.
+ * Armed by `InterviewSession` only with the `candidateCallUi` flag on.
  */
 
 import { getCurrentScope, onScopeDispose, ref, watch, type Ref } from 'vue'

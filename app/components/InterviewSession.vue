@@ -5,6 +5,7 @@
     :surface="false"
     :footer="false"
     :load-branding="false"
+    :wide="callStageLive"
   >
     <!--
       The whole interview sits on the brand canvas the candidate arrived on
@@ -21,7 +22,8 @@
     <template v-if="preInterviewStep" #header-end>
       <InterviewSteps :current="preInterviewStep" />
     </template>
-    <template v-else-if="session.state.value === 'live' && avatarMounted" #header-end>
+    <!-- candidate-interview-call-ui: the status pill is superseded by the side panel. -->
+    <template v-else-if="session.state.value === 'live' && avatarMounted && !callUi" #header-end>
       <!--
         A white pill, like the logo plate: the timer turns red in its last ten
         seconds, and red only has a measured contrast on white, never on an
@@ -60,7 +62,7 @@
       fires its notices into it. Outside every state branch, so it is mounted
       exactly once and a notice survives the live screen giving way to another.
     -->
-    <IntegrityToaster />
+    <IntegrityToaster :position="callUi ? 'top-left' : undefined" />
 
     <!--
       Player mount layer (invisible-competency-handover D3/D5/D6) — ALWAYS
@@ -85,8 +87,86 @@
       unmount independently and `stop()` the session that just won a
       handover the moment it is promoted.
     -->
+    <!--
+      candidate-interview-call-ui D3 — flag on: the SAME layer, inside the call
+      layout. `CallStage` renders this slot in every state, so the layer element
+      and every keyed `AvatarPlayer` in it survive connecting, live, paused and a
+      handover; only the classes change. The interviewer's tile frame (name chip
+      and speaking ring) is inside the layer, around the players.
+    -->
+    <CallStage v-if="callUi" :live="callStageLive" :embedded="embedded">
+      <template #layer="{ live }">
+        <div
+          data-slot="avatar-layer"
+          class="relative"
+          :aria-hidden="session.players.value.length === 0 ? 'true' : undefined"
+          :class="[
+            live
+              ? 'self-start [grid-area:layer]'
+              : 'mx-auto w-full max-w-3xl overflow-hidden rounded-surface',
+            hasLivePlayer ? '' : 'sr-only',
+          ]"
+        >
+          <CallTile
+            :name="$t('interview.call.interviewer_name')"
+            :speaking-label="$t('interview.call.avatar_speaking')"
+            :speaking="speaker === 'avatar'"
+          >
+            <template v-for="p in session.players.value" :key="p.key">
+              <ClientOnly>
+                <AvatarPlayer
+                  :provider="p.provider"
+                  :config="p.config"
+                  :muted="p.muted"
+                  :audio-only="p.audioOnly"
+                  :overlay="p.role !== 'live'"
+                  @state="onCallPlayerState(p.role, p.key, $event)"
+                  @transcript="onTranscriptFromPlayer(p.role, $event)"
+                  @error="onProviderError"
+                  @painted="session.notifyPainted(p.key)"
+                  @stream="onAvatarStream(p.key, $event)"
+                />
+              </ClientOnly>
+            </template>
+          </CallTile>
+        </div>
+      </template>
+
+      <template #question>
+        <CallQuestion :text="currentCaption" />
+      </template>
+
+      <template #panel>
+        <CallPanel
+          :ended="session.endedCompetencies.value ?? null"
+          :total="session.totalCompetencies.value ?? null"
+          :elapsed-seconds="elapsedSeconds"
+          :question-seconds="questionRemaining"
+          :timer-key="session.sessionId.value ?? null"
+          @tick="questionRemaining = $event"
+          @expired="onTimerExpired"
+        >
+          <template #exit>
+            <CallExitDialog :loading="session.handoverInFlight.value" @confirm="onExitConfirmed" />
+          </template>
+          <template #help>
+            <CallHelpLink />
+          </template>
+        </CallPanel>
+      </template>
+
+      <template v-if="confirmedStream" #self>
+        <ClientOnly>
+          <CallSelfView
+            :stream="confirmedStream"
+            :speaking-label="$t('interview.call.candidate_speaking')"
+            :speaking="speaker === 'candidate'"
+          />
+        </ClientOnly>
+      </template>
+    </CallStage>
     <div
-      v-if="session.players.value.length > 0"
+      v-else-if="session.players.value.length > 0"
       data-slot="avatar-layer"
       class="relative mx-auto w-full max-w-3xl overflow-hidden rounded-surface shadow-avatar"
       :class="hasLivePlayer ? '' : 'sr-only'"
@@ -285,7 +365,7 @@
     </section>
 
     <section
-      v-else-if="avatarMounted"
+      v-else-if="avatarMounted && !callUi"
       class="flex w-full max-w-3xl flex-col"
       :aria-label="$t('interview.live.region_label')"
     >
@@ -315,10 +395,9 @@
             in its place until the first question arrives.
           -->
           <div class="grid min-w-0 flex-1 items-center">
-            <CallQuestion v-if="callUi" class="[grid-area:1/1]" :text="currentCaption" />
-            <InterviewCaption v-else class="[grid-area:1/1]" :text="currentCaption" />
+            <InterviewCaption class="[grid-area:1/1]" :text="currentCaption" />
             <p
-              v-if="!callUi && !currentCaption"
+              v-if="!currentCaption"
               data-testid="live-hint"
               class="text-sm leading-7 text-muted-foreground [grid-area:1/1]"
             >
@@ -341,13 +420,6 @@
           >
             {{ $t('interview.live.pause') }}
           </Button>
-          <!-- candidate-interview-call-ui D9 — flag on only. UI-09 moves it into
-               the stage's side panel; until then it sits beside Pause. -->
-          <CallExitDialog
-            v-if="callUi"
-            :loading="session.handoverInFlight.value"
-            @confirm="onExitConfirmed"
-          />
         </div>
 
         <!-- Invisible proctoring overlay -->
@@ -360,6 +432,23 @@
         </ClientOnly>
       </template>
     </section>
+
+    <!--
+      candidate-interview-call-ui — flag on: the same slot in the chain as the
+      section above, so every state still resolves exactly as before, but the
+      stage itself is rendered with the player layer (CallStage). What is left here
+      is the invisible proctoring overlay: mounted only in `live`, so a suspend
+      unmounts it, and fed the very stream the own tile shows (one camera request).
+    -->
+    <template v-else-if="avatarMounted">
+      <ClientOnly v-if="session.state.value === 'live' && confirmedStream">
+        <ProctorOverlay
+          :stream="confirmedStream"
+          :session-id="session.sessionId.value"
+          :on-events-updated="onIntegrityEventsUpdated"
+        />
+      </ClientOnly>
+    </template>
 
     <!-- End of Question screen -->
     <section
@@ -542,9 +631,10 @@
  *
  * noindex: this UI is session-gated and must never be indexed.
  */
-import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { ref, shallowReactive, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import type { Ref } from 'vue'
 import { useInterviewSession } from '~/composables/useInterviewSession'
-import type { HandoverRole } from '~/composables/useInterviewSession'
+import type { HandoverRole, SessionState } from '~/composables/useInterviewSession'
 import type { ProviderState } from '~/types/interview-provider'
 import { useExitRedirect } from '~/composables/useExitRedirect'
 import { useTabVisibilityGuard } from '~/composables/useTabVisibilityGuard'
@@ -552,6 +642,8 @@ import { useNetworkGuard } from '~/composables/useNetworkGuard'
 import { useCandidateSession } from '~/composables/useCandidateSession'
 import { formatDeadline } from '~/utils/call-deadline'
 import { useCandidateCallUi } from '~/composables/useCandidateCallUi'
+import { useSpeakerTurn } from '~/composables/useSpeakerTurn'
+import { useInterviewClock } from '~/composables/useInterviewClock'
 import { useSupportUrl } from '~/composables/useSupportUrl'
 import { Button } from '~/components/ui/button'
 import { Alert, AlertTitle } from '~/components/ui/alert'
@@ -559,6 +651,11 @@ import InterviewTimer from '~/components/InterviewTimer.vue'
 import InterviewCaption from '~/components/InterviewCaption.vue'
 import CallQuestion from '~/components/molecules/CallQuestion.vue'
 import CallExitDialog from '~/components/molecules/CallExitDialog.vue'
+import CallHelpLink from '~/components/molecules/CallHelpLink.vue'
+import CallSelfView from '~/components/molecules/CallSelfView.client.vue'
+import CallTile from '~/components/molecules/CallTile.vue'
+import CallPanel from '~/components/organisms/CallPanel.vue'
+import CallStage from '~/components/organisms/CallStage.vue'
 import InterviewGuide from '~/components/molecules/InterviewGuide.vue'
 import { Separator } from '~/components/ui/separator'
 import InterviewProgressBar from '~/components/ProgressBar.vue'
@@ -566,6 +663,18 @@ import InterviewSteps from '~/components/molecules/InterviewSteps.vue'
 import IntegrityToaster from '~/components/molecules/IntegrityToaster.vue'
 import BrandCanvas from '~/components/organisms/BrandCanvas.vue'
 import type { IntegrityEventInternal } from '~/utils/proctor-config'
+
+withDefaults(
+  defineProps<{
+    /**
+     * Rendered inside the host's iframe (`/embed/{token}`). The call stage then uses
+     * no viewport-height unit: the host sizes the iframe from the height the embed
+     * page reports, and a height that follows the iframe's own height never settles.
+     */
+    embedded?: boolean
+  }>(),
+  { embedded: false }
+)
 
 const { t, locale } = useI18n()
 const candidateSession = useCandidateSession()
@@ -751,6 +860,70 @@ const callUi = useCandidateCallUi()
 // The target of the three terminal-state support links: the configured support
 // URL (https: or mailto: only), else the shipped mailbox.
 const supportUrl = useSupportUrl()
+
+/**
+ * The call stage is showing: the interview is live and its avatar is mounted. Only
+ * then do the question band, the side panel and the own tile exist, and only then
+ * does the canvas widen to the stage's column.
+ */
+const callStageLive = computed(
+  () => callUi && session.state.value === 'live' && avatarMounted.value
+)
+
+// ---------------------------------------------------------------------------
+// Call stage signals (candidate-interview-call-ui D4, D7) — armed only with the
+// flag on, so the old screen runs no analyser and no extra timer.
+// ---------------------------------------------------------------------------
+
+/**
+ * The latest provider state and the audio stream of EACH player, by key. Read for
+ * whichever player is `live` right now: a handover promotes the very instance that
+ * was `incoming`, and what it reported while hidden must still count after.
+ */
+const playerStates = shallowReactive(new Map<number, ProviderState>())
+const playerStreams = shallowReactive(new Map<number, MediaStream>())
+
+const liveKey = computed(() => session.players.value.find((p) => p.role === 'live')?.key ?? null)
+const liveProviderState = computed(() =>
+  liveKey.value === null ? null : (playerStates.get(liveKey.value) ?? null)
+)
+const liveAvatarStream = computed(() =>
+  liveKey.value === null ? null : (playerStreams.get(liveKey.value) ?? null)
+)
+
+/** The stage's `state` handler: the counting the old screen does, plus the per-player record. */
+function onCallPlayerState(role: HandoverRole, key: number, state: ProviderState): void {
+  onProviderState(role, state)
+  playerStates.set(key, state)
+}
+
+/** `AvatarPlayer` emits its stream once painted and `null` as it goes away. */
+function onAvatarStream(key: number, stream: MediaStream | null): void {
+  if (stream) {
+    playerStreams.set(key, stream)
+    return
+  }
+  playerStreams.delete(key)
+  playerStates.delete(key)
+}
+
+const speakerTurn = callUi
+  ? useSpeakerTurn({
+      // Same `ref` no-argument-overload artifact as `sessionId` below: the domain
+      // value is never `undefined`.
+      state: session.state as Ref<SessionState>,
+      providerState: liveProviderState,
+      avatarStream: liveAvatarStream,
+      micStream: confirmedStream,
+    })
+  : null
+const speaker = computed(() => speakerTurn?.speaker.value ?? 'none')
+
+/** Whole seconds of live interview time, for "03:12 / 25:00". It stops while suspended. */
+const interviewClock = callUi
+  ? useInterviewClock({ isRunning: () => session.state.value === 'live' })
+  : null
+const elapsedSeconds = computed(() => interviewClock?.elapsed.value ?? 0)
 
 const QUESTION_TIME_LIMIT = 300 // 5 minutes default
 

@@ -15,7 +15,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { ref, defineComponent, h } from 'vue'
+import { ref, defineComponent, h, markRaw, onBeforeUnmount, onMounted, onUnmounted } from 'vue'
 import type { InterviewProvider } from '~/app/types/interview-provider'
 
 vi.setConfig({ testTimeout: 30000 })
@@ -29,8 +29,11 @@ const {
   mockCandidateFetch,
   mockCreateProvider,
   mockUseExitRedirect,
+  speakerTurn,
 } = vi.hoisted(() => ({
-  flag: { on: true },
+  // `raw` overrides what the runtime config carries, so a test can feed the REAL
+  // `useCandidateCallUi` a value that is neither 'true' nor empty ('1', 'yes').
+  flag: { on: true, raw: undefined as unknown },
   captured: {
     session: null as null | Record<string, unknown>,
     handover: null as null | { value: boolean },
@@ -47,10 +50,27 @@ const {
   mockCandidateFetch: vi.fn(),
   mockCreateProvider: vi.fn(),
   mockUseExitRedirect: vi.fn(),
+  // What the page handed `useSpeakerTurn`, and the signal it gets back. The
+  // composable's own rules are proven in use-speaker-turn.spec.ts; here only the
+  // wiring is: which inputs it is given and what the tiles do with its answer.
+  speakerTurn: {
+    options: null as null | Record<string, { value: unknown }>,
+    speaker: null as null | { value: 'avatar' | 'candidate' | 'none' },
+  },
 }))
 
-vi.mock('~/composables/useCandidateCallUi', () => ({ useCandidateCallUi: () => flag.on }))
 vi.mock('~/composables/useExitRedirect', () => ({ useExitRedirect: mockUseExitRedirect }))
+vi.mock('~/composables/useSpeakerTurn', async () => {
+  const { ref: vueRef } = await import('vue')
+  return {
+    useSpeakerTurn: (options: Record<string, { value: unknown }>) => {
+      speakerTurn.options = options
+      const speaker = vueRef<'avatar' | 'candidate' | 'none'>('none')
+      speakerTurn.speaker = speaker
+      return { speaker, stop: vi.fn() }
+    },
+  }
+})
 vi.mock('~/composables/useNetworkGuard', () => ({
   useNetworkGuard: (options: { onOffline: () => void }) => {
     guards.network = options
@@ -93,12 +113,16 @@ type Listener = (payload: unknown) => void
 
 function createMockProvider() {
   const listeners = new Map<string, Listener[]>()
+  // The session wraps `provider.stop` to run at most once; the raw mock is kept so
+  // a test can count what really reached the provider.
+  const rawStop = vi.fn(async () => undefined)
   return {
     on: vi.fn((evt: string, cb: Listener) => {
       listeners.set(evt, [...(listeners.get(evt) ?? []), cb])
     }),
     start: vi.fn(async () => ({ providerSessionId: 'p' })),
-    stop: vi.fn(async () => undefined),
+    stop: rawStop,
+    _rawStop: rawStop,
     toggleMic: vi.fn(async () => undefined),
     setMicMuted: vi.fn(async () => undefined),
     nudgeWrapUp: vi.fn(),
@@ -113,10 +137,10 @@ let providers: ReturnType<typeof createMockProvider>[] = []
 const FIRST = 42
 const NEXT = 77
 
-function startResponse(sessionId: number) {
+function startResponse(sessionId: number, provider = 'tavus') {
   return {
     session_id: sessionId,
-    provider: 'tavus',
+    provider,
     provider_token: 'tok',
     conversation_url: null,
     audio_only: false,
@@ -129,7 +153,13 @@ function startResponse(sessionId: number) {
   }
 }
 
-/** Mirrors `AvatarPlayer`: re-emits the provider's own events upwards. */
+/** Mounts and unmounts of the player stub: the R1 guarantee counts instances, not renders. */
+const playerLifecycle = { mounted: 0, unmounted: 0 }
+
+/** When on, the stub says goodbye like the real `AvatarPlayer.client.vue`: `stream` with `null` as it unmounts. */
+const realPlayer = { emitNullOnUnmount: false }
+
+/** Mirrors `AvatarPlayer`: re-emits the provider's own events upwards and stops its provider when it unmounts. */
 const AvatarPlayerStub = defineComponent({
   name: 'AvatarPlayer',
   props: {
@@ -139,13 +169,86 @@ const AvatarPlayerStub = defineComponent({
     overlay: { type: Boolean, default: false },
     audioOnly: { type: Boolean, default: false },
   },
-  emits: ['painted', 'state', 'transcript', 'error'],
+  emits: ['painted', 'state', 'stream', 'transcript', 'error'],
   setup(props, { emit }) {
     const provider = props.provider as unknown as InterviewProvider
     provider.on('transcript', (payload) => emit('transcript', payload))
+    provider.on('state', (payload) => emit('state', payload))
+    onMounted(() => {
+      playerLifecycle.mounted += 1
+    })
+    onBeforeUnmount(() => {
+      if (realPlayer.emitNullOnUnmount) emit('stream', null)
+    })
+    onUnmounted(() => {
+      playerLifecycle.unmounted += 1
+      void provider.stop()
+    })
     return () => h('div', { 'data-testid': 'avatar-player' })
   },
 })
+
+const DeviceCheckStub = defineComponent({
+  name: 'DeviceCheck',
+  emits: ['confirmed'],
+  setup: () => () => h('div', { 'data-testid': 'device-check' }),
+})
+
+/** Counts how often the proctoring overlay is mounted: it must exist only while live. */
+const overlayLifecycle = { mounted: 0, unmounted: 0 }
+const ProctorOverlayStub = defineComponent({
+  name: 'ProctorOverlay',
+  props: { stream: { type: Object, required: true }, sessionId: { type: Number, default: null } },
+  setup() {
+    onMounted(() => {
+      overlayLifecycle.mounted += 1
+    })
+    onUnmounted(() => {
+      overlayLifecycle.unmounted += 1
+    })
+    return () => h('div', { 'data-testid': 'proctor-overlay' })
+  },
+})
+
+/** The question counter: records how often it is created and what it was started from. */
+const timerLifecycle = { mounted: 0 }
+const InterviewTimerCounterStub = defineComponent({
+  name: 'InterviewTimer',
+  props: { seconds: { type: Number, required: true }, label: { type: String, default: '' } },
+  emits: ['tick', 'expired'],
+  setup(props) {
+    timerLifecycle.mounted += 1
+    return () =>
+      h('div', { 'data-testid': 'question-timer', 'data-seconds': String(props.seconds) })
+  },
+})
+
+/** Props the own tile was given. */
+const CallSelfViewStub = defineComponent({
+  name: 'CallSelfView',
+  props: {
+    stream: { type: Object, required: true },
+    speaking: { type: Boolean, default: false },
+    speakingLabel: { type: String, default: '' },
+  },
+  setup: (props) => () =>
+    h('div', {
+      'data-testid': 'call-self-view',
+      'data-speaking': String(props.speaking),
+      'data-speaking-label': props.speakingLabel,
+    }),
+})
+
+/** A stream that carries no tracks: enough for the wiring, which never reads one. */
+function fakeStream(): MediaStream {
+  // Raw, like a real MediaStream: Vue never wraps a host object in a reactive proxy.
+  return markRaw({
+    getVideoTracks: () => [],
+    getAudioTracks: () => [],
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  }) as unknown as MediaStream
+}
 
 const InterviewCaptionStub = defineComponent({
   name: 'InterviewCaption',
@@ -155,9 +258,31 @@ const InterviewCaptionStub = defineComponent({
 
 const mounted: Array<{ unmount: () => void }> = []
 
-async function mountLive({ attach = false } = {}) {
+async function mountLive({
+  attach = false,
+  stream = null,
+  stubs = {},
+  provider = 'tavus',
+  ready = true,
+  begin = true,
+  props = {},
+}: {
+  attach?: boolean
+  /** False stops at the consent screen: no player exists yet. */
+  begin?: boolean
+  /** Which provider the first /start names; only a HeyGen competency hands over. */
+  provider?: string
+  /** False stops at `connecting`: the provider is published but has not reported ready. */
+  ready?: boolean
+  /** Props for the session component, e.g. `{ embedded: true }`. */
+  props?: Record<string, unknown>
+  /** Confirms the device check with this stream, as the real flow does. */
+  stream?: MediaStream | null
+  stubs?: Record<string, unknown>
+} = {}) {
   const { default: Component } = await import('~/components/InterviewSession.vue')
   const wrapper = mount(Component, {
+    props,
     attachTo: attach ? document.body : undefined,
     global: {
       // Params are echoed so a test can read the deadline the copy was given.
@@ -174,10 +299,12 @@ async function mountLive({ attach = false } = {}) {
         }),
         AvatarPlayer: AvatarPlayerStub,
         InterviewCaption: InterviewCaptionStub,
-        DeviceCheck: true,
+        DeviceCheck: stream ? DeviceCheckStub : true,
         ProctorOverlay: true,
+        CallSelfView: CallSelfViewStub,
         InterviewTimer: true,
         InterviewProgressBar: true,
+        ...stubs,
       },
     },
   })
@@ -191,10 +318,17 @@ async function mountLive({ attach = false } = {}) {
     resume: () => void
   }
 
+  if (!begin) return { wrapper, session }
   session.acceptConsent()
-  mockCandidateFetch.mockResolvedValueOnce(startResponse(FIRST))
-  session.confirmDevices()
+  mockCandidateFetch.mockResolvedValueOnce(startResponse(FIRST, provider))
+  if (stream) {
+    await flushPromises()
+    wrapper.findComponent(DeviceCheckStub).vm.$emit('confirmed', stream, 'mic-1')
+  } else {
+    session.confirmDevices()
+  }
   await flushPromises()
+  if (!ready) return { wrapper, session }
   providers[0]!._emit('state', 'ready')
   await flushPromises()
   expect(session.state.value).toBe('live')
@@ -221,6 +355,15 @@ const hint = (wrapper: Awaited<ReturnType<typeof mountLive>>['wrapper']) =>
 beforeEach(() => {
   vi.clearAllMocks()
   flag.on = true
+  flag.raw = undefined
+  playerLifecycle.mounted = 0
+  playerLifecycle.unmounted = 0
+  realPlayer.emitNullOnUnmount = false
+  overlayLifecycle.mounted = 0
+  overlayLifecycle.unmounted = 0
+  timerLifecycle.mounted = 0
+  speakerTurn.options = null
+  speakerTurn.speaker = null
   captured.session = null
   providers = []
   mockCandidateFetch.mockReset()
@@ -249,7 +392,13 @@ beforeEach(() => {
   )
   vi.stubGlobal(
     'useRuntimeConfig',
-    vi.fn(() => ({ public: { apiBase: 'https://api.test', interviewProviderMock: 'false' } }))
+    vi.fn(() => ({
+      public: {
+        apiBase: 'https://api.test',
+        interviewProviderMock: 'false',
+        candidateCallUi: flag.raw !== undefined ? flag.raw : flag.on ? 'true' : '',
+      },
+    }))
   )
   vi.stubGlobal('navigateTo', vi.fn())
 })
@@ -501,7 +650,8 @@ describe('InterviewSession — Exit (flag on)', () => {
     expect(exitButton().getAttribute('aria-busy')).toBe('true')
   })
 
-  it('keeps the existing paused copy for a manual pause', async () => {
+  it("keeps the existing paused copy for a manual pause (the old screen's Pause button; the call screen has none)", async () => {
+    flag.on = false
     const { wrapper } = await mountLive({ attach: true })
 
     await wrapper
@@ -551,7 +701,7 @@ describe('InterviewSession — Exit (flag on)', () => {
     expect(wrapper.get('#paused-heading').text()).toBe('interview.paused.title')
   })
 
-  it('shows the plain paused copy for a manual pause after an exit and resume', async () => {
+  it('shows the plain paused copy for a network pause after an exit and a real resume', async () => {
     const { wrapper, session } = await mountLive({ attach: true })
 
     await exitTheInterview()
@@ -563,13 +713,11 @@ describe('InterviewSession — Exit (flag on)', () => {
     providers[1]!._emit('state', 'ready')
     await settle()
     expect(session.state.value).toBe('live')
-    await wrapper
-      .findAll('button')
-      .find((b) => b.text().includes('interview.live.pause'))!
-      .trigger('click')
+    guards.network!.onOffline()
     await settle()
 
     expect(wrapper.get('#paused-heading').text()).toBe('interview.paused.title')
+    expect(wrapper.find('[data-testid="network-reconnecting-notice"]').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('interview.call.suspended')
   })
 })
@@ -580,5 +728,396 @@ describe('InterviewSession — Exit (flag off)', () => {
     await mountLive({ attach: true })
 
     expect(exitButton()).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// UI-09 — the stage, assembled behind the flag.
+// ---------------------------------------------------------------------------
+
+describe('InterviewSession — the live tree with the flag off (characterization)', () => {
+  // Recorded from the code before the stage was assembled (develop at UI-08). Only the exact string 'true'
+  // (or the boolean) switches the call screen on, so these values must all render
+  // the old screen, byte for byte.
+  it.each([
+    ['unset', undefined],
+    ['empty', ''],
+    ['1', '1'],
+    ['yes', 'yes'],
+    ['false', 'false'],
+  ])('renders the old live screen byte for byte when the flag is %s', async (_label, raw) => {
+    flag.on = false
+    flag.raw = raw === undefined ? '' : raw
+    const { wrapper } = await mountLive()
+
+    // Elements, attributes and text. Comment nodes (the template's own comments and
+    // Vue's `v-if` placeholders) are not part of what a candidate gets.
+    const tree = wrapper
+      .html()
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/\n[ \t]*(?=\n)/g, '')
+    await expect(tree).toMatchFileSnapshot('./__snapshots__/interview-session-live-flag-off.snap')
+  })
+})
+
+type Mounted = Awaited<ReturnType<typeof mountLive>>['wrapper']
+
+const layer = (wrapper: Mounted) => wrapper.get('[data-slot="avatar-layer"]').element
+const layout = (wrapper: Mounted) => wrapper.get('[data-slot="call-layout"]').element
+
+/** The grid child that holds `el`: a stage part sits one wrapper below the layout. */
+const gridChildOf = (wrapper: Mounted, el: Element) => {
+  let node: Element | null = el
+  while (node && node.parentElement !== layout(wrapper)) node = node.parentElement
+  return node
+}
+
+/** What the end of a competency reports, and the next /start for a HeyGen handover. */
+async function beginHandover(session: { state: { value: string } }) {
+  mockCandidateFetch.mockResolvedValueOnce({
+    ended_competencies: 1,
+    total_competencies: 3,
+    next_action: 'continue',
+  })
+  mockCandidateFetch.mockResolvedValueOnce(startResponse(NEXT, 'heygen'))
+  providers[0]!._emit('state', 'complete')
+  await settle()
+  expect(session.state.value).toBe('live')
+}
+
+describe('InterviewSession — the stage (flag on)', () => {
+  it('renders the four stage parts and none of the old live chrome', async () => {
+    const { wrapper } = await mountLive({ stream: fakeStream() })
+
+    for (const gone of ['interview-status', 'live-dock', 'question-label']) {
+      expect(wrapper.find(`[data-testid="${gone}"]`).exists(), gone).toBe(false)
+    }
+    expect(wrapper.findAll('button').some((b) => b.text().includes('interview.live.pause'))).toBe(
+      false
+    )
+    expect(wrapper.find('[data-testid="live-hint"]').exists()).toBe(false)
+
+    const parts = {
+      question: wrapper.get('[data-testid="call-question"]').element,
+      panel: wrapper.get('[data-testid="call-panel"]').element,
+      own: wrapper.get('[data-testid="call-self-view"]').element,
+    }
+    // Siblings of the player layer: each one is a grid child of the same layout.
+    expect(layer(wrapper).parentElement).toBe(layout(wrapper))
+    for (const part of Object.values(parts)) {
+      const cell = gridChildOf(wrapper, part)
+      expect(cell).not.toBeNull()
+      expect(cell).not.toBe(layer(wrapper))
+    }
+  })
+
+  it('puts Exit and then the help link in the panel, and the timer in the panel only', async () => {
+    const { wrapper } = await mountLive({
+      attach: true,
+      stubs: { InterviewTimer: InterviewTimerCounterStub },
+    })
+
+    const panel = wrapper.get('[data-testid="call-panel"]').element
+    const exit = panel.querySelector('[data-testid="call-exit"]')!
+    const help = panel.querySelector('[data-testid="call-help-link"]')!
+    expect(exit.compareDocumentPosition(help) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(wrapper.findAll('[data-testid="question-timer"]')).toHaveLength(1)
+    expect(panel.querySelector('[data-testid="question-timer"]')).not.toBeNull()
+  })
+
+  it('draws no own tile until the device check has confirmed a stream', async () => {
+    const { wrapper } = await mountLive()
+
+    expect(wrapper.find('[data-testid="call-self-view"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="call-panel"]').exists()).toBe(true)
+  })
+
+  it('shows the server counters, and never the competency', async () => {
+    const { wrapper, session } = await mountLive()
+    const store = session as unknown as {
+      endedCompetencies: { value: number | null }
+      totalCompetencies: { value: number | null }
+    }
+    expect(wrapper.get('[data-testid="call-panel"]').text()).not.toContain(
+      'interview.call.progress'
+    )
+
+    store.endedCompetencies.value = 1
+    store.totalCompetencies.value = 3
+    await flushPromises()
+
+    const panel = wrapper.get('[data-testid="call-panel"]')
+    expect(panel.get('[data-testid="call-panel-progress-text"]').text()).toBe(
+      `interview.call.progress|${JSON.stringify({ n: 2, total: 3 })}`
+    )
+    // The start response carried the code `PRS`; nothing on the stage may reveal it.
+    expect(wrapper.html()).not.toContain('PRS')
+  })
+
+  it('lights the interviewer tile, and only it, while the avatar speaks', async () => {
+    const { wrapper } = await mountLive({ stream: fakeStream() })
+    const tile = () => wrapper.get('[data-slot="avatar-layer"] [data-slot="call-tile"]')
+    const own = () => wrapper.get('[data-testid="call-self-view"]')
+    expect(tile().attributes('data-speaking')).toBe('false')
+
+    speakerTurn.speaker!.value = 'avatar'
+    await flushPromises()
+    expect(tile().attributes('data-speaking')).toBe('true')
+    expect(tile().text()).toContain('interview.call.avatar_speaking')
+    expect(own().attributes('data-speaking')).toBe('false')
+
+    speakerTurn.speaker!.value = 'candidate'
+    await flushPromises()
+    expect(tile().attributes('data-speaking')).toBe('false')
+    expect(own().attributes('data-speaking')).toBe('true')
+    expect(own().attributes('data-speaking-label')).toBe('interview.call.candidate_speaking')
+  })
+
+  it('feeds the speaker signal the session state, the live provider state, the avatar stream and the mic', async () => {
+    const mic = fakeStream()
+    const avatar = fakeStream()
+    const { wrapper, session } = await mountLive({ stream: mic })
+    const inputs = speakerTurn.options!
+
+    expect(inputs.state).toBe((session as unknown as { state: unknown }).state)
+    expect(inputs.micStream!.value).toBe(mic)
+    expect(inputs.providerState!.value).toBe('ready')
+    expect(inputs.avatarStream!.value).toBeNull()
+
+    providers[0]!._emit('state', 'speaking')
+    wrapper.findComponent(AvatarPlayerStub).vm.$emit('stream', avatar)
+    await flushPromises()
+
+    expect(inputs.providerState!.value).toBe('speaking')
+    expect(inputs.avatarStream!.value).toBe(avatar)
+  })
+
+  it('counts the elapsed time only while live, and keeps it across a suspension', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    try {
+      const { wrapper, session } = await mountLive({ attach: true })
+      ;(session as unknown as { totalCompetencies: { value: number } }).totalCompetencies.value = 3
+      await flushPromises()
+      const duration = () => wrapper.get('[data-testid="call-panel-duration-value"]').text()
+      const shown = (elapsed: string) =>
+        `interview.call.duration_value|${JSON.stringify({ elapsed, total: '15:00' })}`
+      expect(duration()).toBe(shown('00:00'))
+
+      await vi.advanceTimersByTimeAsync(65_000)
+      expect(duration()).toBe(shown('01:05'))
+
+      await exitTheInterview()
+      await vi.advanceTimersByTimeAsync(120_000)
+
+      mockCandidateFetch.mockResolvedValueOnce(startResponse(FIRST + 1))
+      await resumeButton(wrapper).trigger('click')
+      await settle()
+      providers[1]!._emit('state', 'ready')
+      await settle()
+      expect(session.state.value).toBe('live')
+      expect(duration()).toBe(shown('01:05'))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('starts the question counter again for every competency session, and ends the question when it expires', async () => {
+    const { wrapper, session } = await mountLive({
+      stubs: { InterviewTimer: InterviewTimerCounterStub },
+    })
+    const timer = () => wrapper.getComponent(InterviewTimerCounterStub)
+    expect(timerLifecycle.mounted).toBe(1)
+    expect(timer().props('seconds')).toBe(300)
+
+    timer().vm.$emit('tick', 120)
+    await flushPromises()
+    expect(timer().props('seconds')).toBe(120)
+    expect(timerLifecycle.mounted).toBe(1)
+
+    session.advanceAttribution(NEXT)
+    await flushPromises()
+    expect(timerLifecycle.mounted).toBe(2)
+    expect(timer().props('seconds')).toBe(300)
+
+    const endQuestion = vi.spyOn(
+      session as unknown as { endQuestion: (reason: string) => Promise<void> },
+      'endQuestion'
+    )
+    timer().vm.$emit('expired')
+    await flushPromises()
+    expect(endQuestion).toHaveBeenCalledWith('timeout')
+  })
+
+  it('moves the toaster to the top left', async () => {
+    const { wrapper } = await mountLive({
+      stubs: {
+        IntegrityToaster: defineComponent({
+          props: { position: String },
+          setup: (p) => () => h('i', { 'data-testid': 'toaster', 'data-position': p.position }),
+        }),
+      },
+    })
+
+    expect(wrapper.get('[data-testid="toaster"]').attributes('data-position')).toBe('top-left')
+  })
+
+  it('widens the canvas for the call, and only while the call is live', async () => {
+    const { wrapper } = await mountLive()
+
+    expect(wrapper.get('header').classes()).toContain('max-w-[96rem]')
+    expect(wrapper.get('main').classes()).toContain('max-w-[96rem]')
+  })
+
+  it('mounts the proctoring overlay only while live and unmounts it on suspend', async () => {
+    const { wrapper, session } = await mountLive({
+      attach: true,
+      stream: fakeStream(),
+      stubs: { ProctorOverlay: ProctorOverlayStub },
+    })
+    expect(session.state.value).toBe('live')
+    expect(overlayLifecycle.mounted).toBe(1)
+    expect(wrapper.find('[data-testid="proctor-overlay"]').exists()).toBe(true)
+
+    await exitTheInterview()
+
+    expect(session.state.value).toBe('paused')
+    expect(wrapper.find('[data-testid="proctor-overlay"]').exists()).toBe(false)
+    expect(overlayLifecycle.unmounted).toBe(1)
+    expect(overlayLifecycle.mounted).toBe(1)
+  })
+
+  it('does not mount the overlay, or widen the canvas, before the interview is live', async () => {
+    const { wrapper, session } = await mountLive({
+      stream: fakeStream(),
+      ready: false,
+      stubs: { ProctorOverlay: ProctorOverlayStub },
+    })
+
+    // Connecting: the provider is published, the interview is not live yet.
+    expect(session.state.value).toBe('connecting')
+    expect(wrapper.find('[data-slot="avatar-layer"]').exists()).toBe(true)
+    expect(overlayLifecycle.mounted).toBe(0)
+    expect(wrapper.get('header').classes()).not.toContain('max-w-[96rem]')
+    expect(wrapper.find('[data-testid="call-panel"]').exists()).toBe(false)
+  })
+})
+
+describe('InterviewSession — embedded (flag on)', () => {
+  // `100dvh` and its kin make the page's height depend on the iframe's own height, and
+  // the host sizes the iframe from the height the embed page reports: it never settles.
+  const VIEWPORT_HEIGHT_UNIT = /\d(?:vh|dvh|svh|lvh)(?![a-z])/i
+
+  it('draws the stage with no viewport-height unit when embedded', async () => {
+    const { wrapper } = await mountLive({ stream: fakeStream(), props: { embedded: true } })
+
+    expect(wrapper.find('[data-slot="call-layout"]').attributes('data-embedded')).toBe('true')
+    expect(wrapper.find('[data-testid="call-panel"]').exists()).toBe(true)
+    expect(wrapper.html()).not.toMatch(VIEWPORT_HEIGHT_UNIT)
+  })
+
+  it('caps the hosted stage by the viewport height, so the unit check above can fail', async () => {
+    const { wrapper } = await mountLive({ stream: fakeStream() })
+
+    expect(wrapper.find('[data-slot="call-layout"]').attributes('data-embedded')).toBe('false')
+    expect(wrapper.html()).toMatch(VIEWPORT_HEIGHT_UNIT)
+  })
+})
+
+describe('InterviewSession — the player layer is never re-parented (flag on, R1)', () => {
+  it('hides the empty layer from assistive technology until a player exists, on the same node', async () => {
+    const { wrapper, session } = await mountLive({ begin: false })
+    const node = layer(wrapper)
+    expect(node.getAttribute('aria-hidden')).toBe('true')
+
+    session.acceptConsent()
+    mockCandidateFetch.mockResolvedValueOnce(startResponse(FIRST))
+    session.confirmDevices()
+    await flushPromises()
+
+    expect(wrapper.findAllComponents(AvatarPlayerStub)).toHaveLength(1)
+    expect(layer(wrapper)).toBe(node)
+    expect(node.hasAttribute('aria-hidden')).toBe(false)
+  })
+
+  it('keeps one layer node, and mounts and stops each player once, across connecting, live, paused, connecting, live', async () => {
+    const { wrapper, session } = await mountLive({ attach: true })
+    const node = layer(wrapper)
+    expect(playerLifecycle).toEqual({ mounted: 1, unmounted: 0 })
+
+    await exitTheInterview()
+    expect(session.state.value).toBe('paused')
+    expect(layer(wrapper)).toBe(node)
+    expect(playerLifecycle).toEqual({ mounted: 1, unmounted: 1 })
+    expect(providers[0]!._rawStop).toHaveBeenCalledTimes(1)
+
+    mockCandidateFetch.mockResolvedValueOnce(startResponse(FIRST + 1))
+    await resumeButton(wrapper).trigger('click')
+    await settle()
+    expect(session.state.value).toBe('connecting')
+    expect(layer(wrapper)).toBe(node)
+    expect(playerLifecycle).toEqual({ mounted: 2, unmounted: 1 })
+
+    providers[1]!._emit('state', 'ready')
+    await settle()
+    expect(session.state.value).toBe('live')
+    expect(layer(wrapper)).toBe(node)
+    expect(layer(wrapper).parentElement).toBe(layout(wrapper))
+    expect(playerLifecycle).toEqual({ mounted: 2, unmounted: 1 })
+    expect(providers[0]!._rawStop).toHaveBeenCalledTimes(1)
+    expect(providers[1]!._rawStop).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+    await settle()
+    expect(providers[1]!._rawStop).toHaveBeenCalledTimes(1)
+    expect(providers[0]!._rawStop).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the layer, and the surviving player instance, through a HeyGen handover', async () => {
+    const { wrapper, session } = await mountLive({ provider: 'heygen' })
+    const node = layer(wrapper)
+    expect(playerLifecycle.mounted).toBe(1)
+
+    await beginHandover(session)
+    expect(wrapper.findAllComponents(AvatarPlayerStub)).toHaveLength(2)
+    expect(layer(wrapper)).toBe(node)
+    const incoming = wrapper.findAllComponents(AvatarPlayerStub)[1]!
+    expect(incoming.props('overlay')).toBe(true)
+    // The incoming overlaps the outgoing inside the one layer, exactly as without the flag.
+    expect(incoming.element.closest('[data-slot="avatar-layer"]')).toBe(node)
+
+    incoming.vm.$emit('painted')
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    await settle()
+
+    expect(session.state.value).toBe('live')
+    expect(layer(wrapper)).toBe(node)
+    expect(wrapper.findAllComponents(AvatarPlayerStub)).toHaveLength(1)
+    expect(wrapper.findAllComponents(AvatarPlayerStub)[0]!.vm).toBe(incoming.vm)
+    expect(playerLifecycle).toEqual({ mounted: 2, unmounted: 1 })
+    expect(providers[0]!._rawStop).toHaveBeenCalledTimes(1)
+    expect(providers[1]!._rawStop).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="transition-panel"]').exists()).toBe(false)
+  })
+
+  it('forgets the retired player state and stream when it unmounts the way the real player does', async () => {
+    realPlayer.emitNullOnUnmount = true
+    const { wrapper, session } = await mountLive({ provider: 'heygen' })
+    const maps = wrapper.vm as unknown as {
+      playerStates: Map<number, string>
+      playerStreams: Map<number, MediaStream>
+    }
+    wrapper.findComponent(AvatarPlayerStub).vm.$emit('stream', fakeStream())
+    await beginHandover(session)
+    expect(maps.playerStates.size).toBe(1)
+    expect(maps.playerStreams.size).toBe(1)
+
+    const incoming = wrapper.findAllComponents(AvatarPlayerStub)[1]!
+    incoming.vm.$emit('painted')
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    await settle()
+
+    expect(playerLifecycle.unmounted).toBe(1)
+    expect(maps.playerStates.size).toBe(0)
+    expect(maps.playerStreams.size).toBe(0)
   })
 })

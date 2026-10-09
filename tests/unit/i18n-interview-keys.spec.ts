@@ -139,6 +139,9 @@ const REQUIRED_KEYS = [
   // candidate-interview-call-ui UI-05 — the own-camera tile and the interviewer chip.
   'interview.call.interviewer_name',
   'interview.call.you',
+  // UI-09 — the hidden text a lit tile carries (the ring is never colour alone).
+  'interview.call.avatar_speaking',
+  'interview.call.candidate_speaking',
   'interview.call.self_view',
   'interview.call.self_view_off',
   // candidate-interview-call-ui UI-07 — the Exit button, its confirmation, and the
