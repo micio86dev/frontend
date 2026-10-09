@@ -63,7 +63,11 @@
       "duration_label": "Duration",
       "duration_value": "{elapsed} / {total}",
       "duration_sr": "{elapsed} elapsed out of a maximum of {total}",
-      "question_timer_label": "Time left for this question"
+      "question_timer_label": "Time left for this question",
+      "interviewer_name": "AI interviewer",
+      "you": "You",
+      "self_view": "Your camera",
+      "self_view_off": "Camera unavailable"
     },
     "end_of_question": {
       "title": "Question Completed",

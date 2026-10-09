@@ -63,7 +63,11 @@
       "duration_label": "Durata",
       "duration_value": "{elapsed} / {total}",
       "duration_sr": "{elapsed} trascorsi su un massimo di {total}",
-      "question_timer_label": "Tempo rimanente per questa domanda"
+      "question_timer_label": "Tempo rimanente per questa domanda",
+      "interviewer_name": "Intervistatore AI",
+      "you": "Tu",
+      "self_view": "La tua fotocamera",
+      "self_view_off": "Fotocamera non disponibile"
     },
     "end_of_question": {
       "title": "Domanda completata",
