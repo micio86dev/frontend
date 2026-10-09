@@ -221,4 +221,9 @@ describe('formatDeadline', () => {
     expect(formatDeadline(undefined, 'it')).toBeNull()
     expect(formatDeadline(Number.NaN, 'it')).toBeNull()
   })
+
+  it('returns null for an invalid locale tag instead of throwing', () => {
+    expect(formatDeadline(EXP, 'not_a_locale!')).toBeNull()
+    expect(formatDeadline(EXP, 'it')).toBe(clock('it'))
+  })
 })
