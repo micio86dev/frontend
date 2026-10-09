@@ -123,6 +123,11 @@ const REQUIRED_KEYS = [
   // terminal, distinct from `link_invalid` (which would be untrue).
   'interview.terminal.link_reopen.title',
   'interview.terminal.link_reopen.body',
+  // candidate-interview-call-ui UI-05 — the own-camera tile and the interviewer chip.
+  'interview.call.interviewer_name',
+  'interview.call.you',
+  'interview.call.self_view',
+  'interview.call.self_view_off',
 ]
 
 describe('i18n interview flow keys', () => {
