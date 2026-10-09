@@ -80,6 +80,10 @@
         "title": "Interview suspended",
         "body": "You suspended the interview. To resume, reopen your invitation link in this browser before {time}, or press Resume.",
         "body_no_deadline": "You suspended the interview. To resume, reopen your invitation link in this browser, or press Resume."
+      },
+      "help": {
+        "label": "Problems with audio or video?",
+        "new_tab": "(opens in a new tab)"
       }
     },
     "end_of_question": {
