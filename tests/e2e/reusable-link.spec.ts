@@ -968,6 +968,9 @@ test.describe('reusable entry route — a link pasted into a tab that is already
   })
 })
 
+/** How the terminal page's own chunk identifies itself: the SFC's compiled `__name`. */
+const TERMINAL_PAGE_CHUNK_MARKER = '__name:"terminal"'
+
 test.describe('reusable entry route — leaving while a router navigation is in flight', () => {
   // Nuxt's `navigateTo` called while a router navigation is in flight is taken for a
   // middleware redirect and navigates nowhere (it returns a route object instead).
@@ -978,6 +981,13 @@ test.describe('reusable entry route — leaving while a router navigation is in 
   // The navigation is held in flight deterministically: it targets a route whose
   // JavaScript chunk has not been loaded yet, and that one request is held, so the
   // router stays in the middle of the navigation until the test lets go.
+  //
+  // Only the target page's OWN chunk is held, found by what it contains and not by
+  // its URL (the file names are content hashes). Holding every script the navigation
+  // asks for is wrong: a module the target page shares with the route the visitor is
+  // sent to (`useSupportUrl`, imported by both the terminal page and the session
+  // route) is requested too, and holding it strands `router.replace` on the very
+  // request that is meant to be superseded, which tests nothing about the redeem.
   test('the visitor still lands on the session route when the redeem returns mid-navigation', async ({
     page,
   }) => {
@@ -988,8 +998,14 @@ test.describe('reusable entry route — leaving while a router navigation is in 
     const held: Array<() => void> = []
     await page.route('**/_nuxt/**/*.js', async (route) => {
       if (!holding) return route.continue()
+      const response = await route.fetch()
+      // Every other script, shared modules included, goes through at once. The
+      // compiled SFC carries its file name as `__name:"terminal"`.
+      if (!(await response.text()).includes(TERMINAL_PAGE_CHUNK_MARKER)) {
+        return route.fulfill({ response }).catch(() => undefined)
+      }
       await new Promise<void>((resolve) => held.push(resolve))
-      return route.continue().catch(() => undefined)
+      return route.fulfill({ response }).catch(() => undefined)
     })
 
     await openLinkAndSubmit(page)
