@@ -69,7 +69,7 @@ vi.mock('~/app/utils/candidate-api', () => ({
   flushIntegrityKeepalive: vi.fn(),
   CandidateUnauthorizedError: class CandidateUnauthorizedError extends Error {},
 }))
-vi.mock('~/app/composables/useCandidateSession', () => ({
+vi.mock('~/composables/useCandidateSession', () => ({
   useCandidateSession: () => storedSession,
 }))
 // Hands the test the very session instance the component runs on.
