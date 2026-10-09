@@ -249,6 +249,12 @@ beforeEach(() => {
     'useI18n',
     vi.fn(() => ({ t: (key: string) => key, locale: ref('it') }))
   )
+  // Same reason: InterviewSession reads the call-screen flag through
+  // useRuntimeConfig(), and an empty public config means the legacy screen.
+  vi.stubGlobal(
+    'useRuntimeConfig',
+    vi.fn(() => ({ public: {} }))
+  )
 })
 
 afterEach(() => {

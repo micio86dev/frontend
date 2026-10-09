@@ -56,6 +56,9 @@
       "question_label": "D{n}",
       "listen_hint": "Ascolta la domanda, poi rispondi a voce. Prenditi il tuo tempo."
     },
+    "call": {
+      "question_region": "Domanda corrente"
+    },
     "end_of_question": {
       "title": "Domanda completata",
       "next": "Prossima domanda",

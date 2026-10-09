@@ -56,6 +56,9 @@
       "question_label": "Q{n}",
       "listen_hint": "Listen to the question, then answer out loud. Take your time."
     },
+    "call": {
+      "question_region": "Current question"
+    },
     "end_of_question": {
       "title": "Question Completed",
       "next": "Next Question",

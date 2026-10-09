@@ -131,6 +131,12 @@ beforeEach(() => {
     'useI18n',
     vi.fn(() => ({ t: (key: string) => key, locale: ref('it') }))
   )
+  // afterEach unstubs every global, wiping the shared setup.ts stub; the
+  // component reads the call-screen flag through useRuntimeConfig().
+  vi.stubGlobal(
+    'useRuntimeConfig',
+    vi.fn(() => ({ public: {} }))
+  )
 })
 
 afterEach(() => {
