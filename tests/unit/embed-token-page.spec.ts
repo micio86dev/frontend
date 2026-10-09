@@ -35,9 +35,14 @@ vi.mock('~/components/InterviewSession.vue', async () => {
   return {
     default: defineComponent({
       name: 'InterviewSession',
-      setup(_props, { expose }) {
+      props: { embedded: { type: Boolean, default: false } },
+      setup(props, { expose }) {
         expose({ session: holder.session })
-        return () => h('div', { 'data-testid': 'interview-session-stub' })
+        return () =>
+          h('div', {
+            'data-testid': 'interview-session-stub',
+            'data-embedded': String(props.embedded),
+          })
       },
     }),
   }
@@ -171,6 +176,14 @@ describe('embed/[token].vue — unsupported browser gate', () => {
 })
 
 describe('embed/[token].vue — success path and event mapping', () => {
+  it('renders the interview as embedded, so the call stage uses no viewport-height unit', async () => {
+    const wrapper = await mountPage()
+
+    expect(wrapper.get('[data-testid="interview-session-stub"]').attributes('data-embedded')).toBe(
+      'true'
+    )
+  })
+
   it('stores the candidate session and posts ready once the interview mounts', async () => {
     await mountPage()
 

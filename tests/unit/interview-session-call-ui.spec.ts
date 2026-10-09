@@ -258,18 +258,22 @@ async function mountLive({
   stubs = {},
   provider = 'tavus',
   ready = true,
+  props = {},
 }: {
   attach?: boolean
   /** Which provider the first /start names; only a HeyGen competency hands over. */
   provider?: string
   /** False stops at `connecting`: the provider is published but has not reported ready. */
   ready?: boolean
+  /** Props for the session component, e.g. `{ embedded: true }`. */
+  props?: Record<string, unknown>
   /** Confirms the device check with this stream, as the real flow does. */
   stream?: MediaStream | null
   stubs?: Record<string, unknown>
 } = {}) {
   const { default: Component } = await import('~/components/InterviewSession.vue')
   const wrapper = mount(Component, {
+    props,
     attachTo: attach ? document.body : undefined,
     global: {
       // Params are echoed so a test can read the deadline the copy was given.
@@ -984,6 +988,27 @@ describe('InterviewSession — the stage (flag on)', () => {
     expect(overlayLifecycle.mounted).toBe(0)
     expect(wrapper.get('header').classes()).not.toContain('max-w-[96rem]')
     expect(wrapper.find('[data-testid="call-panel"]').exists()).toBe(false)
+  })
+})
+
+describe('InterviewSession — embedded (flag on)', () => {
+  // `100dvh` and its kin make the page's height depend on the iframe's own height, and
+  // the host sizes the iframe from the height the embed page reports: it never settles.
+  const VIEWPORT_HEIGHT_UNIT = /\d(?:vh|dvh|svh|lvh)(?![a-z])/i
+
+  it('draws the stage with no viewport-height unit when embedded', async () => {
+    const { wrapper } = await mountLive({ stream: fakeStream(), props: { embedded: true } })
+
+    expect(wrapper.find('[data-slot="call-layout"]').attributes('data-embedded')).toBe('true')
+    expect(wrapper.find('[data-testid="call-panel"]').exists()).toBe(true)
+    expect(wrapper.html()).not.toMatch(VIEWPORT_HEIGHT_UNIT)
+  })
+
+  it('caps the hosted stage by the viewport height, so the unit check above can fail', async () => {
+    const { wrapper } = await mountLive({ stream: fakeStream() })
+
+    expect(wrapper.find('[data-slot="call-layout"]').attributes('data-embedded')).toBe('false')
+    expect(wrapper.html()).toMatch(VIEWPORT_HEIGHT_UNIT)
   })
 })
 
