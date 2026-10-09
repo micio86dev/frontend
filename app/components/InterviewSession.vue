@@ -227,10 +227,36 @@
       aria-labelledby="paused-heading"
       data-testid="paused-live-panel"
     >
-      <h2 id="paused-heading" class="text-lg font-semibold text-foreground">
-        {{ $t('interview.paused.title') }}
-      </h2>
-      <p class="text-sm text-muted-foreground">{{ $t('interview.paused.body') }}</p>
+      <!--
+        candidate-interview-call-ui D9 — a deliberate Exit (the only way
+        `pauseReason` becomes 'exit') gets the "suspended" wording. The Exit
+        button that held focus has just unmounted, so the heading takes focus
+        (`tabindex="-1"`: focusable by script, not a tab stop). The automatic
+        pauses keep today's copy below, untouched.
+      -->
+      <template v-if="pauseReason === 'exit'">
+        <h2
+          id="paused-heading"
+          ref="suspendedHeading"
+          tabindex="-1"
+          class="text-lg font-semibold text-foreground outline-none"
+        >
+          {{ $t('interview.call.suspended.title') }}
+        </h2>
+        <p class="text-sm text-muted-foreground">
+          {{
+            resumeDeadline
+              ? $t('interview.call.suspended.body', { time: resumeDeadline })
+              : $t('interview.call.suspended.body_no_deadline')
+          }}
+        </p>
+      </template>
+      <template v-else>
+        <h2 id="paused-heading" class="text-lg font-semibold text-foreground">
+          {{ $t('interview.paused.title') }}
+        </h2>
+        <p class="text-sm text-muted-foreground">{{ $t('interview.paused.body') }}</p>
+      </template>
       <p
         v-if="pauseReason === 'tab_hidden'"
         class="text-sm text-muted-foreground"
@@ -315,6 +341,13 @@
           >
             {{ $t('interview.live.pause') }}
           </Button>
+          <!-- candidate-interview-call-ui D9 — flag on only. UI-09 moves it into
+               the stage's side panel; until then it sits beside Pause. -->
+          <CallExitDialog
+            v-if="callUi"
+            :loading="session.handoverInFlight.value"
+            @confirm="onExitConfirmed"
+          />
         </div>
 
         <!-- Invisible proctoring overlay -->
@@ -509,19 +542,22 @@
  *
  * noindex: this UI is session-gated and must never be indexed.
  */
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useInterviewSession } from '~/composables/useInterviewSession'
 import type { HandoverRole } from '~/composables/useInterviewSession'
 import type { ProviderState } from '~/types/interview-provider'
 import { useExitRedirect } from '~/composables/useExitRedirect'
 import { useTabVisibilityGuard } from '~/composables/useTabVisibilityGuard'
 import { useNetworkGuard } from '~/composables/useNetworkGuard'
+import { useCandidateSession } from '~/composables/useCandidateSession'
+import { formatDeadline } from '~/utils/call-deadline'
 import { useCandidateCallUi } from '~/composables/useCandidateCallUi'
 import { Button } from '~/components/ui/button'
 import { Alert, AlertTitle } from '~/components/ui/alert'
 import InterviewTimer from '~/components/InterviewTimer.vue'
 import InterviewCaption from '~/components/InterviewCaption.vue'
 import CallQuestion from '~/components/molecules/CallQuestion.vue'
+import CallExitDialog from '~/components/molecules/CallExitDialog.vue'
 import InterviewGuide from '~/components/molecules/InterviewGuide.vue'
 import { Separator } from '~/components/ui/separator'
 import InterviewProgressBar from '~/components/ProgressBar.vue'
@@ -530,7 +566,8 @@ import IntegrityToaster from '~/components/molecules/IntegrityToaster.vue'
 import BrandCanvas from '~/components/organisms/BrandCanvas.vue'
 import type { IntegrityEventInternal } from '~/utils/proctor-config'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const candidateSession = useCandidateSession()
 
 useHead({
   // WCAG 2.4.2 (Page Titled), Level A. This page had NO title at all — the one
@@ -894,7 +931,7 @@ function onIntegrityEventsUpdated(
 // shows.
 // ---------------------------------------------------------------------------
 
-type PauseReason = 'manual' | 'tab_hidden' | 'network'
+type PauseReason = 'manual' | 'tab_hidden' | 'network' | 'exit'
 
 const pauseReason = ref<PauseReason>('manual')
 /** True only while THIS guard is the reason the session is paused — so its onReconnected never resumes a pause the candidate started manually. */
@@ -905,6 +942,36 @@ function onPauseClicked(): void {
   pauseReason.value = 'manual'
   session.pause()
 }
+
+/**
+ * candidate-interview-call-ui D9 — the candidate confirmed Exit. This IS the
+ * existing suspend (`session.pause()` stops the provider and reports
+ * `/suspend`); `pauseReason` only picks the suspended wording. It is never
+ * `useExitRedirect().redirect()`, which would clear the stored session and make
+ * "you can resume later" false.
+ */
+function onExitConfirmed(): void {
+  pauseReason.value = 'exit'
+  session.pause()
+}
+
+const suspendedHeading = ref<HTMLElement | null>(null)
+
+/** Until when the stored session can be resumed; null when it cannot be read. Evaluated on entering the suspended screen. */
+const resumeDeadline = computed(() =>
+  session.state.value === 'paused' && pauseReason.value === 'exit'
+    ? formatDeadline(candidateSession.read()?.exp, locale.value)
+    : null
+)
+
+watch(
+  () => session.state.value === 'paused' && pauseReason.value === 'exit',
+  async (suspended) => {
+    if (!suspended) return
+    await nextTick()
+    suspendedHeading.value?.focus()
+  }
+)
 
 function onResumeClicked(): void {
   networkPermanentlyFailed.value = false

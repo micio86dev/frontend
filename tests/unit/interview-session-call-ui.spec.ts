@@ -20,23 +20,48 @@ import type { InterviewProvider } from '~/app/types/interview-provider'
 
 vi.setConfig({ testTimeout: 30000 })
 
-const { flag, captured, mockCandidateFetch, mockCreateProvider, mockUseExitRedirect } = vi.hoisted(
-  () => ({
-    flag: { on: true },
-    captured: { session: null as null | Record<string, unknown> },
-    mockCandidateFetch: vi.fn(),
-    mockCreateProvider: vi.fn(),
-    mockUseExitRedirect: vi.fn(),
-  })
-)
+const {
+  flag,
+  captured,
+  guards,
+  storedSession,
+  exitRedirect,
+  mockCandidateFetch,
+  mockCreateProvider,
+  mockUseExitRedirect,
+} = vi.hoisted(() => ({
+  flag: { on: true },
+  captured: {
+    session: null as null | Record<string, unknown>,
+    handover: null as null | { value: boolean },
+  },
+  // The options each guard was built with, so a test can fire its callbacks.
+  guards: {
+    tab: null as null | { onHiddenTimeout: () => void },
+    network: null as null | { onOffline: () => void },
+  },
+  // ONE set of spies for every `useCandidateSession()` call: an Exit that cleared
+  // the stored session would otherwise clear a throwaway object and pass.
+  storedSession: { read: vi.fn(), clear: vi.fn(), store: vi.fn() },
+  exitRedirect: { redirect: vi.fn(() => false), redirectToError: vi.fn(() => false) },
+  mockCandidateFetch: vi.fn(),
+  mockCreateProvider: vi.fn(),
+  mockUseExitRedirect: vi.fn(),
+}))
 
 vi.mock('~/composables/useCandidateCallUi', () => ({ useCandidateCallUi: () => flag.on }))
 vi.mock('~/composables/useExitRedirect', () => ({ useExitRedirect: mockUseExitRedirect }))
 vi.mock('~/composables/useNetworkGuard', () => ({
-  useNetworkGuard: () => ({ start: vi.fn(), stop: vi.fn() }),
+  useNetworkGuard: (options: { onOffline: () => void }) => {
+    guards.network = options
+    return { start: vi.fn(), stop: vi.fn() }
+  },
 }))
 vi.mock('~/composables/useTabVisibilityGuard', () => ({
-  useTabVisibilityGuard: () => ({ start: vi.fn(), stop: vi.fn() }),
+  useTabVisibilityGuard: (options: { onHiddenTimeout: () => void }) => {
+    guards.tab = options
+    return { start: vi.fn(), stop: vi.fn() }
+  },
 }))
 vi.mock('~/app/providers/factory', () => ({ createProvider: mockCreateProvider }))
 vi.mock('~/app/utils/candidate-api', () => ({
@@ -44,8 +69,8 @@ vi.mock('~/app/utils/candidate-api', () => ({
   flushIntegrityKeepalive: vi.fn(),
   CandidateUnauthorizedError: class CandidateUnauthorizedError extends Error {},
 }))
-vi.mock('~/app/composables/useCandidateSession', () => ({
-  useCandidateSession: () => ({ clear: vi.fn(), read: vi.fn(), store: vi.fn() }),
+vi.mock('~/composables/useCandidateSession', () => ({
+  useCandidateSession: () => storedSession,
 }))
 // Hands the test the very session instance the component runs on.
 vi.mock('~/composables/useInterviewSession', async (importOriginal) => {
@@ -53,7 +78,11 @@ vi.mock('~/composables/useInterviewSession', async (importOriginal) => {
   return {
     ...real,
     useInterviewSession: (...args: Parameters<typeof real.useInterviewSession>) => {
-      const session = real.useInterviewSession(...args)
+      // `handoverInFlight` is swapped for a ref the test owns: the real one only
+      // flips inside a HeyGen handover, which this spec does not stage.
+      const handover = ref(false)
+      const session = { ...real.useInterviewSession(...args), handoverInFlight: handover }
+      captured.handover = handover
       captured.session = session as unknown as Record<string, unknown>
       return session
     },
@@ -124,11 +153,18 @@ const InterviewCaptionStub = defineComponent({
   setup: (props) => () => h('p', { 'data-testid': 'caption' }, props.text),
 })
 
-async function mountLive() {
+const mounted: Array<{ unmount: () => void }> = []
+
+async function mountLive({ attach = false } = {}) {
   const { default: Component } = await import('~/components/InterviewSession.vue')
   const wrapper = mount(Component, {
+    attachTo: attach ? document.body : undefined,
     global: {
-      mocks: { $t: (key: string) => key },
+      // Params are echoed so a test can read the deadline the copy was given.
+      mocks: {
+        $t: (key: string, params?: Record<string, unknown>) =>
+          params ? `${key}|${JSON.stringify(params)}` : key,
+      },
       stubs: {
         ClientOnly: defineComponent({
           setup:
@@ -145,11 +181,14 @@ async function mountLive() {
       },
     },
   })
+  mounted.push(wrapper)
   const session = captured.session as unknown as {
     acceptConsent: () => void
     confirmDevices: () => void
     advanceAttribution: (id: number) => unknown
     state: { value: string }
+    pause: () => void
+    resume: () => void
   }
 
   session.acceptConsent()
@@ -191,13 +230,16 @@ beforeEach(() => {
     providers.push(provider)
     return provider
   })
+  guards.tab = null
+  guards.network = null
+  storedSession.read.mockReset()
+  storedSession.read.mockReturnValue(null)
   mockUseExitRedirect.mockReturnValue({
     exitRedirectUrl: ref<string | null>(null),
     errorRedirectUrl: ref<string | null>(null),
     sessionFetchFailed: ref<'unauthenticated' | 'unavailable' | null>(null),
     fetchSession: vi.fn(async () => undefined),
-    redirect: vi.fn(() => false),
-    redirectToError: vi.fn(() => false),
+    ...exitRedirect,
   })
   vi.stubGlobal('definePageMeta', vi.fn())
   vi.stubGlobal('useHead', vi.fn())
@@ -213,6 +255,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  for (const wrapper of mounted.splice(0)) wrapper.unmount()
+  document.body.innerHTML = ''
   vi.unstubAllGlobals()
 })
 
@@ -337,5 +381,204 @@ describe('InterviewSession — the legacy caption (flag off)', () => {
     session.advanceAttribution(NEXT)
     await flushPromises()
     expect(caption(wrapper)).toBe('My spoken answer')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// UI-07 — Exit suspends through the existing pause; the suspended wording is for
+// a deliberate exit only.
+// ---------------------------------------------------------------------------
+
+const EXP = Date.UTC(2026, 9, 9, 14, 30) / 1000
+const clock = new Intl.DateTimeFormat('it', { hour: '2-digit', minute: '2-digit' }).format(
+  EXP * 1000
+)
+
+const exitButton = () => document.querySelector<HTMLButtonElement>('[data-testid="call-exit"]')!
+const confirmButton = () =>
+  document.querySelector<HTMLButtonElement>('[data-testid="call-exit-confirm"]')!
+const resumeButton = (wrapper: Awaited<ReturnType<typeof mountLive>>['wrapper']) =>
+  wrapper.findAll('button').find((b) => b.text().includes('interview.paused.resume'))!
+
+async function settle() {
+  await flushPromises()
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  await flushPromises()
+}
+
+/** Click Exit, then "Suspend and leave". */
+async function exitTheInterview() {
+  exitButton().click()
+  await settle()
+  confirmButton().click()
+  await settle()
+}
+
+describe('InterviewSession — Exit (flag on)', () => {
+  it('confirming suspends through the existing pause, exactly once', async () => {
+    const { wrapper, session } = await mountLive({ attach: true })
+    const pause = vi.spyOn(session, 'pause')
+
+    await exitTheInterview()
+
+    expect(pause).toHaveBeenCalledTimes(1)
+    expect(session.state.value).toBe('paused')
+    expect(mockCandidateFetch).toHaveBeenCalledWith(
+      '/candidate/interview/suspend',
+      expect.anything()
+    )
+    expect(wrapper.find('[data-testid="paused-live-panel"]').exists()).toBe(true)
+  })
+
+  it('does not suspend until the candidate confirms', async () => {
+    const { session } = await mountLive({ attach: true })
+    const pause = vi.spyOn(session, 'pause')
+
+    exitButton().click()
+    await settle()
+
+    expect(pause).not.toHaveBeenCalled()
+    expect(session.state.value).toBe('live')
+  })
+
+  it('never uses the exit redirect and never clears the stored session', async () => {
+    await mountLive({ attach: true })
+
+    await exitTheInterview()
+
+    expect(exitRedirect.redirect).not.toHaveBeenCalled()
+    expect(exitRedirect.redirectToError).not.toHaveBeenCalled()
+    expect(storedSession.clear).not.toHaveBeenCalled()
+  })
+
+  it('shows the suspended wording with the stored session deadline, and moves focus to its heading', async () => {
+    storedSession.read.mockReturnValue({ exp: EXP })
+    const { wrapper } = await mountLive({ attach: true })
+
+    await exitTheInterview()
+
+    const heading = wrapper.get('#paused-heading')
+    expect(heading.text()).toBe('interview.call.suspended.title')
+    expect(heading.attributes('tabindex')).toBe('-1')
+    expect(document.activeElement).toBe(heading.element)
+    expect(wrapper.get('[data-testid="paused-live-panel"]').text()).toContain(
+      `interview.call.suspended.body|${JSON.stringify({ time: clock })}`
+    )
+    expect(wrapper.text()).not.toContain('interview.paused.title')
+    expect(wrapper.text()).not.toContain('interview.paused.body')
+  })
+
+  it('drops the deadline from the suspended wording when the stored session cannot be read', async () => {
+    storedSession.read.mockReturnValue(null)
+    const { wrapper } = await mountLive({ attach: true })
+
+    await exitTheInterview()
+
+    const panel = wrapper.get('[data-testid="paused-live-panel"]').text()
+    expect(panel).toContain('interview.call.suspended.body_no_deadline')
+    expect(panel).not.toContain('"time"')
+  })
+
+  it('Resume on the suspended screen calls session.resume()', async () => {
+    const { wrapper, session } = await mountLive({ attach: true })
+    const resume = vi.spyOn(session, 'resume')
+
+    await exitTheInterview()
+    await resumeButton(wrapper).trigger('click')
+
+    expect(resume).toHaveBeenCalledTimes(1)
+  })
+
+  it('disables the Exit button while a handover is in flight, never hides it', async () => {
+    await mountLive({ attach: true })
+    expect(exitButton().disabled).toBe(false)
+
+    captured.handover!.value = true
+    await settle()
+
+    expect(exitButton()).not.toBeNull()
+    expect(exitButton().disabled).toBe(true)
+    expect(exitButton().getAttribute('aria-busy')).toBe('true')
+  })
+
+  it('keeps the existing paused copy for a manual pause', async () => {
+    const { wrapper } = await mountLive({ attach: true })
+
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('interview.live.pause'))!
+      .trigger('click')
+    await settle()
+
+    expect(wrapper.get('#paused-heading').text()).toBe('interview.paused.title')
+    expect(wrapper.text()).not.toContain('interview.call.suspended')
+    expect(wrapper.get('#paused-heading').attributes('tabindex')).toBeUndefined()
+  })
+
+  it('keeps the existing paused copy for a tab-hidden pause', async () => {
+    const { wrapper } = await mountLive({ attach: true })
+
+    guards.tab!.onHiddenTimeout()
+    await settle()
+
+    expect(wrapper.get('#paused-heading').text()).toBe('interview.paused.title')
+    expect(wrapper.find('[data-testid="tab-hidden-warning"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('interview.call.suspended')
+  })
+
+  it('keeps the existing paused copy for a network pause', async () => {
+    const { wrapper } = await mountLive({ attach: true })
+
+    guards.network!.onOffline()
+    await settle()
+
+    expect(wrapper.get('#paused-heading').text()).toBe('interview.paused.title')
+    expect(wrapper.find('[data-testid="network-reconnecting-notice"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('interview.call.suspended')
+  })
+
+  it('shows the plain paused copy again after an exit, resume and a tab-hidden pause', async () => {
+    const { wrapper, session } = await mountLive({ attach: true })
+
+    await exitTheInterview()
+    expect(wrapper.get('#paused-heading').text()).toBe('interview.call.suspended.title')
+
+    session.state.value = 'live'
+    await settle()
+    guards.tab!.onHiddenTimeout()
+    await settle()
+
+    expect(wrapper.get('#paused-heading').text()).toBe('interview.paused.title')
+  })
+
+  it('shows the plain paused copy for a manual pause after an exit and resume', async () => {
+    const { wrapper, session } = await mountLive({ attach: true })
+
+    await exitTheInterview()
+    expect(wrapper.get('#paused-heading').text()).toBe('interview.call.suspended.title')
+
+    mockCandidateFetch.mockResolvedValueOnce(startResponse(FIRST + 1))
+    await resumeButton(wrapper).trigger('click')
+    await settle()
+    providers[1]!._emit('state', 'ready')
+    await settle()
+    expect(session.state.value).toBe('live')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('interview.live.pause'))!
+      .trigger('click')
+    await settle()
+
+    expect(wrapper.get('#paused-heading').text()).toBe('interview.paused.title')
+    expect(wrapper.text()).not.toContain('interview.call.suspended')
+  })
+})
+
+describe('InterviewSession — Exit (flag off)', () => {
+  it('renders no Exit button: the old screen is exactly as it was', async () => {
+    flag.on = false
+    await mountLive({ attach: true })
+
+    expect(exitButton()).toBeNull()
   })
 })

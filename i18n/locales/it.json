@@ -67,7 +67,20 @@
       "interviewer_name": "Intervistatore AI",
       "you": "Tu",
       "self_view": "La tua fotocamera",
-      "self_view_off": "Fotocamera non disponibile"
+      "self_view_off": "Fotocamera non disponibile",
+      "exit": {
+        "label": "Esci, riprenderai dopo",
+        "title": "Vuoi uscire dal colloquio?",
+        "body": "Il colloquio verrà sospeso e non viene registrato nulla. Potrai riprenderlo dalla stessa domanda riaprendo il link di invito da questo browser, entro le {time}.",
+        "body_no_deadline": "Il colloquio verrà sospeso e non viene registrato nulla. Potrai riprenderlo dalla stessa domanda riaprendo il link di invito da questo browser.",
+        "confirm": "Sospendi ed esci",
+        "cancel": "Resta nel colloquio"
+      },
+      "suspended": {
+        "title": "Colloquio sospeso",
+        "body": "Hai sospeso il colloquio. Per riprendere, riapri il link di invito da questo browser entro le {time}, oppure premi Riprendi.",
+        "body_no_deadline": "Hai sospeso il colloquio. Per riprendere, riapri il link di invito da questo browser, oppure premi Riprendi."
+      }
     },
     "end_of_question": {
       "title": "Domanda completata",
