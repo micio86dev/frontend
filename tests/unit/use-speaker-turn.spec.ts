@@ -405,25 +405,35 @@ describe('streams and lifecycle', () => {
 })
 
 describe('createAnalyserLevelReader — the default analyser', () => {
-  function stubAudio(fill: number) {
+  function stubAudio(
+    fill: number,
+    options: { state?: string; resume?: ReturnType<typeof vi.fn> } = {}
+  ) {
+    const resume = options.resume ?? vi.fn().mockResolvedValue(undefined)
+    const context = {
+      state: options.state ?? 'running',
+      resume,
+      close: vi.fn().mockResolvedValue(undefined),
+      createMediaStreamSource: vi.fn(),
+      createAnalyser: vi.fn(),
+    }
     const sourceDisconnect = vi.fn()
     const analyserDisconnect = vi.fn()
-    const close = vi.fn().mockResolvedValue(undefined)
+    const close = context.close
     const connect = vi.fn()
-    const AudioContextStub = vi.fn(() => ({
-      resume: vi.fn().mockResolvedValue(undefined),
-      close,
-      createMediaStreamSource: vi.fn(() => ({ connect, disconnect: sourceDisconnect })),
-      createAnalyser: vi.fn(() => ({
-        fftSize: 0,
-        frequencyBinCount: 512,
-        disconnect: analyserDisconnect,
-        getByteTimeDomainData: vi.fn((array: Uint8Array) => array.fill(fill)),
-      })),
+    context.createMediaStreamSource = vi.fn(() => ({ connect, disconnect: sourceDisconnect }))
+    context.createAnalyser = vi.fn(() => ({
+      fftSize: 0,
+      frequencyBinCount: 512,
+      disconnect: analyserDisconnect,
+      getByteTimeDomainData: vi.fn((array: Uint8Array) => array.fill(fill)),
     }))
-    vi.stubGlobal('AudioContext', AudioContextStub)
+    vi.stubGlobal(
+      'AudioContext',
+      vi.fn(() => context)
+    )
 
-    return { close, connect, sourceDisconnect, analyserDisconnect }
+    return { close, connect, sourceDisconnect, analyserDisconnect, context, resume }
   }
 
   it('reads the RMS of the time-domain samples on a 0..1 scale', () => {
@@ -455,6 +465,60 @@ describe('createAnalyserLevelReader — the default analyser', () => {
     expect(sourceDisconnect).toHaveBeenCalled()
     expect(analyserDisconnect).toHaveBeenCalled()
     expect(close).toHaveBeenCalled()
+  })
+
+  // A browser's autoplay policy can leave the context `suspended` after the one
+  // resume() at construction. A suspended analyser hands back a stale buffer, so
+  // the mic (no provider fallback) would read as silent for the whole interview.
+  describe('a suspended AudioContext (autoplay policy)', () => {
+    it('re-attempts resume() on a later read and reports 0 while still suspended', () => {
+      // Loud buffer on purpose: a stale one must not be reported as live speech.
+      const { resume } = stubAudio(128 + 64, { state: 'suspended' })
+      const reader = createAnalyserLevelReader(AVATAR)!
+      expect(resume).toHaveBeenCalledTimes(1) // the construction-time attempt
+
+      expect(reader.read()).toBe(0)
+      expect(resume).toHaveBeenCalledTimes(2)
+
+      expect(reader.read()).toBe(0)
+      expect(resume).toHaveBeenCalledTimes(3)
+    })
+
+    it('handles a rejected resume(): no throw, and the rejection is always caught', async () => {
+      // A rejection with no handler would surface as an unhandled rejection, so
+      // assert each rejected promise is given a catch rather than relying on
+      // the runner's global handler.
+      const promises: Promise<void>[] = []
+      const catchSpies: ReturnType<typeof vi.spyOn>[] = []
+      const resume = vi.fn(() => {
+        const rejected = Promise.reject(new Error('NotAllowedError')) as Promise<void>
+        promises.push(rejected)
+        catchSpies.push(vi.spyOn(rejected, 'catch'))
+        return rejected
+      })
+      stubAudio(128 + 64, { state: 'suspended', resume })
+      const reader = createAnalyserLevelReader(AVATAR)!
+
+      expect(() => reader.read()).not.toThrow()
+      expect(reader.read()).toBe(0)
+
+      expect(resume).toHaveBeenCalledTimes(3)
+      expect(catchSpies).toHaveLength(3)
+      for (const spy of catchSpies) expect(spy).toHaveBeenCalledTimes(1)
+      await Promise.resolve()
+    })
+
+    it('flows levels as before once the context is running, with no further resume()', () => {
+      const { context, resume } = stubAudio(128 + 64, { state: 'suspended' })
+      const reader = createAnalyserLevelReader(AVATAR)!
+      expect(reader.read()).toBe(0)
+      expect(resume).toHaveBeenCalledTimes(2)
+
+      context.state = 'running'
+
+      expect(reader.read()).toBeCloseTo(0.5, 5)
+      expect(resume).toHaveBeenCalledTimes(2)
+    })
   })
 
   it('is null when the platform has no AudioContext', () => {

@@ -124,6 +124,14 @@ export function createAnalyserLevelReader(stream: MediaStream): LevelReader | nu
 
     return {
       read() {
+        // An autoplay policy can leave the context suspended after the single
+        // resume() above. A suspended analyser returns a stale buffer, so report
+        // silence and ask again (once per sample; a rejection is swallowed).
+        if (context.state === 'suspended') {
+          void context.resume().catch(() => undefined)
+          return 0
+        }
+
         analyser.getByteTimeDomainData(samples)
 
         let sum = 0
