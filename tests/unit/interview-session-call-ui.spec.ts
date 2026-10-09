@@ -550,6 +550,28 @@ describe('InterviewSession — Exit (flag on)', () => {
 
     expect(wrapper.get('#paused-heading').text()).toBe('interview.paused.title')
   })
+
+  it('shows the plain paused copy for a manual pause after an exit and resume', async () => {
+    const { wrapper, session } = await mountLive({ attach: true })
+
+    await exitTheInterview()
+    expect(wrapper.get('#paused-heading').text()).toBe('interview.call.suspended.title')
+
+    mockCandidateFetch.mockResolvedValueOnce(startResponse(FIRST + 1))
+    await resumeButton(wrapper).trigger('click')
+    await settle()
+    providers[1]!._emit('state', 'ready')
+    await settle()
+    expect(session.state.value).toBe('live')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('interview.live.pause'))!
+      .trigger('click')
+    await settle()
+
+    expect(wrapper.get('#paused-heading').text()).toBe('interview.paused.title')
+    expect(wrapper.text()).not.toContain('interview.call.suspended')
+  })
 })
 
 describe('InterviewSession — Exit (flag off)', () => {
