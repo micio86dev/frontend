@@ -178,6 +178,25 @@ describe('CallQuestion — focus at a competency boundary', () => {
     expect(document.activeElement).toBe(confirm)
   })
 
+  it('treats a dialog with no data-state as open, and does not steal focus from it', () => {
+    // The guard excludes only an explicit `data-state="closed"`: a dialog-role
+    // element that carries no state at all is assumed open (conservative).
+    const wrapper = mountBand('A question')
+    const dialog = document.createElement('div')
+    dialog.setAttribute('role', 'dialog')
+    const confirm = document.createElement('button')
+    dialog.appendChild(confirm)
+    document.body.appendChild(dialog)
+    extras.push(dialog)
+    confirm.focus()
+    const focus = vi.spyOn(region(wrapper).element as HTMLElement, 'focus')
+
+    boundary(wrapper)
+
+    expect(focus).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(confirm)
+  })
+
   it('focuses again once the dialog has closed', () => {
     const wrapper = mountBand('A question')
     const dialog = document.createElement('div')

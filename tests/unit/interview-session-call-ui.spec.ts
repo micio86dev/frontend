@@ -260,6 +260,30 @@ describe('InterviewSession — the written question (flag on)', () => {
     )
   })
 
+  it('treats an entry with no role like the candidate: never displayed, still posted as it is today', async () => {
+    // Every provider sets `role`, so this is a guard, not a live path. The display
+    // filter is deliberately conservative: words that might be the candidate's are
+    // never shown. The utterance path is a separate listener and is NOT filtered, so
+    // a role-less entry is posted with the speaker it resolves to there (`avatar`,
+    // since only `role: 'user'` maps to `candidate`) — pinned as observed, not endorsed.
+    const { wrapper } = await mountLive()
+    providers[0]!._emit('transcript', { role: 'avatar', text: 'First question', ts: 1 })
+    await flushPromises()
+
+    providers[0]!._emit('transcript', { text: 'Words of unknown origin', ts: 2 })
+    await flushPromises()
+
+    expect(caption(wrapper)).toBe('First question')
+    expect(wrapper.text()).not.toContain('Words of unknown origin')
+    expect(utterances()).toContainEqual(
+      expect.objectContaining({
+        session_id: FIRST,
+        speaker: 'avatar',
+        text: 'Words of unknown origin',
+      })
+    )
+  })
+
   it('keeps the hint when the first thing heard is the candidate', async () => {
     const { wrapper } = await mountLive()
 
