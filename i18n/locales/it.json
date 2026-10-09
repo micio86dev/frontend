@@ -57,7 +57,13 @@
       "listen_hint": "Ascolta la domanda, poi rispondi a voce. Prenditi il tuo tempo."
     },
     "call": {
-      "question_region": "Domanda corrente"
+      "question_region": "Domanda corrente",
+      "panel_label": "Avanzamento del colloquio",
+      "progress": "Domanda {n} di {total}",
+      "duration_label": "Durata",
+      "duration_value": "{elapsed} / {total}",
+      "duration_sr": "{elapsed} trascorsi su un massimo di {total}",
+      "question_timer_label": "Tempo rimanente per questa domanda"
     },
     "end_of_question": {
       "title": "Domanda completata",

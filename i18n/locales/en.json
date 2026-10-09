@@ -57,7 +57,13 @@
       "listen_hint": "Listen to the question, then answer out loud. Take your time."
     },
     "call": {
-      "question_region": "Current question"
+      "question_region": "Current question",
+      "panel_label": "Interview progress",
+      "progress": "Question {n} of {total}",
+      "duration_label": "Duration",
+      "duration_value": "{elapsed} / {total}",
+      "duration_sr": "{elapsed} elapsed out of a maximum of {total}",
+      "question_timer_label": "Time left for this question"
     },
     "end_of_question": {
       "title": "Question Completed",
