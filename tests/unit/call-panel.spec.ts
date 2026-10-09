@@ -263,6 +263,29 @@ describe('CallPanel — the question timer', () => {
     expect(wrapper.emitted('expired')).toHaveLength(1)
   })
 
+  it('starts the counter again when the timer key changes, and not otherwise', async () => {
+    vi.useFakeTimers()
+    const wrapper = mountPanel({
+      ended: 0,
+      total: 5,
+      elapsedSeconds: 0,
+      questionSeconds: 300,
+      timerKey: 41,
+    })
+    const shown = () => wrapper.get('[role="timer"]').text()
+
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(shown()).toBe('04:57')
+
+    // The same competency session re-rendering with a fresh remaining time must not rewind it.
+    await wrapper.setProps({ questionSeconds: 297 })
+    expect(shown()).toBe('04:57')
+
+    // A new competency session (a handover keeps the screen live) is a new question: a full clock.
+    await wrapper.setProps({ questionSeconds: 300, timerKey: 42 })
+    expect(shown()).toBe('05:00')
+  })
+
   it('forwards tick and expired from the counter', async () => {
     const wrapper = mountPanel({ ended: 1, total: 5, elapsedSeconds: 0, questionSeconds: 0 })
 

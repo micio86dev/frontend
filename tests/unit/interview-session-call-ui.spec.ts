@@ -15,7 +15,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { ref, defineComponent, h, onMounted, onUnmounted } from 'vue'
+import { ref, defineComponent, h, markRaw, onMounted, onUnmounted } from 'vue'
 import type { InterviewProvider } from '~/app/types/interview-provider'
 
 vi.setConfig({ testTimeout: 30000 })
@@ -29,6 +29,7 @@ const {
   mockCandidateFetch,
   mockCreateProvider,
   mockUseExitRedirect,
+  speakerTurn,
 } = vi.hoisted(() => ({
   // `raw` overrides what the runtime config carries, so a test can feed the REAL
   // `useCandidateCallUi` a value that is neither 'true' nor empty ('1', 'yes').
@@ -49,9 +50,27 @@ const {
   mockCandidateFetch: vi.fn(),
   mockCreateProvider: vi.fn(),
   mockUseExitRedirect: vi.fn(),
+  // What the page handed `useSpeakerTurn`, and the signal it gets back. The
+  // composable's own rules are proven in use-speaker-turn.spec.ts; here only the
+  // wiring is: which inputs it is given and what the tiles do with its answer.
+  speakerTurn: {
+    options: null as null | Record<string, { value: unknown }>,
+    speaker: null as null | { value: 'avatar' | 'candidate' | 'none' },
+  },
 }))
 
 vi.mock('~/composables/useExitRedirect', () => ({ useExitRedirect: mockUseExitRedirect }))
+vi.mock('~/composables/useSpeakerTurn', async () => {
+  const { ref: vueRef } = await import('vue')
+  return {
+    useSpeakerTurn: (options: Record<string, { value: unknown }>) => {
+      speakerTurn.options = options
+      const speaker = vueRef<'avatar' | 'candidate' | 'none'>('none')
+      speakerTurn.speaker = speaker
+      return { speaker, stop: vi.fn() }
+    },
+  }
+})
 vi.mock('~/composables/useNetworkGuard', () => ({
   useNetworkGuard: (options: { onOffline: () => void }) => {
     guards.network = options
@@ -163,6 +182,68 @@ const AvatarPlayerStub = defineComponent({
   },
 })
 
+const DeviceCheckStub = defineComponent({
+  name: 'DeviceCheck',
+  emits: ['confirmed'],
+  setup: () => () => h('div', { 'data-testid': 'device-check' }),
+})
+
+/** Counts how often the proctoring overlay is mounted: it must exist only while live. */
+const overlayLifecycle = { mounted: 0, unmounted: 0 }
+const ProctorOverlayStub = defineComponent({
+  name: 'ProctorOverlay',
+  props: { stream: { type: Object, required: true }, sessionId: { type: Number, default: null } },
+  setup() {
+    onMounted(() => {
+      overlayLifecycle.mounted += 1
+    })
+    onUnmounted(() => {
+      overlayLifecycle.unmounted += 1
+    })
+    return () => h('div', { 'data-testid': 'proctor-overlay' })
+  },
+})
+
+/** The question counter: records how often it is created and what it was started from. */
+const timerLifecycle = { mounted: 0 }
+const InterviewTimerCounterStub = defineComponent({
+  name: 'InterviewTimer',
+  props: { seconds: { type: Number, required: true }, label: { type: String, default: '' } },
+  emits: ['tick', 'expired'],
+  setup(props) {
+    timerLifecycle.mounted += 1
+    return () =>
+      h('div', { 'data-testid': 'question-timer', 'data-seconds': String(props.seconds) })
+  },
+})
+
+/** Props the own tile was given. */
+const CallSelfViewStub = defineComponent({
+  name: 'CallSelfView',
+  props: {
+    stream: { type: Object, required: true },
+    speaking: { type: Boolean, default: false },
+    speakingLabel: { type: String, default: '' },
+  },
+  setup: (props) => () =>
+    h('div', {
+      'data-testid': 'call-self-view',
+      'data-speaking': String(props.speaking),
+      'data-speaking-label': props.speakingLabel,
+    }),
+})
+
+/** A stream that carries no tracks: enough for the wiring, which never reads one. */
+function fakeStream(): MediaStream {
+  // Raw, like a real MediaStream: Vue never wraps a host object in a reactive proxy.
+  return markRaw({
+    getVideoTracks: () => [],
+    getAudioTracks: () => [],
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  }) as unknown as MediaStream
+}
+
 const InterviewCaptionStub = defineComponent({
   name: 'InterviewCaption',
   props: { text: { type: String, required: true } },
@@ -173,11 +254,19 @@ const mounted: Array<{ unmount: () => void }> = []
 
 async function mountLive({
   attach = false,
+  stream = null,
+  stubs = {},
   provider = 'tavus',
+  ready = true,
 }: {
   attach?: boolean
   /** Which provider the first /start names; only a HeyGen competency hands over. */
   provider?: string
+  /** False stops at `connecting`: the provider is published but has not reported ready. */
+  ready?: boolean
+  /** Confirms the device check with this stream, as the real flow does. */
+  stream?: MediaStream | null
+  stubs?: Record<string, unknown>
 } = {}) {
   const { default: Component } = await import('~/components/InterviewSession.vue')
   const wrapper = mount(Component, {
@@ -197,10 +286,12 @@ async function mountLive({
         }),
         AvatarPlayer: AvatarPlayerStub,
         InterviewCaption: InterviewCaptionStub,
-        DeviceCheck: true,
+        DeviceCheck: stream ? DeviceCheckStub : true,
         ProctorOverlay: true,
+        CallSelfView: CallSelfViewStub,
         InterviewTimer: true,
         InterviewProgressBar: true,
+        ...stubs,
       },
     },
   })
@@ -216,8 +307,14 @@ async function mountLive({
 
   session.acceptConsent()
   mockCandidateFetch.mockResolvedValueOnce(startResponse(FIRST, provider))
-  session.confirmDevices()
+  if (stream) {
+    await flushPromises()
+    wrapper.findComponent(DeviceCheckStub).vm.$emit('confirmed', stream, 'mic-1')
+  } else {
+    session.confirmDevices()
+  }
   await flushPromises()
+  if (!ready) return { wrapper, session }
   providers[0]!._emit('state', 'ready')
   await flushPromises()
   expect(session.state.value).toBe('live')
@@ -247,6 +344,11 @@ beforeEach(() => {
   flag.raw = undefined
   playerLifecycle.mounted = 0
   playerLifecycle.unmounted = 0
+  overlayLifecycle.mounted = 0
+  overlayLifecycle.unmounted = 0
+  timerLifecycle.mounted = 0
+  speakerTurn.options = null
+  speakerTurn.speaker = null
   captured.session = null
   providers = []
   mockCandidateFetch.mockReset()
@@ -646,6 +748,14 @@ describe('InterviewSession — the live tree with the flag off (characterization
 type Mounted = Awaited<ReturnType<typeof mountLive>>['wrapper']
 
 const layer = (wrapper: Mounted) => wrapper.get('[data-slot="avatar-layer"]').element
+const layout = (wrapper: Mounted) => wrapper.get('[data-slot="call-layout"]').element
+
+/** The grid child that holds `el`: a stage part sits one wrapper below the layout. */
+const gridChildOf = (wrapper: Mounted, el: Element) => {
+  let node: Element | null = el
+  while (node && node.parentElement !== layout(wrapper)) node = node.parentElement
+  return node
+}
 
 /** What the end of a competency reports, and the next /start for a HeyGen handover. */
 async function beginHandover(session: { state: { value: string } }) {
@@ -660,7 +770,257 @@ async function beginHandover(session: { state: { value: string } }) {
   expect(session.state.value).toBe('live')
 }
 
+describe('InterviewSession — the stage (flag on)', () => {
+  it('renders the four stage parts and none of the old live chrome', async () => {
+    const { wrapper } = await mountLive({ stream: fakeStream() })
+
+    for (const gone of ['interview-status', 'live-dock', 'question-label']) {
+      expect(wrapper.find(`[data-testid="${gone}"]`).exists(), gone).toBe(false)
+    }
+    expect(wrapper.findAll('button').some((b) => b.text().includes('interview.live.pause'))).toBe(
+      false
+    )
+    expect(wrapper.find('[data-testid="live-hint"]').exists()).toBe(false)
+
+    const parts = {
+      question: wrapper.get('[data-testid="call-question"]').element,
+      panel: wrapper.get('[data-testid="call-panel"]').element,
+      own: wrapper.get('[data-testid="call-self-view"]').element,
+    }
+    // Siblings of the player layer: each one is a grid child of the same layout.
+    expect(layer(wrapper).parentElement).toBe(layout(wrapper))
+    for (const part of Object.values(parts)) {
+      const cell = gridChildOf(wrapper, part)
+      expect(cell).not.toBeNull()
+      expect(cell).not.toBe(layer(wrapper))
+    }
+  })
+
+  it('puts Exit and then the help link in the panel, and the timer in the panel only', async () => {
+    const { wrapper } = await mountLive({
+      attach: true,
+      stubs: { InterviewTimer: InterviewTimerCounterStub },
+    })
+
+    const panel = wrapper.get('[data-testid="call-panel"]').element
+    const exit = panel.querySelector('[data-testid="call-exit"]')!
+    const help = panel.querySelector('[data-testid="call-help-link"]')!
+    expect(exit.compareDocumentPosition(help) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(wrapper.findAll('[data-testid="question-timer"]')).toHaveLength(1)
+    expect(panel.querySelector('[data-testid="question-timer"]')).not.toBeNull()
+  })
+
+  it('draws no own tile until the device check has confirmed a stream', async () => {
+    const { wrapper } = await mountLive()
+
+    expect(wrapper.find('[data-testid="call-self-view"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="call-panel"]').exists()).toBe(true)
+  })
+
+  it('shows the server counters, and never the competency', async () => {
+    const { wrapper, session } = await mountLive()
+    const store = session as unknown as {
+      endedCompetencies: { value: number | null }
+      totalCompetencies: { value: number | null }
+    }
+    expect(wrapper.get('[data-testid="call-panel"]').text()).not.toContain(
+      'interview.call.progress'
+    )
+
+    store.endedCompetencies.value = 1
+    store.totalCompetencies.value = 3
+    await flushPromises()
+
+    const panel = wrapper.get('[data-testid="call-panel"]')
+    expect(panel.get('[data-testid="call-panel-progress-text"]').text()).toBe(
+      `interview.call.progress|${JSON.stringify({ n: 2, total: 3 })}`
+    )
+    // The start response carried the code `PRS`; nothing on the stage may reveal it.
+    expect(wrapper.html()).not.toContain('PRS')
+  })
+
+  it('lights the interviewer tile, and only it, while the avatar speaks', async () => {
+    const { wrapper } = await mountLive({ stream: fakeStream() })
+    const tile = () => wrapper.get('[data-slot="avatar-layer"] [data-slot="call-tile"]')
+    const own = () => wrapper.get('[data-testid="call-self-view"]')
+    expect(tile().attributes('data-speaking')).toBe('false')
+
+    speakerTurn.speaker!.value = 'avatar'
+    await flushPromises()
+    expect(tile().attributes('data-speaking')).toBe('true')
+    expect(tile().text()).toContain('interview.call.avatar_speaking')
+    expect(own().attributes('data-speaking')).toBe('false')
+
+    speakerTurn.speaker!.value = 'candidate'
+    await flushPromises()
+    expect(tile().attributes('data-speaking')).toBe('false')
+    expect(own().attributes('data-speaking')).toBe('true')
+    expect(own().attributes('data-speaking-label')).toBe('interview.call.candidate_speaking')
+  })
+
+  it('feeds the speaker signal the session state, the live provider state, the avatar stream and the mic', async () => {
+    const mic = fakeStream()
+    const avatar = fakeStream()
+    const { wrapper, session } = await mountLive({ stream: mic })
+    const inputs = speakerTurn.options!
+
+    expect(inputs.state).toBe((session as unknown as { state: unknown }).state)
+    expect(inputs.micStream!.value).toBe(mic)
+    expect(inputs.providerState!.value).toBe('ready')
+    expect(inputs.avatarStream!.value).toBeNull()
+
+    providers[0]!._emit('state', 'speaking')
+    wrapper.findComponent(AvatarPlayerStub).vm.$emit('stream', avatar)
+    await flushPromises()
+
+    expect(inputs.providerState!.value).toBe('speaking')
+    expect(inputs.avatarStream!.value).toBe(avatar)
+  })
+
+  it('counts the elapsed time only while live, and keeps it across a suspension', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    try {
+      const { wrapper, session } = await mountLive({ attach: true })
+      ;(session as unknown as { totalCompetencies: { value: number } }).totalCompetencies.value = 3
+      await flushPromises()
+      const duration = () => wrapper.get('[data-testid="call-panel-duration-value"]').text()
+      const shown = (elapsed: string) =>
+        `interview.call.duration_value|${JSON.stringify({ elapsed, total: '15:00' })}`
+      expect(duration()).toBe(shown('00:00'))
+
+      await vi.advanceTimersByTimeAsync(65_000)
+      expect(duration()).toBe(shown('01:05'))
+
+      await exitTheInterview()
+      await vi.advanceTimersByTimeAsync(120_000)
+
+      mockCandidateFetch.mockResolvedValueOnce(startResponse(FIRST + 1))
+      await resumeButton(wrapper).trigger('click')
+      await settle()
+      providers[1]!._emit('state', 'ready')
+      await settle()
+      expect(session.state.value).toBe('live')
+      expect(duration()).toBe(shown('01:05'))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('starts the question counter again for every competency session, and ends the question when it expires', async () => {
+    const { wrapper, session } = await mountLive({
+      stubs: { InterviewTimer: InterviewTimerCounterStub },
+    })
+    const timer = () => wrapper.getComponent(InterviewTimerCounterStub)
+    expect(timerLifecycle.mounted).toBe(1)
+    expect(timer().props('seconds')).toBe(300)
+
+    timer().vm.$emit('tick', 120)
+    await flushPromises()
+    expect(timer().props('seconds')).toBe(120)
+    expect(timerLifecycle.mounted).toBe(1)
+
+    session.advanceAttribution(NEXT)
+    await flushPromises()
+    expect(timerLifecycle.mounted).toBe(2)
+    expect(timer().props('seconds')).toBe(300)
+
+    const endQuestion = vi.spyOn(
+      session as unknown as { endQuestion: (reason: string) => Promise<void> },
+      'endQuestion'
+    )
+    timer().vm.$emit('expired')
+    await flushPromises()
+    expect(endQuestion).toHaveBeenCalledWith('timeout')
+  })
+
+  it('moves the toaster to the top left', async () => {
+    const { wrapper } = await mountLive({
+      stubs: {
+        IntegrityToaster: defineComponent({
+          props: { position: String },
+          setup: (p) => () => h('i', { 'data-testid': 'toaster', 'data-position': p.position }),
+        }),
+      },
+    })
+
+    expect(wrapper.get('[data-testid="toaster"]').attributes('data-position')).toBe('top-left')
+  })
+
+  it('widens the canvas for the call, and only while the call is live', async () => {
+    const { wrapper } = await mountLive()
+
+    expect(wrapper.get('header').classes()).toContain('max-w-[96rem]')
+    expect(wrapper.get('main').classes()).toContain('max-w-[96rem]')
+  })
+
+  it('mounts the proctoring overlay only while live and unmounts it on suspend', async () => {
+    const { wrapper, session } = await mountLive({
+      attach: true,
+      stream: fakeStream(),
+      stubs: { ProctorOverlay: ProctorOverlayStub },
+    })
+    expect(session.state.value).toBe('live')
+    expect(overlayLifecycle.mounted).toBe(1)
+    expect(wrapper.find('[data-testid="proctor-overlay"]').exists()).toBe(true)
+
+    await exitTheInterview()
+
+    expect(session.state.value).toBe('paused')
+    expect(wrapper.find('[data-testid="proctor-overlay"]').exists()).toBe(false)
+    expect(overlayLifecycle.unmounted).toBe(1)
+    expect(overlayLifecycle.mounted).toBe(1)
+  })
+
+  it('does not mount the overlay, or widen the canvas, before the interview is live', async () => {
+    const { wrapper, session } = await mountLive({
+      stream: fakeStream(),
+      ready: false,
+      stubs: { ProctorOverlay: ProctorOverlayStub },
+    })
+
+    // Connecting: the provider is published, the interview is not live yet.
+    expect(session.state.value).toBe('connecting')
+    expect(wrapper.find('[data-slot="avatar-layer"]').exists()).toBe(true)
+    expect(overlayLifecycle.mounted).toBe(0)
+    expect(wrapper.get('header').classes()).not.toContain('max-w-[96rem]')
+    expect(wrapper.find('[data-testid="call-panel"]').exists()).toBe(false)
+  })
+})
+
 describe('InterviewSession — the player layer is never re-parented (flag on, R1)', () => {
+  it('keeps one layer node, and mounts and stops each player once, across connecting, live, paused, connecting, live', async () => {
+    const { wrapper, session } = await mountLive({ attach: true })
+    const node = layer(wrapper)
+    expect(playerLifecycle).toEqual({ mounted: 1, unmounted: 0 })
+
+    await exitTheInterview()
+    expect(session.state.value).toBe('paused')
+    expect(layer(wrapper)).toBe(node)
+    expect(playerLifecycle).toEqual({ mounted: 1, unmounted: 1 })
+    expect(providers[0]!._rawStop).toHaveBeenCalledTimes(1)
+
+    mockCandidateFetch.mockResolvedValueOnce(startResponse(FIRST + 1))
+    await resumeButton(wrapper).trigger('click')
+    await settle()
+    expect(session.state.value).toBe('connecting')
+    expect(layer(wrapper)).toBe(node)
+    expect(playerLifecycle).toEqual({ mounted: 2, unmounted: 1 })
+
+    providers[1]!._emit('state', 'ready')
+    await settle()
+    expect(session.state.value).toBe('live')
+    expect(layer(wrapper)).toBe(node)
+    expect(layer(wrapper).parentElement).toBe(layout(wrapper))
+    expect(playerLifecycle).toEqual({ mounted: 2, unmounted: 1 })
+    expect(providers[0]!._rawStop).toHaveBeenCalledTimes(1)
+    expect(providers[1]!._rawStop).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+    await settle()
+    expect(providers[1]!._rawStop).toHaveBeenCalledTimes(1)
+    expect(providers[0]!._rawStop).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps the layer, and the surviving player instance, through a HeyGen handover', async () => {
     const { wrapper, session } = await mountLive({ provider: 'heygen' })
     const node = layer(wrapper)

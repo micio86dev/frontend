@@ -63,6 +63,9 @@ const props = withDefaults(
   { speakingLabel: '', speaking: false }
 )
 
+// Imported by name (not auto-registered), so it keeps the name it is stubbed and traced by.
+defineOptions({ name: 'CallSelfView' })
+
 const { t } = useI18n()
 
 let videoEl: HTMLVideoElement | null = null

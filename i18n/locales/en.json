@@ -66,6 +66,8 @@
       "question_timer_label": "Time left for this question",
       "interviewer_name": "AI interviewer",
       "you": "You",
+      "avatar_speaking": "The interviewer is speaking",
+      "candidate_speaking": "You are speaking",
       "self_view": "Your camera",
       "self_view_off": "Camera unavailable",
       "exit": {
