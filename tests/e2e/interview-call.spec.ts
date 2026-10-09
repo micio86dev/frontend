@@ -905,6 +905,39 @@ async function expectSingleColumn(
   expect(duration.top, 'the duration shares a row with the progress').toBeLessThan(progress.bottom)
 }
 
+/**
+ * The live call, pixel for pixel, at 1440x900 on a light and a dark client colour
+ * (design D14, "Visual regression"; DESIGN §7.3). The self-view video is masked (a
+ * canvas-backed stream, never the same two frames), and so are the two clocks that
+ * count in real time; CSS animations are disabled. Baselines live next to this
+ * spec for both browsers, darwin and linux, and are regenerated only in the pinned
+ * container (`task e2e:update`).
+ */
+test.describe('the call stage, pixel for pixel', () => {
+  for (const [slug, colour] of [
+    ['ffd400', '#ffd400'],
+    ['771aaf', '#771aaf'],
+  ] as const) {
+    test(`1440x900 on ${colour}`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 })
+      const api = await mockCallApi(page, colour)
+      await goLiveFullPanel(page, api)
+      // The boundary left the question band focused: its ring is not what is pinned here.
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+      await expect.poll(() => overflowOf(page)).toEqual({ x: 0, y: 0 })
+
+      await expect(page).toHaveScreenshot(`call-stage-${slug}.png`, {
+        animations: 'disabled',
+        mask: [
+          page.locator('[data-slot="call-stage-self"] video'),
+          page.getByTestId('call-panel-duration-value'),
+          page.getByTestId('call-panel').locator('time'),
+        ],
+      })
+    })
+  }
+})
+
 /** A candidate JWT the page can decode client-side, as the SSO fixture makes. */
 function candidateJwt(): string {
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url')
