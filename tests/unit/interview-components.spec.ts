@@ -248,3 +248,161 @@ describe('IntegrityToast.vue', () => {
     expect(wrapper.exists()).toBe(true)
   })
 })
+
+// ---- UI-06: additive props (candidate-interview-call-ui, design D7/D8) ----
+//
+// ProgressBar gains `hideCounts` and `valueText`; InterviewTimer gains an optional
+// `label`. Everything above this line is the contract that predates them and is
+// untouched: the first block below pins that the DEFAULT output did not move.
+
+describe('ProgressBar.vue — additive props (UI-06)', () => {
+  const mocks = { $t: (k: string) => k }
+
+  /** Comments are authoring notes, not output; every element, attribute and class is compared. */
+  function markup(html: string): string {
+    return html.replace(/<!--[\s\S]*?-->/g, '').replace(/\n\s*\n/g, '\n')
+  }
+
+  const DEFAULT_OUTPUT = [
+    '<div class="flex flex-col gap-1">',
+    '  <div class="flex items-center justify-between text-sm text-muted-foreground"><span>2 / 5</span><span>40%</span></div>',
+    '  <div role="progressbar" aria-valuenow="2" aria-valuemin="0" aria-valuemax="5" aria-label="interview.progress.label" class="h-2 overflow-hidden rounded-full bg-secondary w-full">',
+    '    <div class="h-full rounded-full bg-primary-ink transition-[width] duration-300 motion-reduce:transition-none" style="width: 40%;"></div>',
+    '  </div>',
+    '</div>',
+  ].join('\n')
+
+  const COMPACT_OUTPUT = [
+    '<div class="flex items-center gap-2.5">',
+    '  <div role="progressbar" aria-valuenow="2" aria-valuemin="0" aria-valuemax="5" aria-label="interview.progress.label" class="h-2 overflow-hidden rounded-full bg-secondary w-24">',
+    '    <div class="h-full rounded-full bg-primary-ink transition-[width] duration-300 motion-reduce:transition-none" style="width: 40%;"></div>',
+    '  </div><span class="text-sm font-medium tabular-nums text-muted-foreground">2 / 5</span>',
+    '</div>',
+  ].join('\n')
+
+  it('leaves the default output byte-identical', async () => {
+    const { default: ProgressBar } = await import('../../app/components/ProgressBar.vue')
+    const wrapper = mount(ProgressBar, { props: { current: 2, total: 5 }, global: { mocks } })
+
+    expect(markup(wrapper.html())).toBe(DEFAULT_OUTPUT)
+  })
+
+  it('leaves the compact output byte-identical', async () => {
+    const { default: ProgressBar } = await import('../../app/components/ProgressBar.vue')
+    const wrapper = mount(ProgressBar, {
+      props: { current: 2, total: 5, compact: true },
+      global: { mocks },
+    })
+
+    expect(markup(wrapper.html())).toBe(COMPACT_OUTPUT)
+  })
+
+  it('emits no aria-valuetext unless one is given', async () => {
+    const { default: ProgressBar } = await import('../../app/components/ProgressBar.vue')
+    const wrapper = mount(ProgressBar, { props: { current: 2, total: 5 }, global: { mocks } })
+
+    expect(wrapper.get('[role="progressbar"]').attributes('aria-valuetext')).toBeUndefined()
+  })
+
+  it('puts valueText on the bar as aria-valuetext', async () => {
+    const { default: ProgressBar } = await import('../../app/components/ProgressBar.vue')
+    const wrapper = mount(ProgressBar, {
+      props: { current: 1, total: 5, valueText: 'Domanda 2 di 5' },
+      global: { mocks },
+    })
+
+    expect(wrapper.get('[role="progressbar"]').attributes('aria-valuetext')).toBe('Domanda 2 di 5')
+  })
+
+  it('hideCounts removes the "n / total" and percentage row, keeping the bar', async () => {
+    const { default: ProgressBar } = await import('../../app/components/ProgressBar.vue')
+    const wrapper = mount(ProgressBar, {
+      props: { current: 2, total: 5, hideCounts: true },
+      global: { mocks },
+    })
+
+    expect(wrapper.text()).toBe('')
+    expect(wrapper.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('2')
+    expect(wrapper.get('[role="progressbar"]').attributes('aria-valuemax')).toBe('5')
+  })
+
+  it('hideCounts also removes the compact trailing count', async () => {
+    const { default: ProgressBar } = await import('../../app/components/ProgressBar.vue')
+    const wrapper = mount(ProgressBar, {
+      props: { current: 2, total: 5, compact: true, hideCounts: true },
+      global: { mocks },
+    })
+
+    expect(wrapper.text()).toBe('')
+    expect(wrapper.find('[role="progressbar"]').exists()).toBe(true)
+  })
+})
+
+describe('InterviewTimer.vue — additive label and the unchanged threshold (UI-06)', () => {
+  const mocks = { $t: (k: string) => k }
+
+  it('keeps the default label when none is given', async () => {
+    const { default: Timer } = await import('../../app/components/InterviewTimer.vue')
+    const wrapper = mount(Timer, { props: { seconds: 60 }, global: { mocks } })
+
+    expect(wrapper.text()).toContain('interview.live.timer_label')
+    expect(wrapper.get('[role="timer"]').attributes('aria-label')).toBe(
+      'interview.live.timer_label'
+    )
+  })
+
+  it('shows an optional label as both the visible text and the accessible name', async () => {
+    const { default: Timer } = await import('../../app/components/InterviewTimer.vue')
+    const wrapper = mount(Timer, {
+      props: { seconds: 252, label: 'Tempo rimanente per questa domanda' },
+      global: { mocks },
+    })
+
+    expect(wrapper.text()).toContain('Tempo rimanente per questa domanda')
+    expect(wrapper.text()).not.toContain('interview.live.timer_label')
+    expect(wrapper.get('[role="timer"]').attributes('aria-label')).toBe(
+      'Tempo rimanente per questa domanda'
+    )
+    expect(wrapper.get('[role="timer"]').text()).toBe('04:12')
+  })
+
+  it('stays quiet and neutral above 10 s, with or without a label', async () => {
+    const { default: Timer } = await import('../../app/components/InterviewTimer.vue')
+    const wrapper = mount(Timer, { props: { seconds: 11, label: 'L' }, global: { mocks } })
+    const timer = wrapper.get('[role="timer"]')
+
+    expect(timer.attributes('aria-live')).toBe('off')
+    expect(timer.classes()).toContain('text-card-foreground')
+    expect(timer.classes()).not.toContain('text-recording')
+  })
+
+  it('turns recording-red and assertive at 10 s or less, with or without a label', async () => {
+    const { default: Timer } = await import('../../app/components/InterviewTimer.vue')
+
+    for (const props of [
+      { seconds: 10 },
+      { seconds: 10, label: 'L' },
+      { seconds: 3, label: 'L' },
+    ]) {
+      const timer = mount(Timer, { props, global: { mocks } }).get('[role="timer"]')
+
+      expect(timer.attributes('aria-live')).toBe('assertive')
+      expect(timer.classes()).toContain('text-recording')
+    }
+  })
+
+  it('still emits tick and expired exactly as before when labelled', async () => {
+    vi.useFakeTimers()
+    const { default: Timer } = await import('../../app/components/InterviewTimer.vue')
+    const wrapper = mount(Timer, { props: { seconds: 2, label: 'L' }, global: { mocks } })
+
+    vi.advanceTimersByTime(1000)
+    await nextTick()
+    vi.advanceTimersByTime(1000)
+    await nextTick()
+
+    expect(wrapper.emitted('tick')!.map((args) => args[0])).toEqual([1, 0])
+    expect(wrapper.emitted('expired')).toHaveLength(1)
+    vi.useRealTimers()
+  })
+})
