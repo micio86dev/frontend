@@ -169,10 +169,13 @@ export default defineNuxtConfig({
       appEnv: 'local',
       // Set NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK=true in E2E to inject the mock provider (D2, W3)
       interviewProviderMock: '',
-      // Candidate interview call screen (candidate-interview-call-ui, D1). Set
-      // NUXT_PUBLIC_CANDIDATE_CALL_UI=true to switch the new screen on; EMPTY
-      // keeps the current one. Read through useCandidateCallUi().
-      candidateCallUi: '',
+      // Candidate interview call screen (candidate-interview-call-ui, D1). ON by
+      // default since UI-12: an UNSET NUXT_PUBLIC_CANDIDATE_CALL_UI keeps this
+      // 'true' (Nitro only overrides a default with a DEFINED value). The variable is
+      // the kill switch back to the legacy screen: set it to `false`, or to an
+      // EMPTY / any other non-`true` value, and the legacy screen is served.
+      // Read through useCandidateCallUi().
+      candidateCallUi: 'true',
       // Where the candidate's support links lead (candidate-interview-call-ui,
       // D10). Set NUXT_PUBLIC_SUPPORT_URL to an https: page or a mailto: address;
       // EMPTY (or any other scheme) keeps mailto:support@beai.app. Read through

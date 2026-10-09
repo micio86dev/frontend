@@ -22,10 +22,11 @@
  * it globally and then dynamically import the config module.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createRouter, toRouteMatcher } from 'radix3'
+import { useCandidateCallUi } from '~/app/composables/useCandidateCallUi'
 
 /**
  * Rather than executing the module (which requires @tailwindcss/vite at module scope),
@@ -199,10 +200,29 @@ describe('nuxt.config.ts — runtimeConfig.public.candidateCallUi (candidate-int
   // Everything from `public: {` to the end of the runtimeConfig block.
   const publicBlock = source.slice(source.indexOf('public: {'))
 
-  it("declares the flag under runtimeConfig.public, defaulting to ''", () => {
+  it("declares the flag under runtimeConfig.public, defaulting to 'true' (the call screen is the default)", () => {
     // `NUXT_PUBLIC_CANDIDATE_CALL_UI` can only reach runtimeConfig at runtime if
-    // the key exists here, and the default must keep the old interview screen.
-    expect(publicBlock).toMatch(/candidateCallUi:\s*''/)
+    // the key exists here. The default is ON since UI-12 (owner go, 2026-10-09): an
+    // UNSET variable keeps the default, so a deployment that never heard of the flag
+    // serves the call screen. Nitro only overrides a default with a DEFINED value.
+    expect(publicBlock).toMatch(/candidateCallUi:\s*'true'/)
+  })
+
+  it('switches the call screen on through the composable with exactly that default', () => {
+    // Not the literal alone: the value the config ships must be one the composable
+    // reads as ON, or the default would be a string that quietly means off.
+    const shipped = /candidateCallUi:\s*'([^']*)'/.exec(publicBlock)?.[1]
+
+    vi.stubGlobal(
+      'useRuntimeConfig',
+      vi.fn(() => ({ public: { candidateCallUi: shipped } }))
+    )
+
+    try {
+      expect(useCandidateCallUi()).toBe(true)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('does not put the flag in the server-only part of runtimeConfig', () => {
