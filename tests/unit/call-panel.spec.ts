@@ -16,7 +16,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h, reactive } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import CallPanel from '~/app/components/organisms/CallPanel.vue'
@@ -63,6 +63,7 @@ function mountPanel(
 
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount()
+  vi.useRealTimers()
 })
 
 function bar(wrapper: VueWrapper) {
@@ -178,7 +179,7 @@ describe('CallPanel — duration', () => {
 })
 
 describe('CallPanel — until the server states a total', () => {
-  it.each([null, 0])('hides the progress and the duration for total = %s', (total) => {
+  it.each([null, 0, -1])('hides the progress and the duration for total = %s', (total) => {
     const wrapper = mountPanel({ ended: null, total, elapsedSeconds: 12 })
 
     expect(wrapper.find('[data-testid="call-panel-progress"]').exists()).toBe(false)
@@ -244,6 +245,22 @@ describe('CallPanel — the question timer', () => {
     expect(timers[0]!.text()).toBe('04:12')
     expect(timers[0]!.attributes('aria-label')).toBe('Tempo rimanente per questa domanda')
     expect(wrapper.text()).toContain('Tempo rimanente per questa domanda')
+  })
+
+  it('forwards every tick of the counter with its remaining seconds', async () => {
+    vi.useFakeTimers()
+    const wrapper = mountPanel({ ended: 1, total: 5, elapsedSeconds: 0, questionSeconds: 3 })
+
+    expect(wrapper.emitted('tick')).toBeUndefined()
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(wrapper.emitted('tick')).toEqual([[2]])
+    expect(wrapper.emitted('expired')).toBeUndefined()
+
+    // The final 0 is reported too, before the expiry.
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(wrapper.emitted('tick')).toEqual([[2], [1], [0]])
+    expect(wrapper.emitted('expired')).toHaveLength(1)
   })
 
   it('forwards tick and expired from the counter', async () => {

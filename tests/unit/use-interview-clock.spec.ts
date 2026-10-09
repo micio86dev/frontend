@@ -180,6 +180,27 @@ describe('useInterviewClock — lifecycle', () => {
   })
 })
 
+describe('useInterviewClock — without an active effect scope', () => {
+  it('does not throw, still counts, and stop() releases its timer', () => {
+    let now = 1_000_000
+    const running = ref(true)
+
+    const clock = useInterviewClock({ isRunning: () => running.value, now: () => now })
+    expect(vi.getTimerCount()).toBe(1)
+
+    now += 3000
+    vi.advanceTimersByTime(3000)
+    expect(clock.elapsed.value).toBe(3)
+
+    clock.stop()
+
+    expect(vi.getTimerCount()).toBe(0)
+    now += 5000
+    vi.advanceTimersByTime(5000)
+    expect(clock.elapsed.value).toBe(3)
+  })
+})
+
 describe('formatClock', () => {
   it.each([
     [0, '00:00'],
