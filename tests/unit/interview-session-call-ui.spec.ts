@@ -169,11 +169,15 @@ function utterances() {
     .map((call: unknown[]) => (call[1] as { body: Record<string, unknown> }).body)
 }
 
-const caption = (wrapper: Awaited<ReturnType<typeof mountLive>>['wrapper']) =>
-  wrapper.get('[data-testid="caption"]').text()
+/** What the candidate reads: the band with the flag on, the legacy caption with it off. */
+const caption = (wrapper: Awaited<ReturnType<typeof mountLive>>['wrapper']) => {
+  if (!flag.on) return wrapper.get('[data-testid="caption"]').text()
+  const question = wrapper.find('[data-testid="call-question"] p:not([data-testid])')
+  return question.exists() ? question.text() : ''
+}
 
 const hint = (wrapper: Awaited<ReturnType<typeof mountLive>>['wrapper']) =>
-  wrapper.find('[data-testid="live-hint"]')
+  wrapper.find('[data-testid="call-question-hint"]')
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -213,6 +217,15 @@ afterEach(() => {
 })
 
 describe('InterviewSession — the written question (flag on)', () => {
+  it('renders the question band instead of the legacy caption', async () => {
+    const { wrapper } = await mountLive()
+    providers[0]!._emit('transcript', { role: 'avatar', text: 'First question', ts: 1 })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="call-question"]').text()).toBe('First question')
+    expect(wrapper.find('[data-testid="caption"]').exists()).toBe(false)
+  })
+
   it("shows the avatar's utterance and replaces it with the next one", async () => {
     const { wrapper } = await mountLive()
 
@@ -279,6 +292,15 @@ describe('InterviewSession — the written question (flag on)', () => {
 })
 
 describe('InterviewSession — the legacy caption (flag off)', () => {
+  it('renders the legacy caption and hint, not the question band', async () => {
+    flag.on = false
+    const { wrapper } = await mountLive()
+
+    expect(wrapper.find('[data-testid="caption"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="live-hint"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="call-question"]').exists()).toBe(false)
+  })
+
   it('behaves exactly as before: whatever the provider says is the caption, and a new session does not clear it', async () => {
     flag.on = false
     const { wrapper, session } = await mountLive()

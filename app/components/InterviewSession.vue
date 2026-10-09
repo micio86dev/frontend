@@ -289,9 +289,10 @@
             in its place until the first question arrives.
           -->
           <div class="grid min-w-0 flex-1 items-center">
-            <InterviewCaption class="[grid-area:1/1]" :text="currentCaption" />
+            <CallQuestion v-if="callUi" class="[grid-area:1/1]" :text="currentCaption" />
+            <InterviewCaption v-else class="[grid-area:1/1]" :text="currentCaption" />
             <p
-              v-if="!currentCaption"
+              v-if="!callUi && !currentCaption"
               data-testid="live-hint"
               class="text-sm leading-7 text-muted-foreground [grid-area:1/1]"
             >
@@ -520,6 +521,7 @@ import { Button } from '~/components/ui/button'
 import { Alert, AlertTitle } from '~/components/ui/alert'
 import InterviewTimer from '~/components/InterviewTimer.vue'
 import InterviewCaption from '~/components/InterviewCaption.vue'
+import CallQuestion from '~/components/molecules/CallQuestion.vue'
 import InterviewGuide from '~/components/molecules/InterviewGuide.vue'
 import { Separator } from '~/components/ui/separator'
 import InterviewProgressBar from '~/components/ProgressBar.vue'
