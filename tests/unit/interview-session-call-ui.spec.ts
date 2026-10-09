@@ -508,6 +508,79 @@ describe('InterviewSession — the written question (flag on)', () => {
   })
 })
 
+describe('InterviewSession — focus at a competency boundary', () => {
+  const band = () => document.querySelector<HTMLElement>('[data-testid="call-question"]')!
+
+  it('does not move focus to the band for the first session of the interview', async () => {
+    await mountLive({ attach: true })
+
+    expect(document.activeElement).not.toBe(band())
+  })
+
+  it('treats the first id as the start, not a boundary, even with the band already mounted', async () => {
+    // The band mounts when the stage goes live, after the real first id: forcing a
+    // fresh first id here is the only way to prove the guard rather than the timing.
+    const { session } = await mountLive({ attach: true })
+    const id = (session as unknown as { sessionId: { value: number | null } }).sessionId
+    id.value = null
+    await flushPromises()
+
+    id.value = FIRST
+    await flushPromises()
+
+    expect(document.activeElement).not.toBe(band())
+  })
+
+  it('moves focus to the band once when the next competency starts a new session', async () => {
+    const { session } = await mountLive({ attach: true })
+    const focus = vi.spyOn(band(), 'focus')
+
+    session.advanceAttribution(NEXT)
+    await flushPromises()
+
+    expect(document.activeElement).toBe(band())
+    expect(focus).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not move focus on a caption update, even after a boundary', async () => {
+    const { session } = await mountLive({ attach: true })
+    session.advanceAttribution(NEXT)
+    await flushPromises()
+    ;(document.activeElement as HTMLElement).blur()
+
+    providers[0]!._emit('transcript', { role: 'avatar', text: 'A follow-up', ts: 2 })
+    await flushPromises()
+
+    expect(document.activeElement).not.toBe(band())
+  })
+
+  it('does not steal focus from an open dialog at a boundary', async () => {
+    const { session } = await mountLive({ attach: true })
+    const dialog = document.createElement('div')
+    dialog.setAttribute('role', 'dialog')
+    dialog.setAttribute('data-state', 'open')
+    const confirm = document.createElement('button')
+    dialog.appendChild(confirm)
+    document.body.appendChild(dialog)
+    confirm.focus()
+
+    session.advanceAttribution(NEXT)
+    await flushPromises()
+
+    expect(document.activeElement).toBe(confirm)
+  })
+
+  it('never moves focus with the flag off', async () => {
+    flag.on = false
+    const { session } = await mountLive({ attach: true })
+
+    session.advanceAttribution(NEXT)
+    await flushPromises()
+
+    expect(document.activeElement).toBe(document.body)
+  })
+})
+
 describe('InterviewSession — the legacy caption (flag off)', () => {
   it('renders the legacy caption and hint, not the question band', async () => {
     flag.on = false
