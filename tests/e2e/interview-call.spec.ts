@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Frame, type Page } from '@playwright/test'
 import { checkA11y } from './fixtures/a11y'
 import { injectCallMedia, setFakeMicLevel } from './fixtures/device-mocks'
 import { mockBrandedInterview } from './fixtures/branded-interview'
@@ -48,8 +48,12 @@ interface CallApi {
   suspends: () => unknown[]
   /** `/end` calls so far. */
   ends: () => number
+  /** Every call to `/start`, `/end` and `/suspend`, in the order the page made them. */
+  calls: () => string[]
   /** The next competency: every `/start` from now on answers with it. */
   startNextWith: (sessionId: number, competency: string) => void
+  /** The next call to this endpoint answers 500, once; the counters still count it. */
+  failNext: (endpoint: 'start' | 'suspend') => void
 }
 
 /** The branded interview routes, the call-screen media, and the counters the specs read. */
@@ -60,11 +64,26 @@ async function mockCallApi(page: Page, primaryColor: string | null = '#771aaf'):
   let starts = 0
   let ends = 0
   const suspends: unknown[] = []
+  const calls: string[] = []
+  const failing = new Set<'start' | 'suspend'>()
   let next = startResponse(1, 'COM')
+
+  /** A 500 for an endpoint armed with `failNext`, consumed by the call that gets it. */
+  const failure = (endpoint: 'start' | 'suspend') => {
+    if (!failing.delete(endpoint)) return null
+    return {
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'Server Error' }),
+    }
+  }
 
   // LIFO: registered after the branded fixture's own /start, so these answer.
   await page.route('**/api/candidate/interview/start', (route) => {
     starts += 1
+    calls.push('start')
+    const failed = failure('start')
+    if (failed) return route.fulfill(failed)
     return route.fulfill({
       status: 201,
       contentType: 'application/json',
@@ -73,6 +92,7 @@ async function mockCallApi(page: Page, primaryColor: string | null = '#771aaf'):
   })
   await page.route('**/api/candidate/interview/end', (route) => {
     ends += 1
+    calls.push('end')
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -85,6 +105,9 @@ async function mockCallApi(page: Page, primaryColor: string | null = '#771aaf'):
   })
   await page.route('**/api/candidate/interview/suspend', (route) => {
     suspends.push(route.request().postDataJSON())
+    calls.push('suspend')
+    const failed = failure('suspend')
+    if (failed) return route.fulfill(failed)
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -96,8 +119,12 @@ async function mockCallApi(page: Page, primaryColor: string | null = '#771aaf'):
     starts: () => starts,
     suspends: () => suspends,
     ends: () => ends,
+    calls: () => calls,
     startNextWith: (sessionId, competency) => {
       next = startResponse(sessionId, competency)
+    },
+    failNext: (endpoint) => {
+      failing.add(endpoint)
     },
   }
 }
@@ -121,30 +148,37 @@ async function goLive(page: Page): Promise<void> {
   await setFakeMicLevel(page, 0)
 }
 
-type ProviderCall = 'emitSpeaking' | 'emitListening' | 'emitEndPhrase'
-
-/** Drives the newest in-page mock provider. */
-async function drive(page: Page, call: ProviderCall): Promise<void> {
-  await page.evaluate((method) => {
-    const provider = (window as unknown as Record<string, Record<string, () => void>>)[
-      '__mockInterviewProvider'
-    ]!
-    provider[method]!()
-  }, call)
+/** What the in-page mock provider (`window.__mockInterviewProvider`) is driven with. */
+interface MockProvider {
+  emitSpeaking: () => void
+  emitListening: () => void
+  emitEndPhrase: () => void
+  emitTranscript: (text: string, role: 'avatar' | 'user') => void
 }
 
-/** One transcript entry from the newest mock provider: the avatar's unless a role is given. */
-async function say(page: Page, text: string, role: 'avatar' | 'user' = 'avatar'): Promise<void> {
-  await page.evaluate(
-    ({ text: entry, role: speaker }) => {
+/** Drives the newest in-page mock provider of a page or of a frame (the embed). */
+async function callProvider<K extends keyof MockProvider>(
+  root: Pick<Page | Frame, 'evaluate'>,
+  method: K,
+  ...args: Parameters<MockProvider[K]>
+): Promise<void> {
+  await root.evaluate(
+    ({ method: name, args: values }) => {
       const provider = (window as unknown as Record<string, Record<string, unknown>>)[
         '__mockInterviewProvider'
       ]!
-      ;(provider['emitTranscript'] as (text: string, role: string) => void)(entry, speaker)
+      ;(provider[name] as (...rest: unknown[]) => void)(...values)
     },
-    { text, role }
+    { method, args: args as unknown[] }
   )
 }
+
+const drive = (page: Page, call: 'emitSpeaking' | 'emitListening' | 'emitEndPhrase') =>
+  callProvider(page, call)
+
+/** One transcript entry from the newest mock provider: the avatar's unless a role is given. */
+const say = (page: Page, text: string, role: 'avatar' | 'user' = 'avatar') =>
+  callProvider(page, 'emitTranscript', text, role)
 
 const interviewerTile = (page: Page) =>
   page.locator('[data-slot="avatar-layer"] [data-slot="call-tile"]')
@@ -206,7 +240,7 @@ test.describe('the call stage with candidateCallUi on', () => {
     await expect(self).toHaveAttribute('data-speaking', 'false')
     await expect(interviewer.getByText('The interviewer is speaking')).toBeAttached()
 
-    // The avatar yields: its ring is held briefly, then goes out.
+    // The avatar yields: its ring goes out.
     await drive(page, 'emitListening')
     await expect(interviewer).toHaveAttribute('data-speaking', 'false')
 
@@ -237,9 +271,18 @@ test.describe('the call stage with candidateCallUi on', () => {
       await expect(exit).toBeFocused()
       await expect(page.getByTestId('call-question')).toBeVisible()
 
-      await page.waitForTimeout(300)
+      // No sleep: prove it with a real round trip made AFTER Stay. The next
+      // competency's /end -> /start goes through the same page and the same
+      // network pipeline, so a /suspend that Stay had fired would already be in the
+      // ordered call log before the second /start arrives. The page is still live
+      // (Stay never paused it), which is the only state a suspend is sent from.
+      api.startNextWith(2, 'COL')
+      await drive(page, 'emitEndPhrase')
+      await expect.poll(() => api.starts(), { timeout: 15000 }).toBe(2)
+      await expect(page.getByTestId('call-question')).toBeVisible()
+
+      expect(api.calls()).toEqual(['start', 'end', 'start'])
       expect(api.suspends()).toHaveLength(0)
-      expect(api.starts()).toBe(1)
     })
 
     test('confirming suspends once, keeps the stored session, and Resume re-issues /start', async ({
@@ -275,6 +318,72 @@ test.describe('the call stage with candidateCallUi on', () => {
       expect(api.starts()).toBe(2)
       expect(api.ends()).toBe(0)
     })
+
+    // The code treats the two failures differently, on purpose, and so do these:
+    // /suspend is fire-and-forget (the candidate has already been shown the paused
+    // screen; a failure is silent, see `callSuspend`), whereas /start on Resume
+    // lands on the retryable error screen (`startSession`, any non-401/403/429 error).
+    test('a failed /suspend is silent: the suspended screen shows, the session is kept, Resume works', async ({
+      page,
+    }) => {
+      const api = await mockCallApi(page)
+      await goLive(page)
+      const stored = await page.evaluate((key) => localStorage.getItem(key), SESSION_KEY)
+      expect(stored).not.toBeNull()
+
+      api.failNext('suspend')
+      await page.getByTestId('call-exit').click()
+      await page.getByTestId('call-exit-confirm').click()
+
+      const suspended = page.getByRole('heading', { name: /interview suspended/i })
+      await expect(suspended).toBeVisible()
+      await expect(suspended).toBeFocused()
+      // The request WAS made and answered 500; the candidate is told nothing about it.
+      await expect.poll(() => api.suspends().length).toBe(1)
+      await expect(page.getByTestId('error-screen')).toHaveCount(0)
+      await expect(page.getByRole('alert')).toHaveCount(0)
+      expect(await page.evaluate((key) => localStorage.getItem(key), SESSION_KEY)).toBe(stored)
+      expect(api.ends()).toBe(0)
+
+      // The next /start tears the stale provider session down server-side, so Resume works.
+      await page.getByRole('button', { name: /resume/i }).click()
+      await expect(page.getByTestId('call-question')).toBeVisible({ timeout: 15000 })
+      expect(api.starts()).toBe(2)
+    })
+
+    test('a failed /start on Resume lands on the retryable error screen and keeps the session', async ({
+      page,
+    }) => {
+      const api = await mockCallApi(page)
+      await goLive(page)
+      const stored = await page.evaluate((key) => localStorage.getItem(key), SESSION_KEY)
+      expect(stored).not.toBeNull()
+
+      await page.getByTestId('call-exit').click()
+      await page.getByTestId('call-exit-confirm').click()
+      await expect(page.getByRole('heading', { name: /interview suspended/i })).toBeVisible()
+
+      api.failNext('start')
+      await page.getByRole('button', { name: /resume/i }).click()
+
+      // Not a blank page, not a dead suspended screen: the error screen with its retry.
+      const error = page.getByTestId('error-screen')
+      await expect(error).toBeVisible({ timeout: 15000 })
+      await expect(error).toContainText('An error occurred')
+      await expect(page.getByTestId('retry-button')).toBeVisible()
+      await expect(page.getByTestId('call-question')).toHaveCount(0)
+      expect(api.starts()).toBe(2)
+
+      // `error` is retryable: the stored session survives it and the page did not leave.
+      expect(await page.evaluate((key) => localStorage.getItem(key), SESSION_KEY)).toBe(stored)
+      expect(new URL(page.url()).pathname).toMatch(/\/interview\//)
+      expect(api.ends()).toBe(0)
+
+      // Retry goes back through /start, which now answers: the call is back.
+      await page.getByTestId('retry-button').click()
+      await expect(page.getByTestId('call-question')).toBeVisible({ timeout: 15000 })
+      expect(api.starts()).toBe(3)
+    })
   })
 
   test.describe('the help link', () => {
@@ -293,10 +402,17 @@ test.describe('the call stage with candidateCallUi on', () => {
       // The server's configured URL is https:. The first document is rewritten so
       // the app boots as a deployment with no support URL configured, which falls
       // back to the shipped mailbox; nothing else about the page changes.
+      // The rewrite must have matched: a silent no-op would leave the https URL in
+      // place and this test would fail later with a misleading attribute message.
+      const rewrite = { documents: 0, changed: 0, literalGone: 0 }
       await page.route('**/en/interview/*', async (route) => {
         if (route.request().resourceType() !== 'document') return route.fallback()
         const response = await route.fetch()
-        const body = (await response.text()).replace(`supportUrl:"${SUPPORT_URL}"`, 'supportUrl:""')
+        const original = await response.text()
+        const body = original.replace(`supportUrl:"${SUPPORT_URL}"`, 'supportUrl:""')
+        rewrite.documents += 1
+        if (body !== original) rewrite.changed += 1
+        if (!body.includes(SUPPORT_URL)) rewrite.literalGone += 1
         const {
           'content-length': _length,
           'content-encoding': _encoding,
@@ -307,6 +423,13 @@ test.describe('the call stage with candidateCallUi on', () => {
       await mockCallApi(page)
       await goLive(page)
 
+      expect(rewrite.documents, 'no SSR document was intercepted').toBeGreaterThan(0)
+      expect(rewrite.changed, 'the SSR document no longer carries supportUrl:"..."').toBe(
+        rewrite.documents
+      )
+      expect(rewrite.literalGone, 'the https support URL is still in the document').toBe(
+        rewrite.documents
+      )
       const help = page.getByTestId('call-help-link')
       await expect(help).toHaveAttribute('href', /^mailto:/)
       await expect(help).not.toHaveAttribute('target', /.*/)
@@ -456,7 +579,6 @@ for (const [label, colour] of [
 
 test.describe('inside the embed iframe', () => {
   const HOST = 'http://localhost:4175'
-  const EMBED_SRC = 'http://127.0.0.1:4177/en/embed/allowed-token'
 
   interface EmbedMessage {
     type: string
@@ -465,7 +587,10 @@ test.describe('inside the embed iframe', () => {
 
   test('the stage renders, question:changed is posted and the posted height settles', async ({
     page,
+    baseURL,
   }) => {
+    // The call server's own origin, from the project, so the port lives in one place.
+    const EMBED_SRC = new URL('/en/embed/allowed-token', baseURL).toString()
     const api = await mockCallApi(page)
 
     // The embed exchange, and the frame policy the page asks for client-side.
@@ -529,12 +654,7 @@ test.describe('inside the embed iframe', () => {
     // ...and at the next boundary, with the server's progress this time.
     api.startNextWith(2, 'COL')
     const frame = page.frames().find((candidate) => candidate.url().includes('/embed/'))!
-    await frame.evaluate(() => {
-      const provider = (window as unknown as Record<string, Record<string, () => void>>)[
-        '__mockInterviewProvider'
-      ]!
-      provider['emitEndPhrase']!()
-    })
+    await callProvider(frame, 'emitEndPhrase')
     await expect.poll(questionChanges, { timeout: 15000 }).toEqual([
       { index: 0, total: 0 },
       { index: 1, total: 3 },
@@ -545,11 +665,45 @@ test.describe('inside the embed iframe', () => {
     // the last one posted is the frame's real height, so the host has nothing left
     // to correct. (Two CONSECUTIVE posts are never equal by design: the page does
     // not post an unchanged height.)
+    //
+    // No fixed sleeps. Quiescence is established in two steps:
+    //   1. the posted count must be unchanged across STABLE_POLLS consecutive
+    //      polls (a retrying condition, so a slow host just polls longer);
+    //   2. then a window counted in ANIMATION FRAMES of the host page, not
+    //      milliseconds. The loop this guards against is host sets the frame height,
+    //      the frame re-lays out, its observer re-posts, which happens within a frame
+    //      or two of the previous message, so FRAMES_QUIET frames with no new
+    //      message rule it out whatever the host's speed (a slow host runs fewer
+    //      frames per second and so waits longer, never shorter).
+    const STABLE_POLLS = 5
+    const FRAMES_QUIET = 60
     const resizeHeights = async () =>
       (await messages()).filter((m) => m.type === 'resize').map((m) => m.payload?.height ?? 0)
-    await page.waitForTimeout(500)
+
+    let lastCount = -1
+    let stablePolls = 0
+    await expect
+      .poll(
+        async () => {
+          const count = (await resizeHeights()).length
+          stablePolls = count === lastCount ? stablePolls + 1 : 0
+          lastCount = count
+          return stablePolls
+        },
+        { intervals: [100], timeout: 15000 }
+      )
+      .toBeGreaterThanOrEqual(STABLE_POLLS)
+
     const before = await resizeHeights()
-    await page.waitForTimeout(1500)
+    await page.evaluate(
+      (frames) =>
+        new Promise<void>((resolve) => {
+          const tick = (left: number) =>
+            left === 0 ? resolve() : requestAnimationFrame(() => tick(left - 1))
+          tick(frames)
+        }),
+      FRAMES_QUIET
+    )
     const after = await resizeHeights()
 
     expect(before.length).toBeGreaterThan(0)
