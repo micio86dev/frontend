@@ -193,3 +193,21 @@ describe('nuxt.config.ts — the reusable entry route sits under the interview r
     expect(patternsMatching('/interview/reusable')).not.toContain('/i/**')
   })
 })
+
+describe('nuxt.config.ts — runtimeConfig.public.candidateCallUi (candidate-interview-call-ui, D1)', () => {
+  const source = readFileSync(CONFIG_PATH, 'utf-8')
+  // Everything from `public: {` to the end of the runtimeConfig block.
+  const publicBlock = source.slice(source.indexOf('public: {'))
+
+  it("declares the flag under runtimeConfig.public, defaulting to ''", () => {
+    // `NUXT_PUBLIC_CANDIDATE_CALL_UI` can only reach runtimeConfig at runtime if
+    // the key exists here, and the default must keep the old interview screen.
+    expect(publicBlock).toMatch(/candidateCallUi:\s*''/)
+  })
+
+  it('does not put the flag in the server-only part of runtimeConfig', () => {
+    const serverPart = source.slice(source.indexOf('runtimeConfig: {'), source.indexOf('public: {'))
+
+    expect(serverPart).not.toContain('candidateCallUi')
+  })
+})

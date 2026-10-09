@@ -21,7 +21,9 @@
       class="brand-canvas__decor pointer-events-none absolute inset-0 -z-10"
     />
 
-    <header class="mx-auto flex w-full max-w-6xl items-center gap-4 px-4 pt-6 lg:px-10">
+    <header
+      :class="`mx-auto flex w-full ${wide ? 'max-w-[96rem]' : 'max-w-6xl'} items-center gap-4 px-4 pt-6 lg:px-10`"
+    >
       <!--
         The client's mark sits on a white plate, never straight on the canvas:
         the most common logo file there is, the brand colour on a transparent
@@ -72,6 +74,7 @@
       :class="[
         'flex flex-1 items-center justify-center px-4 py-8 lg:px-10',
         surface ? 'lg:py-10' : 'flex-col gap-5 lg:py-8',
+        wide && 'mx-auto w-full max-w-[96rem]',
       ]"
     >
       <div
@@ -141,6 +144,12 @@ const props = withDefaults(
      * one naming mechanism is ever rendered.
      */
     ariaLabel?: string
+    /**
+     * Widen the header and the main column to `max-w-[96rem]` (DESIGN.md
+     * §7.0.1). Only the live call screen opts in; without it the classes are
+     * exactly what they have always been.
+     */
+    wide?: boolean
   }>(),
   {
     headingId: undefined,
@@ -149,6 +158,7 @@ const props = withDefaults(
     surface: true,
     footer: true,
     ariaLabel: undefined,
+    wide: false,
   }
 )
 
