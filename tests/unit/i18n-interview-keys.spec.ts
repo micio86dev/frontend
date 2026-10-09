@@ -52,6 +52,15 @@ const REQUIRED_KEYS = [
   'interview.device_check.camera_fallback',
   'interview.device_check.mic_fallback',
   'interview.live.timer_label',
+  // candidate-interview-call-ui UI-06 — the call side panel: progress sentence and
+  // landmark name, the duration maximum (visual + screen-reader text), and the
+  // longer per-question timer caption.
+  'interview.call.panel_label',
+  'interview.call.progress',
+  'interview.call.duration_label',
+  'interview.call.duration_value',
+  'interview.call.duration_sr',
+  'interview.call.question_timer_label',
   'interview.live.pause',
   'interview.scheduled_pause.title',
   'interview.scheduled_pause.body',
