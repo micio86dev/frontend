@@ -174,10 +174,15 @@ export default defineConfig({
           // flag would silently be whatever that one was started with.
           //
           // Same mock provider, same fake measurement ID and an apiBase on ITS OWN
-          // origin (the specs' `**/api/candidate/...` route globs must match), but no
-          // NUXT_API_ORIGIN: the proxy it switches on is not wanted here either. The
+          // origin (the specs' `**/api/candidate/...` route globs must match). The
           // support URL is `https:` so the help link's new-tab attributes can be
           // asserted; the `mailto:` case rewrites it in the document.
+          //
+          // NUXT_API_ORIGIN points at the frame-policy stub, like the embed server
+          // above, because the embed height test frames `/embed/{token}` and the CSP
+          // middleware must find an allowed host or the browser refuses the frame.
+          // Its /api proxy only sees what the specs do not mock, and they mock every
+          // call the interview makes.
           command: 'node .output/server/index.mjs',
           url: 'http://127.0.0.1:4177/api/health',
           env: {
@@ -189,6 +194,7 @@ export default defineConfig({
             NUXT_PUBLIC_GA_MEASUREMENT_ID: 'G-E2ETEST',
             NUXT_PUBLIC_CANDIDATE_CALL_UI: 'true',
             NUXT_PUBLIC_SUPPORT_URL: 'https://support.example.test/help',
+            NUXT_API_ORIGIN: 'http://127.0.0.1:4175',
           },
           reuseExistingServer: !process.env['CI'],
           timeout: 60_000,
