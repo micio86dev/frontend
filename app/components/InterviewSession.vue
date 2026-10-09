@@ -289,9 +289,10 @@
             in its place until the first question arrives.
           -->
           <div class="grid min-w-0 flex-1 items-center">
-            <InterviewCaption class="[grid-area:1/1]" :text="currentCaption" />
+            <CallQuestion v-if="callUi" class="[grid-area:1/1]" :text="currentCaption" />
+            <InterviewCaption v-else class="[grid-area:1/1]" :text="currentCaption" />
             <p
-              v-if="!currentCaption"
+              v-if="!callUi && !currentCaption"
               data-testid="live-hint"
               class="text-sm leading-7 text-muted-foreground [grid-area:1/1]"
             >
@@ -515,10 +516,12 @@ import type { ProviderState } from '~/types/interview-provider'
 import { useExitRedirect } from '~/composables/useExitRedirect'
 import { useTabVisibilityGuard } from '~/composables/useTabVisibilityGuard'
 import { useNetworkGuard } from '~/composables/useNetworkGuard'
+import { useCandidateCallUi } from '~/composables/useCandidateCallUi'
 import { Button } from '~/components/ui/button'
 import { Alert, AlertTitle } from '~/components/ui/alert'
 import InterviewTimer from '~/components/InterviewTimer.vue'
 import InterviewCaption from '~/components/InterviewCaption.vue'
+import CallQuestion from '~/components/molecules/CallQuestion.vue'
 import InterviewGuide from '~/components/molecules/InterviewGuide.vue'
 import { Separator } from '~/components/ui/separator'
 import InterviewProgressBar from '~/components/ProgressBar.vue'
@@ -703,6 +706,10 @@ const preInterviewStep = computed(() => {
 const hasRunACompetency = computed(() => (session.endedCompetencies.value ?? 0) > 0)
 
 const currentCaption = ref('')
+
+/** The new candidate call screen is switched on (candidate-interview-call-ui D1). */
+const callUi = useCandidateCallUi()
+
 const QUESTION_TIME_LIMIT = 300 // 5 minutes default
 
 /**
@@ -797,14 +804,39 @@ function onTranscript(entry: { text: string }): void {
 }
 
 /**
+ * candidate-interview-call-ui D6 — with the call screen on, a new session id (a
+ * competency boundary, a resume) starts the written question again from the
+ * listen hint, so the previous competency's closing phrase is never shown as the
+ * new question. `sync` because the new competency's first avatar utterance must
+ * never be erased by this reset running late. Flag off: the legacy caption is
+ * left alone, as it always was.
+ */
+watch(
+  () => session.sessionId.value,
+  () => {
+    if (callUi) currentCaption.value = ''
+  },
+  { flush: 'sync' }
+)
+
+/**
  * invisible-competency-handover D2 — the caption reflects whichever player
  * is `live`. A hidden `incoming` session (still connecting behind the
  * scenes, or newly promoted a beat before the page re-renders) has not been
  * asked a question and must never overwrite the caption the candidate is
  * currently reading.
  */
-function onTranscriptFromPlayer(role: HandoverRole, entry: { text: string }): void {
-  if (role === 'live') onTranscript(entry)
+function onTranscriptFromPlayer(
+  role: HandoverRole,
+  entry: { text: string; role?: 'user' | 'avatar' }
+): void {
+  if (role !== 'live') return
+  // candidate-interview-call-ui D6 — with the call screen on, only the avatar's
+  // words are displayed. The filter is on the DISPLAY alone: every entry,
+  // candidate's included, still reaches POST /utterance through the provider's
+  // own `transcript` listener in useInterviewSession.
+  if (callUi && entry.role !== 'avatar') return
+  onTranscript(entry)
 }
 
 // Provider errors are handled by the session machine via provider.on('error')
