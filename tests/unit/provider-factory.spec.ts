@@ -118,6 +118,36 @@ describe('createProvider factory', () => {
     expect(states).toContain('complete')
   })
 
+  it('mock provider emitSpeaking() and emitListening() emit those states', () => {
+    const provider = createProvider('heygen', true) as InterviewProvider & {
+      emitSpeaking: () => void
+      emitListening: () => void
+    }
+    const states: string[] = []
+    provider.on('state', (s) => states.push(s as string))
+
+    provider.emitSpeaking()
+    provider.emitListening()
+
+    expect(states).toEqual(['speaking', 'listening'])
+  })
+
+  it('mock provider emitTranscript() emits an entry with the given role, avatar by default', () => {
+    const provider = createProvider('heygen', true) as InterviewProvider & {
+      emitTranscript: (text: string, role?: 'user' | 'avatar') => void
+    }
+    const entries: Array<{ role: string; text: string }> = []
+    provider.on('transcript', (e) => entries.push(e as { role: string; text: string }))
+
+    provider.emitTranscript('What drove that decision?')
+    provider.emitTranscript('I asked the team.', 'user')
+
+    expect(entries.map(({ role, text }) => ({ role, text }))).toEqual([
+      { role: 'avatar', text: 'What drove that decision?' },
+      { role: 'user', text: 'I asked the team.' },
+    ])
+  })
+
   it('mock provider stop() emits stopped state', async () => {
     const provider = createProvider('heygen', true)
     const states: string[] = []
