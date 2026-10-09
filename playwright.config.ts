@@ -9,6 +9,13 @@ import { DEFAULT_STACK_URL } from './tests/e2e/support/stack-origin'
  *   webkit    — Desktop Safari/WebKit, full suite (all E2E specs)
  *   mobile    — Mobile device viewport, SA-11 gate spec ONLY (asserts unsupported-experience)
  *
+ * Plus two projects for the candidate call screen (candidate-interview-call-ui),
+ * which only exists behind `NUXT_PUBLIC_CANDIDATE_CALL_UI`:
+ *   chromium-call / webkit-call — the `interview-call*.spec.ts` specs ONLY, against a
+ *   third server of the same build with the flag on (port 4177). The projects above
+ *   ignore those specs, so each suite keeps its own server and neither can pass
+ *   against the other's screen.
+ *
  * Firefox is intentionally excluded per NFR (product is desktop Chrome/Edge/Safari only).
  * E2E is a required, blocking tier and must run 100% green (D15).
  */
@@ -26,6 +33,10 @@ import { DEFAULT_STACK_URL } from './tests/e2e/support/stack-origin'
 const STACK = process.env['BEAI_E2E_STACK'] === '1'
 const STACK_URL = process.env['BEAI_E2E_STACK_URL'] ?? DEFAULT_STACK_URL
 const STACK_SPECS = ['stack/**/*.stack.spec.ts']
+
+/** The call screen specs: run by the `*-call` projects against the flag-on server, ignored everywhere else. */
+const CALL_SPECS = ['**/interview-call*.spec.ts']
+const CALL_URL = 'http://127.0.0.1:4177'
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -63,18 +74,29 @@ export default defineConfig({
         {
           name: 'chromium',
           use: { ...devices['Desktop Chrome'] },
-          testIgnore: ['stack/**'],
+          testIgnore: ['stack/**', ...CALL_SPECS],
         },
         {
           name: 'webkit',
           use: { ...devices['Desktop Safari'] },
-          testIgnore: ['stack/**'],
+          testIgnore: ['stack/**', ...CALL_SPECS],
         },
         {
           // SA-11 — mobile viewport: asserts the unsupported-experience gate ONLY.
           name: 'mobile',
           use: { ...devices['Pixel 7'] },
           testMatch: ['**/unsupported-gate.spec.ts'],
+        },
+        {
+          // The candidate call screen, flag on (port 4177).
+          name: 'chromium-call',
+          use: { ...devices['Desktop Chrome'], baseURL: CALL_URL },
+          testMatch: CALL_SPECS,
+        },
+        {
+          name: 'webkit-call',
+          use: { ...devices['Desktop Safari'], baseURL: CALL_URL },
+          testMatch: CALL_SPECS,
         },
       ],
 
@@ -140,6 +162,33 @@ export default defineConfig({
             PORT: '4176',
             NITRO_PORT: '4176',
             NUXT_API_ORIGIN: 'http://127.0.0.1:4175',
+          },
+          reuseExistingServer: !process.env['CI'],
+          timeout: 60_000,
+        },
+        {
+          // Third instance of the SAME build (no second build), with the candidate
+          // call screen switched on: the only server `chromium-call` and
+          // `webkit-call` talk to. Its own port, for the reason the main server has
+          // its own: a stray server on a shared port would answer instead and the
+          // flag would silently be whatever that one was started with.
+          //
+          // Same mock provider, same fake measurement ID and an apiBase on ITS OWN
+          // origin (the specs' `**/api/candidate/...` route globs must match), but no
+          // NUXT_API_ORIGIN: the proxy it switches on is not wanted here either. The
+          // support URL is `https:` so the help link's new-tab attributes can be
+          // asserted; the `mailto:` case rewrites it in the document.
+          command: 'node .output/server/index.mjs',
+          url: 'http://127.0.0.1:4177/api/health',
+          env: {
+            HOST: '0.0.0.0',
+            PORT: '4177',
+            NITRO_PORT: '4177',
+            NUXT_PUBLIC_API_BASE: 'http://127.0.0.1:4177/api',
+            NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK: 'true',
+            NUXT_PUBLIC_GA_MEASUREMENT_ID: 'G-E2ETEST',
+            NUXT_PUBLIC_CANDIDATE_CALL_UI: 'true',
+            NUXT_PUBLIC_SUPPORT_URL: 'https://support.example.test/help',
           },
           reuseExistingServer: !process.env['CI'],
           timeout: 60_000,
