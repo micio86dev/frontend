@@ -86,10 +86,16 @@ function makeSession(state: SessionState, withProvider = false) {
   }
 }
 
-async function mountSession(session: ReturnType<typeof makeSession>) {
+async function flushPromises() {
+  for (let i = 0; i < 5; i++) await nextTick()
+  await new Promise((resolve) => setTimeout(resolve, 20))
+}
+
+async function mountSession(session: ReturnType<typeof makeSession>, attach = false) {
   mockUseInterviewSession.mockReturnValue(session)
   const { default: Component } = await import('~/components/InterviewSession.vue')
   const wrapper = mount(Component, {
+    attachTo: attach ? document.body : undefined,
     global: {
       mocks: { $t: (key: string) => key },
       stubs: {
@@ -135,12 +141,13 @@ beforeEach(() => {
   // component reads the call-screen flag through useRuntimeConfig().
   vi.stubGlobal(
     'useRuntimeConfig',
-    vi.fn(() => ({ public: {} }))
+    vi.fn(() => ({ public: { candidateCallUi: 'true' } }))
   )
 })
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  document.body.innerHTML = ''
 })
 
 describe('InterviewSession.vue — tab visibility guard', () => {
@@ -197,13 +204,12 @@ describe('InterviewSession.vue — network guard', () => {
 
   it('never auto-resumes a pause the candidate started manually', async () => {
     const session = makeSession('live', true)
-    const wrapper = await mountSession(session)
+    await mountSession(session, true)
 
-    const pauseButton = wrapper
-      .findAll('button')
-      .find((b) => b.text().includes('interview.live.pause'))
-    expect(pauseButton).toBeDefined()
-    await pauseButton!.trigger('click')
+    document.querySelector<HTMLButtonElement>('[data-testid="call-exit"]')!.click()
+    await flushPromises()
+    document.querySelector<HTMLButtonElement>('[data-testid="call-exit-confirm"]')!.click()
+    await flushPromises()
     expect(session.pause).toHaveBeenCalledTimes(1)
     session.state.value = 'paused'
 

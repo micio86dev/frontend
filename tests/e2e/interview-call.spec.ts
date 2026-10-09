@@ -4,13 +4,10 @@ import { injectCallMedia, setFakeMicLevel } from './fixtures/device-mocks'
 import { mockBrandedInterview } from './fixtures/branded-interview'
 
 /**
- * The candidate call screen, end to end, with `candidateCallUi` switched ON
- * (candidate-interview-call-ui, UI-10).
- *
- * Runs only in the `chromium-call` and `webkit-call` projects, against the third
- * web server of `playwright.config.ts`: the SAME build as the main suite, started
- * with `NUXT_PUBLIC_CANDIDATE_CALL_UI=true`. The main suite keeps testing the old
- * screen until the flag is flipped, so the two never share a server.
+ * The candidate call screen, end to end (candidate-interview-call-ui). It is the
+ * default live interview since UI-12, so this runs in the `chromium` and `webkit`
+ * projects against the main web server like every other spec; the two embed tests
+ * use the embed server (framing needs its frame-policy stub).
  *
  * The provider is the in-page mock the factory installs
  * (`NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK`), driven through `window.__mockInterviewProvider`;
@@ -185,7 +182,7 @@ const interviewerTile = (page: Page) =>
 const selfTile = (page: Page) =>
   page.locator('[data-slot="call-stage-self"] [data-slot="call-tile"]')
 
-test.describe('the call stage with candidateCallUi on', () => {
+test.describe('the call stage (the default live interview)', () => {
   test('the call stage renders', async ({ page }) => {
     await mockCallApi(page)
     await goLive(page)
@@ -577,7 +574,12 @@ for (const [label, colour] of [
   })
 }
 
+// Served by the playwright.config.ts instance wired to the frame-policy stub: framing
+// needs a CSP middleware that can resolve an allowed host.
+const EMBED_SERVER = 'http://127.0.0.1:4176'
+
 test.describe('inside the embed iframe', () => {
+  test.use({ baseURL: EMBED_SERVER })
   const HOST = 'http://localhost:4175'
 
   interface EmbedMessage {
@@ -589,7 +591,7 @@ test.describe('inside the embed iframe', () => {
     page,
     baseURL,
   }) => {
-    // The call server's own origin, from the project, so the port lives in one place.
+    // The embed server's own origin, from the describe's baseURL, so the port lives in one place.
     const EMBED_SRC = new URL('/en/embed/allowed-token', baseURL).toString()
     const api = await mockCallApi(page)
 
@@ -837,44 +839,48 @@ test.describe('the call stage fits the viewport', () => {
     await expectSingleColumn(page, { rows: true })
   })
 
-  test('embedded in a 480 px container: one column, a strip, and no horizontal scroll', async ({
-    page,
-    baseURL,
-  }) => {
-    const embedSrc = new URL('/en/embed/allowed-token', baseURL).toString()
-    const api = await mockCallApi(page)
-    await mockEmbedRoutes(page)
-    await page.addInitScript(() => {
-      // Inside the frame the SA-11 gate judges `screen.width`. The pinned Linux WebKit
-      // answered a 480 px frame with the unsupported screen, so the host's desktop screen
-      // is stated outright instead of left to the engine.
-      if (window.parent !== window) {
-        Object.defineProperty(window.screen, 'width', { get: () => 1440 })
-        return
-      }
-      // The host page frames the embed at 1100 px. Narrow the frame the moment it is
-      // inserted, before the embedded document lays out, so the stage is never built wide.
-      new MutationObserver(() => {
-        const frame = document.querySelector('iframe')
-        if (frame) frame.setAttribute('width', '480')
-      }).observe(document, { childList: true, subtree: true })
+  test.describe('embedded', () => {
+    test.use({ baseURL: EMBED_SERVER })
+
+    test('embedded in a 480 px container: one column, a strip, and no horizontal scroll', async ({
+      page,
+      baseURL,
+    }) => {
+      const embedSrc = new URL('/en/embed/allowed-token', baseURL).toString()
+      const api = await mockCallApi(page)
+      await mockEmbedRoutes(page)
+      await page.addInitScript(() => {
+        // Inside the frame the SA-11 gate judges `screen.width`. The pinned Linux WebKit
+        // answered a 480 px frame with the unsupported screen, so the host's desktop screen
+        // is stated outright instead of left to the engine.
+        if (window.parent !== window) {
+          Object.defineProperty(window.screen, 'width', { get: () => 1440 })
+          return
+        }
+        // The host page frames the embed at 1100 px. Narrow the frame the moment it is
+        // inserted, before the embedded document lays out, so the stage is never built wide.
+        new MutationObserver(() => {
+          const frame = document.querySelector('iframe')
+          if (frame) frame.setAttribute('width', '480')
+        }).observe(document, { childList: true, subtree: true })
+      })
+
+      const embedded = page.frameLocator('iframe')
+      await reachLiveCall(embedded, () =>
+        page.goto(`http://localhost:4175/host?src=${encodeURIComponent(embedSrc)}`)
+      )
+      expect(await page.locator('iframe').evaluate((frame) => frame.clientWidth)).toBe(480)
+
+      api.startNextWith(2, 'COL')
+      const frame = page.frames().find((candidate) => candidate.url().includes('/embed/'))!
+      await callProvider(frame, 'emitEndPhrase')
+      await expect(embedded.getByTestId('call-panel-progress')).toBeVisible({ timeout: 15000 })
+
+      await expect.poll(() => overflowOf(embedded), { timeout: 8000 }).toMatchObject({ x: 0 })
+      // The host page did not grow a scrollbar around the frame either.
+      expect((await overflowOf(page)).x).toBeLessThanOrEqual(0)
+      await expectSingleColumn(embedded, { rows: false })
     })
-
-    const embedded = page.frameLocator('iframe')
-    await reachLiveCall(embedded, () =>
-      page.goto(`http://localhost:4175/host?src=${encodeURIComponent(embedSrc)}`)
-    )
-    expect(await page.locator('iframe').evaluate((frame) => frame.clientWidth)).toBe(480)
-
-    api.startNextWith(2, 'COL')
-    const frame = page.frames().find((candidate) => candidate.url().includes('/embed/'))!
-    await callProvider(frame, 'emitEndPhrase')
-    await expect(embedded.getByTestId('call-panel-progress')).toBeVisible({ timeout: 15000 })
-
-    await expect.poll(() => overflowOf(embedded), { timeout: 8000 }).toMatchObject({ x: 0 })
-    // The host page did not grow a scrollbar around the frame either.
-    expect((await overflowOf(page)).x).toBeLessThanOrEqual(0)
-    await expectSingleColumn(embedded, { rows: false })
   })
 })
 

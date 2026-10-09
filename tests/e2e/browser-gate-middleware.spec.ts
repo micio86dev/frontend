@@ -248,12 +248,16 @@ test.describe('browser-gate.global.ts middleware', () => {
       await page.getByRole('button', { name: /accept and continue/i }).click()
       await expect(page.getByRole('button', { name: /start the interview/i })).toBeEnabled()
       await page.getByRole('button', { name: /start the interview/i }).click()
-      // The live-only Pause control is the positive signal that the interview is live.
-      await expect(page.getByRole('button', { name: /^pause$/i })).toBeVisible()
+      // The live-only Exit control is the positive signal that the interview is live.
+      await expect(
+        page.getByRole('button', { name: /^exit, you can resume later$/i })
+      ).toBeVisible()
 
       // Narrower, but still a supported desktop width: the interview carries on.
       await page.setViewportSize({ width: 1100, height: 768 })
-      await expect(page.getByRole('button', { name: /^pause$/i })).toBeVisible()
+      await expect(
+        page.getByRole('button', { name: /^exit, you can resume later$/i })
+      ).toBeVisible()
       expect(page.url()).not.toContain('/unsupported')
 
       await page.setViewportSize({ width: 900, height: 768 })

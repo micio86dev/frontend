@@ -64,3 +64,38 @@ describe('useCandidateCallUi', () => {
     expect(useCandidateCallUi()).toBe(false)
   })
 })
+
+// The rule above leans on how Nitro applies the environment to the config default.
+// Proven against Nitro's own applyEnv, not assumed: unset keeps 'true', anything
+// DEFINED (even empty) replaces it.
+describe('the kill switch through Nitro applyEnv (default stays on)', () => {
+  const KEY = 'NUXT_PUBLIC_CANDIDATE_CALL_UI'
+
+  async function flagWith(env: string | undefined): Promise<boolean> {
+    const { applyEnv } = await import(
+      // @ts-expect-error internal Nitro runtime module, no type declarations
+      '../../node_modules/nitropack/dist/runtime/internal/utils.env.mjs'
+    )
+    // stubEnv(KEY, undefined) removes the variable; unstubAllEnvs restores it.
+    vi.stubEnv(KEY, env)
+    try {
+      const config = applyEnv(
+        { public: { candidateCallUi: 'true' } },
+        { prefix: 'NITRO_', altPrefix: 'NUXT_' }
+      )
+      return withFlag(config.public.candidateCallUi)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  }
+
+  it.each([
+    ['unset', undefined, true],
+    ['true', 'true', true],
+    ['false', 'false', false],
+    ['set but empty', '', false],
+    ['1', '1', false],
+  ] as const)('%s -> on is %s', async (_n, env, expected) => {
+    expect(await flagWith(env)).toBe(expected)
+  })
+})
