@@ -133,7 +133,7 @@
       </template>
 
       <template #question>
-        <CallQuestion :text="currentCaption" />
+        <CallQuestion ref="callQuestion" :text="currentCaption" />
       </template>
 
       <template #panel>
@@ -1026,10 +1026,22 @@ function onTranscript(entry: { text: string }): void {
  * never be erased by this reset running late. Flag off: the legacy caption is
  * left alone, as it always was.
  */
+const callQuestion = ref<InstanceType<typeof CallQuestion> | null>(null)
+
+/**
+ * A competency boundary is a NEW session id after the first one: the first id is
+ * the start of the interview, not a boundary, and a resume keeps its id. Focus
+ * moves to the band once the DOM holds the cleared state (`nextTick`), so a
+ * screen reader meets the listen hint; the band itself skips an open dialog.
+ */
 watch(
   () => session.sessionId.value,
-  () => {
-    if (callUi) currentCaption.value = ''
+  (id, previous) => {
+    if (!callUi) return
+    currentCaption.value = ''
+    if (previous != null && id != null && id !== previous) {
+      void nextTick(() => callQuestion.value?.focusOnBoundary())
+    }
   },
   { flush: 'sync' }
 )
