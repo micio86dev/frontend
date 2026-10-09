@@ -375,6 +375,20 @@ describe('AvatarPlayer.client.vue', () => {
 
       expect(onStream.mock.calls).toEqual([[stream], [null]])
     })
+
+    it('emits a single `stream` null when unmounted before any frame was painted', async () => {
+      // No `painted` ever fires, so there is no earlier positive emit: the
+      // unmount emit is the ONLY one, and it must still release the parent.
+      const onStream = vi.fn()
+      const wrapper = await mountPlayer(makeProvider(), { onStream })
+      attachStream(wrapper)
+      expect(onStream).not.toHaveBeenCalled()
+
+      wrapper.unmount()
+      await nextTick()
+
+      expect(onStream.mock.calls).toEqual([[null]])
+    })
   })
 
   // ---------------------------------------------------------------------------
