@@ -128,6 +128,18 @@ const REQUIRED_KEYS = [
   'interview.call.you',
   'interview.call.self_view',
   'interview.call.self_view_off',
+  // candidate-interview-call-ui UI-07 — the Exit button, its confirmation, and the
+  // suspended screen. The two `_no_deadline` bodies exist because the deadline is
+  // dropped, not guessed, when the stored session cannot be read.
+  'interview.call.exit.label',
+  'interview.call.exit.title',
+  'interview.call.exit.body',
+  'interview.call.exit.body_no_deadline',
+  'interview.call.exit.confirm',
+  'interview.call.exit.cancel',
+  'interview.call.suspended.title',
+  'interview.call.suspended.body',
+  'interview.call.suspended.body_no_deadline',
 ]
 
 describe('i18n interview flow keys', () => {

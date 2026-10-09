@@ -61,7 +61,20 @@
       "interviewer_name": "AI interviewer",
       "you": "You",
       "self_view": "Your camera",
-      "self_view_off": "Camera unavailable"
+      "self_view_off": "Camera unavailable",
+      "exit": {
+        "label": "Exit, you can resume later",
+        "title": "Leave the interview?",
+        "body": "The interview will be suspended and nothing is recorded. You can resume at the same question by reopening your invitation link in this browser, until {time}.",
+        "body_no_deadline": "The interview will be suspended and nothing is recorded. You can resume at the same question by reopening your invitation link in this browser.",
+        "confirm": "Suspend and leave",
+        "cancel": "Stay in the interview"
+      },
+      "suspended": {
+        "title": "Interview suspended",
+        "body": "You suspended the interview. To resume, reopen your invitation link in this browser before {time}, or press Resume.",
+        "body_no_deadline": "You suspended the interview. To resume, reopen your invitation link in this browser, or press Resume."
+      }
     },
     "end_of_question": {
       "title": "Question Completed",
