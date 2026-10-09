@@ -57,7 +57,11 @@
       "listen_hint": "Listen to the question, then answer out loud. Take your time."
     },
     "call": {
-      "question_region": "Current question"
+      "question_region": "Current question",
+      "interviewer_name": "AI interviewer",
+      "you": "You",
+      "self_view": "Your camera",
+      "self_view_off": "Camera unavailable"
     },
     "end_of_question": {
       "title": "Question Completed",

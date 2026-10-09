@@ -57,7 +57,11 @@
       "listen_hint": "Ascolta la domanda, poi rispondi a voce. Prenditi il tuo tempo."
     },
     "call": {
-      "question_region": "Domanda corrente"
+      "question_region": "Domanda corrente",
+      "interviewer_name": "Intervistatore AI",
+      "you": "Tu",
+      "self_view": "La tua fotocamera",
+      "self_view_off": "Fotocamera non disponibile"
     },
     "end_of_question": {
       "title": "Domanda completata",
