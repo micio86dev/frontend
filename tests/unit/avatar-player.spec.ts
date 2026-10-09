@@ -306,6 +306,92 @@ describe('AvatarPlayer.client.vue', () => {
   })
 
   // ---------------------------------------------------------------------------
+  // candidate-interview-call-ui D4 — the `stream` emit.
+  //
+  // The speaker signal analyses the avatar's remote audio, and this component
+  // is the only place that holds that stream. It surfaces it once a frame has
+  // been painted (the moment `analysableStream` is populated) and takes it
+  // back on unmount, so a parent never keeps analysing a stream whose player
+  // has gone.
+  // ---------------------------------------------------------------------------
+
+  describe('stream emit (D4) — the avatar stream, surfaced with `painted`', () => {
+    function attachStream(wrapper: Awaited<ReturnType<typeof mountPlayer>>): MediaStream {
+      const stream = new MediaStream()
+      const video = wrapper.find('video').element as HTMLVideoElement
+      Object.defineProperty(video, 'srcObject', { value: stream, configurable: true })
+      return stream
+    }
+
+    it('emits `stream` once, with the MediaStream, when painted fires', async () => {
+      const wrapper = await mountPlayer(makeProvider())
+      const stream = attachStream(wrapper)
+      const video = wrapper.find('video').element as HTMLVideoElement
+
+      expect(wrapper.emitted('stream')).toBeUndefined() // nothing before a real frame
+
+      video.dispatchEvent(new Event('loadeddata'))
+      video.dispatchEvent(new Event('playing')) // a late, second event must not double-emit
+      await nextTick()
+
+      expect(wrapper.emitted('stream')).toEqual([[stream]])
+      expect(wrapper.emitted('painted')).toHaveLength(1)
+    })
+
+    it('emits `stream` no later than `painted`, so a painted handler can rely on it', async () => {
+      const wrapper = await mountPlayer(makeProvider())
+      attachStream(wrapper)
+
+      wrapper.find('video').element.dispatchEvent(new Event('loadeddata'))
+      await nextTick()
+
+      // `emitted()` keys are in first-emit order.
+      const names = Object.keys(wrapper.emitted())
+      expect(names).toContain('stream')
+      expect(names.indexOf('stream')).toBeLessThan(names.indexOf('painted'))
+    })
+
+    it('emits `stream` with null when the element carries no MediaStream', async () => {
+      const wrapper = await mountPlayer(makeProvider())
+
+      wrapper.find('video').element.dispatchEvent(new Event('loadeddata'))
+      await nextTick()
+
+      expect(wrapper.emitted('stream')).toEqual([[null]])
+    })
+
+    it('emits `stream` with null on unmount', async () => {
+      // Listener passed as a prop: the wrapper's own record of emits is gone
+      // once the component is unmounted.
+      const onStream = vi.fn()
+      const wrapper = await mountPlayer(makeProvider(), { onStream })
+      const stream = attachStream(wrapper)
+      wrapper.find('video').element.dispatchEvent(new Event('loadeddata'))
+      await nextTick()
+      expect(onStream.mock.calls).toEqual([[stream]])
+
+      wrapper.unmount()
+      await nextTick()
+
+      expect(onStream.mock.calls).toEqual([[stream], [null]])
+    })
+
+    it('emits a single `stream` null when unmounted before any frame was painted', async () => {
+      // No `painted` ever fires, so there is no earlier positive emit: the
+      // unmount emit is the ONLY one, and it must still release the parent.
+      const onStream = vi.fn()
+      const wrapper = await mountPlayer(makeProvider(), { onStream })
+      attachStream(wrapper)
+      expect(onStream).not.toHaveBeenCalled()
+
+      wrapper.unmount()
+      await nextTick()
+
+      expect(onStream.mock.calls).toEqual([[null]])
+    })
+  })
+
+  // ---------------------------------------------------------------------------
   // `overlay` prop — position class, decided INSIDE this component.
   //
   // Regression coverage for a handover visual glitch: the incoming player's
