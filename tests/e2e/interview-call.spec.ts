@@ -1,4 +1,4 @@
-import { test, expect, type Frame, type Page } from '@playwright/test'
+import { test, expect, type Frame, type Locator, type Page } from '@playwright/test'
 import { checkA11y } from './fixtures/a11y'
 import { injectCallMedia, setFakeMicLevel } from './fixtures/device-mocks'
 import { mockBrandedInterview } from './fixtures/branded-interview'
@@ -593,21 +593,7 @@ test.describe('inside the embed iframe', () => {
     const EMBED_SRC = new URL('/en/embed/allowed-token', baseURL).toString()
     const api = await mockCallApi(page)
 
-    // The embed exchange, and the frame policy the page asks for client-side.
-    await page.route('**/api/embed/exchange*', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ access_token: candidateJwt() }),
-      })
-    )
-    await page.route('**/api/embed/frame-policy*', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ allowed_domains: ['localhost:4175'] }),
-      })
-    )
+    await mockEmbedRoutes(page)
 
     // The HOST side of the contract. It records every message from the iframe, and
     // does what a real host does with `resize`: sets the iframe to that height. That
@@ -715,6 +701,209 @@ test.describe('inside the embed iframe', () => {
     expect(after.at(-1)).toBe(frameHeight)
   })
 })
+
+/** The embed exchange, and the frame policy the embedded page asks for client-side. */
+async function mockEmbedRoutes(page: Page): Promise<void> {
+  await page.route('**/api/embed/exchange*', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ access_token: candidateJwt() }),
+    })
+  )
+  await page.route('**/api/embed/frame-policy*', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ allowed_domains: ['localhost:4175'] }),
+    })
+  )
+}
+
+/** Where an element sits, in the coordinates of the page that hosts it. */
+interface Box {
+  left: number
+  top: number
+  right: number
+  bottom: number
+  width: number
+  height: number
+}
+
+async function boxOf(target: Locator): Promise<Box> {
+  // The rect in the element's OWN viewport, so a frame's offset in its host never leaks in.
+  const rect = await target.evaluate((el) => {
+    const { left, top, right, bottom, width, height } = el.getBoundingClientRect()
+    return { left, top, right, bottom, width, height }
+  })
+  expect(rect.width, 'the element has no width: it is not rendered').toBeGreaterThan(0)
+  return rect
+}
+
+/** How far a document's content reaches past its viewport, per axis (0 or less: it fits). */
+async function overflowOf(root: Pick<Page, 'locator'>): Promise<{ x: number; y: number }> {
+  return root.locator('html').evaluate((el) => ({
+    x: el.scrollWidth - el.clientWidth,
+    y: el.scrollHeight - el.clientHeight,
+  }))
+}
+
+/**
+ * The live call after the first competency ended: the server has now stated a total, so
+ * the panel carries every section it ever shows (progress, duration, counter, Exit, help),
+ * the tallest it gets. The question is a realistic three-line one.
+ */
+async function goLiveFullPanel(page: Page, api: CallApi): Promise<void> {
+  await goLive(page)
+  api.startNextWith(2, 'COL')
+  await drive(page, 'emitEndPhrase')
+  await expect.poll(() => api.starts(), { timeout: 15000 }).toBe(2)
+  await expect(page.getByTestId('call-panel-progress')).toBeVisible({ timeout: 15000 })
+  // The boundary cleared the end phrase: only then is the next utterance the question.
+  await expect(page.getByTestId('call-question-hint')).toBeVisible()
+  await say(
+    page,
+    'Tell me about a time you had to change your approach in the middle of a project. What made you realise it, what did you do next, and what would you do differently today?'
+  )
+  await expect(page.getByTestId('call-question')).toContainText('what would you do differently')
+}
+
+/**
+ * The stage is on screen, not merely un-scrollable: the canvas clips what it overflows, so
+ * a stage pushed wider than the viewport would leave the document with no scrollbar and
+ * the panel cut off.
+ */
+async function expectStageInViewport(root: Pick<Page, 'getByTestId' | 'locator'>): Promise<void> {
+  const viewport = await root.locator('html').evaluate((el) => ({ width: el.clientWidth }))
+  for (const target of [
+    root.locator('[data-slot="avatar-layer"]'),
+    root.getByTestId('call-question'),
+    root.getByTestId('call-panel'),
+  ]) {
+    const box = await boxOf(target)
+    expect(box.left).toBeGreaterThanOrEqual(0)
+    expect(box.right).toBeLessThanOrEqual(viewport.width)
+  }
+}
+
+test.describe('the call stage fits the viewport', () => {
+  const HOSTED = [
+    [1280, 800],
+    [1440, 900],
+    [1920, 1080],
+  ] as const
+
+  for (const [width, height] of HOSTED) {
+    test(`hosted at ${width}x${height}: nothing scrolls, either way`, async ({ page }) => {
+      await page.setViewportSize({ width, height })
+      const api = await mockCallApi(page)
+      await goLiveFullPanel(page, api)
+
+      // Polled: the tile's aspect box and the font settle a frame or two after mount.
+      await expect.poll(() => overflowOf(page), { timeout: 8000 }).toEqual({ x: 0, y: 0 })
+      await expectStageInViewport(page)
+      // The whole stage, not only the document: the Exit control is reachable on screen.
+      const exit = await boxOf(page.getByTestId('call-exit'))
+      expect(exit.bottom).toBeLessThanOrEqual(height)
+      const question = await boxOf(page.getByTestId('call-question'))
+      expect(question.bottom).toBeLessThanOrEqual(height)
+    })
+  }
+
+  test('1440x900: two columns, the panel beside the tile and 18 rem wide', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const api = await mockCallApi(page)
+    await goLiveFullPanel(page, api)
+
+    const layer = await boxOf(page.locator('[data-slot="avatar-layer"]'))
+    const question = await boxOf(page.getByTestId('call-question'))
+    const panel = await boxOf(page.getByTestId('call-panel'))
+    expect(panel.left).toBeGreaterThanOrEqual(layer.right)
+    expect(panel.left).toBeGreaterThanOrEqual(question.right)
+    expect(Math.abs(panel.top - layer.top)).toBeLessThanOrEqual(1)
+    expect(Math.round(panel.width)).toBe(288)
+    // Beside the tile the panel's sections are stacked: Exit is below the progress.
+    const progress = await boxOf(page.getByTestId('call-panel-progress'))
+    const exit = await boxOf(page.getByTestId('call-exit'))
+    expect(exit.top).toBeGreaterThanOrEqual(progress.bottom)
+  })
+
+  test('1100x800: one column, the panel is a strip under the question band', async ({ page }) => {
+    await page.setViewportSize({ width: 1100, height: 800 })
+    const api = await mockCallApi(page)
+    await goLiveFullPanel(page, api)
+
+    await expect.poll(() => overflowOf(page), { timeout: 8000 }).toMatchObject({ x: 0 })
+    await expectSingleColumn(page, { rows: true })
+  })
+
+  test('embedded in a 480 px container: one column, a strip, and no horizontal scroll', async ({
+    page,
+    baseURL,
+  }) => {
+    const embedSrc = new URL('/en/embed/allowed-token', baseURL).toString()
+    const api = await mockCallApi(page)
+    await mockEmbedRoutes(page)
+    await page.addInitScript(() => {
+      // Inside the frame the SA-11 gate judges `screen.width`. The pinned Linux WebKit
+      // answered a 480 px frame with the unsupported screen, so the host's desktop screen
+      // is stated outright instead of left to the engine.
+      if (window.parent !== window) {
+        Object.defineProperty(window.screen, 'width', { get: () => 1440 })
+        return
+      }
+      // The host page frames the embed at 1100 px. Narrow the frame the moment it is
+      // inserted, before the embedded document lays out, so the stage is never built wide.
+      new MutationObserver(() => {
+        const frame = document.querySelector('iframe')
+        if (frame) frame.setAttribute('width', '480')
+      }).observe(document, { childList: true, subtree: true })
+    })
+
+    const embedded = page.frameLocator('iframe')
+    await reachLiveCall(embedded, () =>
+      page.goto(`http://localhost:4175/host?src=${encodeURIComponent(embedSrc)}`)
+    )
+    expect(await page.locator('iframe').evaluate((frame) => frame.clientWidth)).toBe(480)
+
+    api.startNextWith(2, 'COL')
+    const frame = page.frames().find((candidate) => candidate.url().includes('/embed/'))!
+    await callProvider(frame, 'emitEndPhrase')
+    await expect(embedded.getByTestId('call-panel-progress')).toBeVisible({ timeout: 15000 })
+
+    await expect.poll(() => overflowOf(embedded), { timeout: 8000 }).toMatchObject({ x: 0 })
+    // The host page did not grow a scrollbar around the frame either.
+    expect((await overflowOf(page)).x).toBeLessThanOrEqual(0)
+    await expectSingleColumn(embedded, { rows: false })
+  })
+})
+
+/**
+ * One column, the panel under the question band and as wide as the column. `rows`
+ * adds what makes it a strip rather than a card: the sections are laid out in rows
+ * (the duration shares a row with the progress) instead of one per line, which is
+ * what the two-column panel does.
+ */
+async function expectSingleColumn(
+  root: Pick<Page, 'getByTestId' | 'locator'>,
+  { rows }: { rows: boolean }
+): Promise<void> {
+  await expectStageInViewport(root)
+  const layer = await boxOf(root.locator('[data-slot="avatar-layer"]'))
+  const question = await boxOf(root.getByTestId('call-question'))
+  const panel = await boxOf(root.getByTestId('call-panel'))
+  expect(panel.top, 'the panel is under the question band').toBeGreaterThanOrEqual(question.bottom)
+  expect(Math.abs(panel.left - question.left), 'same column').toBeLessThanOrEqual(1)
+  expect(Math.abs(panel.width - question.width), 'as wide as the column').toBeLessThanOrEqual(1)
+  expect(Math.abs(question.width - layer.width), 'the tile is in that column').toBeLessThanOrEqual(
+    1
+  )
+
+  if (!rows) return
+  const progress = await boxOf(root.getByTestId('call-panel-progress'))
+  const duration = await boxOf(root.getByTestId('call-panel-duration'))
+  expect(duration.top, 'the duration shares a row with the progress').toBeLessThan(progress.bottom)
+}
 
 /** A candidate JWT the page can decode client-side, as the SSO fixture makes. */
 function candidateJwt(): string {
