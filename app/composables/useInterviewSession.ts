@@ -1103,6 +1103,18 @@ export function useInterviewSession(
         return
       }
 
+      if (handoverActive.value) {
+        // The outgoing died AFTER `complete` (the handover began) but before
+        // its replacement exists: the server's `/end` stops the outgoing
+        // session, so this is the expected end of a finished question, not a
+        // failure. Keep the handover alive — `activeSession` stays set so the
+        // pending `/end` still reaches `handleHandoverDirective`, which builds
+        // the incoming; the bound timer and the connecting-ceiling keep
+        // bounding it. The mic is already muted (`beginHandover`).
+        logHandoverEvent('outgoing-died-before-incoming')
+        return
+      }
+
       if (state.value === 'live' || state.value === 'connecting') {
         transitionTo('error')
         handle.provider.stop().catch(() => {})
