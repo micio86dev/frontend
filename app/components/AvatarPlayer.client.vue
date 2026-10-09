@@ -137,8 +137,14 @@
  *                panel it replaces. This component's own `isReady` opacity
  *                gate is driven by the SAME signal, which incidentally also
  *                stops the first connect from flashing that dark box.
+ *   stream     — the avatar's `MediaStream`, or `null`. Emitted ONCE, just before
+ *                `painted` (it is the same moment `analysableStream` is populated,
+ *                and `null` if the element carries no stream), and again as `null`
+ *                on unmount. It exists so the speaker signal (candidate-interview-
+ *                call-ui D4) can read the avatar's audio level; nothing about the
+ *                provider crosses it, only the stream the element already holds.
  */
-import { ref, onMounted, onUnmounted, watchEffect } from 'vue'
+import { ref, onMounted, onBeforeUnmount, onUnmounted, watchEffect } from 'vue'
 import VoiceVisualizer from '~/components/VoiceVisualizer.client.vue'
 import type {
   InterviewProvider,
@@ -171,6 +177,7 @@ const emit = defineEmits<{
   transcript: [entry: TranscriptEntry]
   error: [payload: unknown]
   painted: []
+  stream: [stream: MediaStream | null]
 }>()
 
 const videoEl = ref<HTMLElement | null>(null)
@@ -212,6 +219,7 @@ function wirePaintedDetection(el: HTMLVideoElement) {
 
     analysableStream.value = source instanceof MediaStream ? source : null
 
+    emit('stream', analysableStream.value)
     emit('painted')
   }
 
@@ -248,6 +256,12 @@ onMounted(async () => {
   // forget, like every other setMicMuted() call site in this codebase; a
   // rejection here must not block the player from finishing its mount.
   props.provider.setMicMuted(props.muted).catch(() => {})
+})
+
+// Before the provider is stopped, so a listener never holds a stream whose
+// player is already tearing down.
+onBeforeUnmount(() => {
+  emit('stream', null)
 })
 
 onUnmounted(async () => {
