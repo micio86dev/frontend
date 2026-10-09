@@ -58,6 +58,12 @@
     },
     "call": {
       "question_region": "Domanda corrente",
+      "panel_label": "Avanzamento del colloquio",
+      "progress": "Domanda {n} di {total}",
+      "duration_label": "Durata",
+      "duration_value": "{elapsed} / {total}",
+      "duration_sr": "{elapsed} trascorsi su un massimo di {total}",
+      "question_timer_label": "Tempo rimanente per questa domanda",
       "interviewer_name": "Intervistatore AI",
       "you": "Tu",
       "self_view": "La tua fotocamera",

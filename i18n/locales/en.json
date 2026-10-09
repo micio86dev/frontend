@@ -58,6 +58,12 @@
     },
     "call": {
       "question_region": "Current question",
+      "panel_label": "Interview progress",
+      "progress": "Question {n} of {total}",
+      "duration_label": "Duration",
+      "duration_value": "{elapsed} / {total}",
+      "duration_sr": "{elapsed} elapsed out of a maximum of {total}",
+      "question_timer_label": "Time left for this question",
       "interviewer_name": "AI interviewer",
       "you": "You",
       "self_view": "Your camera",

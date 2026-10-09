@@ -1,6 +1,8 @@
 <template>
   <div class="flex items-center gap-2">
-    <span class="text-sm text-muted-foreground">{{ $t('interview.live.timer_label') }}</span>
+    <span class="text-sm text-muted-foreground">{{
+      label ?? $t('interview.live.timer_label')
+    }}</span>
     <!--
       Card tokens: the timer sits on the white status pill in the canvas header.
       The last ten seconds turn `--color-recording` (#dc2626, 4.83:1 on white);
@@ -8,7 +10,7 @@
     -->
     <time
       role="timer"
-      :aria-label="$t('interview.live.timer_label')"
+      :aria-label="label ?? $t('interview.live.timer_label')"
       :aria-live="remaining <= 10 ? 'assertive' : 'off'"
       class="font-mono text-base font-semibold tabular-nums"
       :class="remaining <= 10 ? 'text-recording' : 'text-card-foreground'"
@@ -25,6 +27,9 @@
  * Props:
  *   seconds — countdown to start from, in seconds. NOT necessarily the full
  *             question limit: on resume the parent hands back what was left.
+ *   label   — optional caption, used as both the visible text and the accessible
+ *             name. Defaults to `interview.live.timer_label`; the call side panel
+ *             passes the longer "time left for this question".
  *
  * Emits:
  *   tick    — the remaining seconds, every second. The parent OWNS the remaining
@@ -47,6 +52,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps<{
   seconds: number
+  label?: string
 }>()
 
 const emit = defineEmits<{
