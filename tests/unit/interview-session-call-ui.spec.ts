@@ -258,9 +258,12 @@ async function mountLive({
   stubs = {},
   provider = 'tavus',
   ready = true,
+  begin = true,
   props = {},
 }: {
   attach?: boolean
+  /** False stops at the consent screen: no player exists yet. */
+  begin?: boolean
   /** Which provider the first /start names; only a HeyGen competency hands over. */
   provider?: string
   /** False stops at `connecting`: the provider is published but has not reported ready. */
@@ -309,6 +312,7 @@ async function mountLive({
     resume: () => void
   }
 
+  if (!begin) return { wrapper, session }
   session.acceptConsent()
   mockCandidateFetch.mockResolvedValueOnce(startResponse(FIRST, provider))
   if (stream) {
@@ -1013,6 +1017,21 @@ describe('InterviewSession — embedded (flag on)', () => {
 })
 
 describe('InterviewSession — the player layer is never re-parented (flag on, R1)', () => {
+  it('hides the empty layer from assistive technology until a player exists, on the same node', async () => {
+    const { wrapper, session } = await mountLive({ begin: false })
+    const node = layer(wrapper)
+    expect(node.getAttribute('aria-hidden')).toBe('true')
+
+    session.acceptConsent()
+    mockCandidateFetch.mockResolvedValueOnce(startResponse(FIRST))
+    session.confirmDevices()
+    await flushPromises()
+
+    expect(wrapper.findAllComponents(AvatarPlayerStub)).toHaveLength(1)
+    expect(layer(wrapper)).toBe(node)
+    expect(node.hasAttribute('aria-hidden')).toBe(false)
+  })
+
   it('keeps one layer node, and mounts and stops each player once, across connecting, live, paused, connecting, live', async () => {
     const { wrapper, session } = await mountLive({ attach: true })
     const node = layer(wrapper)

@@ -99,6 +99,7 @@
         <div
           data-slot="avatar-layer"
           class="relative"
+          :aria-hidden="session.players.value.length === 0 ? 'true' : undefined"
           :class="[
             live
               ? 'self-start [grid-area:layer]'
