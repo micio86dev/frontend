@@ -73,6 +73,9 @@ function createMockProvider(): InterviewProvider & {
   emitEndPhrase: () => void
   emitFinalPhrase: () => void
   emitToolCall: () => void
+  emitSpeaking: () => void
+  emitListening: () => void
+  emitTranscript: (text: string, role?: 'user' | 'avatar') => void
   holdPainted: () => void
   releasePainted: () => void
 } {
@@ -132,6 +135,18 @@ function createMockProvider(): InterviewProvider & {
     },
     emitToolCall() {
       emitState('complete')
+    },
+    /** The avatar starts talking (HeyGen's `speaking`); the call screen lights the interviewer's tile. */
+    emitSpeaking() {
+      emitState('speaking')
+    },
+    /** The avatar stops talking and waits for the candidate. */
+    emitListening() {
+      emitState('listening')
+    },
+    /** One transcript entry, the avatar's unless a role is given. */
+    emitTranscript(text: string, role: 'user' | 'avatar' = 'avatar') {
+      emit('transcript', { role, text, ts: Date.now() })
     },
     /** Defers the synthetic `loadeddata` this mock would otherwise dispatch from `start()`. */
     holdPainted() {
