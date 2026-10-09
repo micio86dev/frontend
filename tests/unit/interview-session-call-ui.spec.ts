@@ -15,7 +15,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { ref, defineComponent, h } from 'vue'
+import { ref, defineComponent, h, onMounted, onUnmounted } from 'vue'
 import type { InterviewProvider } from '~/app/types/interview-provider'
 
 vi.setConfig({ testTimeout: 30000 })
@@ -30,7 +30,9 @@ const {
   mockCreateProvider,
   mockUseExitRedirect,
 } = vi.hoisted(() => ({
-  flag: { on: true },
+  // `raw` overrides what the runtime config carries, so a test can feed the REAL
+  // `useCandidateCallUi` a value that is neither 'true' nor empty ('1', 'yes').
+  flag: { on: true, raw: undefined as unknown },
   captured: {
     session: null as null | Record<string, unknown>,
     handover: null as null | { value: boolean },
@@ -49,7 +51,6 @@ const {
   mockUseExitRedirect: vi.fn(),
 }))
 
-vi.mock('~/composables/useCandidateCallUi', () => ({ useCandidateCallUi: () => flag.on }))
 vi.mock('~/composables/useExitRedirect', () => ({ useExitRedirect: mockUseExitRedirect }))
 vi.mock('~/composables/useNetworkGuard', () => ({
   useNetworkGuard: (options: { onOffline: () => void }) => {
@@ -93,12 +94,16 @@ type Listener = (payload: unknown) => void
 
 function createMockProvider() {
   const listeners = new Map<string, Listener[]>()
+  // The session wraps `provider.stop` to run at most once; the raw mock is kept so
+  // a test can count what really reached the provider.
+  const rawStop = vi.fn(async () => undefined)
   return {
     on: vi.fn((evt: string, cb: Listener) => {
       listeners.set(evt, [...(listeners.get(evt) ?? []), cb])
     }),
     start: vi.fn(async () => ({ providerSessionId: 'p' })),
-    stop: vi.fn(async () => undefined),
+    stop: rawStop,
+    _rawStop: rawStop,
     toggleMic: vi.fn(async () => undefined),
     setMicMuted: vi.fn(async () => undefined),
     nudgeWrapUp: vi.fn(),
@@ -113,10 +118,10 @@ let providers: ReturnType<typeof createMockProvider>[] = []
 const FIRST = 42
 const NEXT = 77
 
-function startResponse(sessionId: number) {
+function startResponse(sessionId: number, provider = 'tavus') {
   return {
     session_id: sessionId,
-    provider: 'tavus',
+    provider,
     provider_token: 'tok',
     conversation_url: null,
     audio_only: false,
@@ -129,7 +134,10 @@ function startResponse(sessionId: number) {
   }
 }
 
-/** Mirrors `AvatarPlayer`: re-emits the provider's own events upwards. */
+/** Mounts and unmounts of the player stub: the R1 guarantee counts instances, not renders. */
+const playerLifecycle = { mounted: 0, unmounted: 0 }
+
+/** Mirrors `AvatarPlayer`: re-emits the provider's own events upwards and stops its provider when it unmounts. */
 const AvatarPlayerStub = defineComponent({
   name: 'AvatarPlayer',
   props: {
@@ -139,10 +147,18 @@ const AvatarPlayerStub = defineComponent({
     overlay: { type: Boolean, default: false },
     audioOnly: { type: Boolean, default: false },
   },
-  emits: ['painted', 'state', 'transcript', 'error'],
+  emits: ['painted', 'state', 'stream', 'transcript', 'error'],
   setup(props, { emit }) {
     const provider = props.provider as unknown as InterviewProvider
     provider.on('transcript', (payload) => emit('transcript', payload))
+    provider.on('state', (payload) => emit('state', payload))
+    onMounted(() => {
+      playerLifecycle.mounted += 1
+    })
+    onUnmounted(() => {
+      playerLifecycle.unmounted += 1
+      void provider.stop()
+    })
     return () => h('div', { 'data-testid': 'avatar-player' })
   },
 })
@@ -155,7 +171,14 @@ const InterviewCaptionStub = defineComponent({
 
 const mounted: Array<{ unmount: () => void }> = []
 
-async function mountLive({ attach = false } = {}) {
+async function mountLive({
+  attach = false,
+  provider = 'tavus',
+}: {
+  attach?: boolean
+  /** Which provider the first /start names; only a HeyGen competency hands over. */
+  provider?: string
+} = {}) {
   const { default: Component } = await import('~/components/InterviewSession.vue')
   const wrapper = mount(Component, {
     attachTo: attach ? document.body : undefined,
@@ -192,7 +215,7 @@ async function mountLive({ attach = false } = {}) {
   }
 
   session.acceptConsent()
-  mockCandidateFetch.mockResolvedValueOnce(startResponse(FIRST))
+  mockCandidateFetch.mockResolvedValueOnce(startResponse(FIRST, provider))
   session.confirmDevices()
   await flushPromises()
   providers[0]!._emit('state', 'ready')
@@ -221,6 +244,9 @@ const hint = (wrapper: Awaited<ReturnType<typeof mountLive>>['wrapper']) =>
 beforeEach(() => {
   vi.clearAllMocks()
   flag.on = true
+  flag.raw = undefined
+  playerLifecycle.mounted = 0
+  playerLifecycle.unmounted = 0
   captured.session = null
   providers = []
   mockCandidateFetch.mockReset()
@@ -249,7 +275,13 @@ beforeEach(() => {
   )
   vi.stubGlobal(
     'useRuntimeConfig',
-    vi.fn(() => ({ public: { apiBase: 'https://api.test', interviewProviderMock: 'false' } }))
+    vi.fn(() => ({
+      public: {
+        apiBase: 'https://api.test',
+        interviewProviderMock: 'false',
+        candidateCallUi: flag.raw !== undefined ? flag.raw : flag.on ? 'true' : '',
+      },
+    }))
   )
   vi.stubGlobal('navigateTo', vi.fn())
 })
@@ -501,7 +533,8 @@ describe('InterviewSession — Exit (flag on)', () => {
     expect(exitButton().getAttribute('aria-busy')).toBe('true')
   })
 
-  it('keeps the existing paused copy for a manual pause', async () => {
+  it("keeps the existing paused copy for a manual pause (the old screen's Pause button; the call screen has none)", async () => {
+    flag.on = false
     const { wrapper } = await mountLive({ attach: true })
 
     await wrapper
@@ -551,7 +584,7 @@ describe('InterviewSession — Exit (flag on)', () => {
     expect(wrapper.get('#paused-heading').text()).toBe('interview.paused.title')
   })
 
-  it('shows the plain paused copy for a manual pause after an exit and resume', async () => {
+  it('shows the plain paused copy for a network pause after an exit and a real resume', async () => {
     const { wrapper, session } = await mountLive({ attach: true })
 
     await exitTheInterview()
@@ -563,13 +596,11 @@ describe('InterviewSession — Exit (flag on)', () => {
     providers[1]!._emit('state', 'ready')
     await settle()
     expect(session.state.value).toBe('live')
-    await wrapper
-      .findAll('button')
-      .find((b) => b.text().includes('interview.live.pause'))!
-      .trigger('click')
+    guards.network!.onOffline()
     await settle()
 
     expect(wrapper.get('#paused-heading').text()).toBe('interview.paused.title')
+    expect(wrapper.find('[data-testid="network-reconnecting-notice"]').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('interview.call.suspended')
   })
 })
@@ -580,5 +611,80 @@ describe('InterviewSession — Exit (flag off)', () => {
     await mountLive({ attach: true })
 
     expect(exitButton()).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// UI-09 — the stage, assembled behind the flag.
+// ---------------------------------------------------------------------------
+
+describe('InterviewSession — the live tree with the flag off (characterization)', () => {
+  // Recorded from the code before the stage was assembled (develop at UI-08). Only the exact string 'true'
+  // (or the boolean) switches the call screen on, so these values must all render
+  // the old screen, byte for byte.
+  it.each([
+    ['unset', undefined],
+    ['empty', ''],
+    ['1', '1'],
+    ['yes', 'yes'],
+    ['false', 'false'],
+  ])('renders the old live screen byte for byte when the flag is %s', async (_label, raw) => {
+    flag.on = false
+    flag.raw = raw === undefined ? '' : raw
+    const { wrapper } = await mountLive()
+
+    // Elements, attributes and text. Comment nodes (the template's own comments and
+    // Vue's `v-if` placeholders) are not part of what a candidate gets.
+    const tree = wrapper
+      .html()
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/\n[ \t]*(?=\n)/g, '')
+    await expect(tree).toMatchFileSnapshot('./__snapshots__/interview-session-live-flag-off.snap')
+  })
+})
+
+type Mounted = Awaited<ReturnType<typeof mountLive>>['wrapper']
+
+const layer = (wrapper: Mounted) => wrapper.get('[data-slot="avatar-layer"]').element
+
+/** What the end of a competency reports, and the next /start for a HeyGen handover. */
+async function beginHandover(session: { state: { value: string } }) {
+  mockCandidateFetch.mockResolvedValueOnce({
+    ended_competencies: 1,
+    total_competencies: 3,
+    next_action: 'continue',
+  })
+  mockCandidateFetch.mockResolvedValueOnce(startResponse(NEXT, 'heygen'))
+  providers[0]!._emit('state', 'complete')
+  await settle()
+  expect(session.state.value).toBe('live')
+}
+
+describe('InterviewSession — the player layer is never re-parented (flag on, R1)', () => {
+  it('keeps the layer, and the surviving player instance, through a HeyGen handover', async () => {
+    const { wrapper, session } = await mountLive({ provider: 'heygen' })
+    const node = layer(wrapper)
+    expect(playerLifecycle.mounted).toBe(1)
+
+    await beginHandover(session)
+    expect(wrapper.findAllComponents(AvatarPlayerStub)).toHaveLength(2)
+    expect(layer(wrapper)).toBe(node)
+    const incoming = wrapper.findAllComponents(AvatarPlayerStub)[1]!
+    expect(incoming.props('overlay')).toBe(true)
+    // The incoming overlaps the outgoing inside the one layer, exactly as without the flag.
+    expect(incoming.element.closest('[data-slot="avatar-layer"]')).toBe(node)
+
+    incoming.vm.$emit('painted')
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    await settle()
+
+    expect(session.state.value).toBe('live')
+    expect(layer(wrapper)).toBe(node)
+    expect(wrapper.findAllComponents(AvatarPlayerStub)).toHaveLength(1)
+    expect(wrapper.findAllComponents(AvatarPlayerStub)[0]!.vm).toBe(incoming.vm)
+    expect(playerLifecycle).toEqual({ mounted: 2, unmounted: 1 })
+    expect(providers[0]!._rawStop).toHaveBeenCalledTimes(1)
+    expect(providers[1]!._rawStop).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="transition-panel"]').exists()).toBe(false)
   })
 })
