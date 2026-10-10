@@ -7288,7 +7288,13 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": {
+                    live_conversation_id?: string;
+                };
+            };
+        };
         responses: {
             200: {
                 headers: {
@@ -7309,6 +7315,11 @@ export interface operations {
                             prompt_version: string | null;
                             competency_ordinal: number | null;
                             total_competencies: number | null;
+                        };
+                        conversation_id?: string;
+                        continuation?: {
+                            conversation_id: string;
+                            competency_code: string;
                         };
                     };
                 };

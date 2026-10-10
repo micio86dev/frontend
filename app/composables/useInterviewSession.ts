@@ -101,7 +101,16 @@
 import { ref, shallowRef, computed, type ComputedRef } from 'vue'
 import { createProvider } from '~/app/providers/factory'
 import { effectiveViewportWidth } from '~/app/utils/browser-gate'
-import type { InterviewProvider, ProviderName, StartConfig } from '~/app/types/interview-provider'
+import {
+  canSteerContext,
+  type InterviewProvider,
+  type ProviderName,
+  type StartConfig,
+  type SteeringFailure,
+  type SupportsContextSteering,
+} from '~/app/types/interview-provider'
+import { createBoundaryTicket } from '~/app/utils/advance-interaction'
+import { asCompetencyCode, type CompetencyCode } from '~/app/utils/competency-codes'
 import type { operations } from '~~/types/api'
 
 import type { IntegrityEventInternal } from '~/app/utils/proctor-config'
@@ -213,6 +222,12 @@ export interface ProviderSession {
   readonly attribution: AttributionCursor
   /** From the `/start` response. Never surfaced to the UI (D9) — provider-anonymity. */
   providerName: ProviderName
+  /**
+   * The provider conversation this handle is joined to, when the server named it
+   * (a fresh single-session `/start`). Its presence is the single-session gate:
+   * without it the handle takes today's one-handle-per-competency path.
+   */
+  conversationId?: string
   /**
    * This project's template runs voice-only (`/start` → `audio_only`).
    *
@@ -392,19 +407,45 @@ function providerErrorCode(payload: unknown): string | null {
 // /start response shape guard
 // ---------------------------------------------------------------------------
 
+type ParsedContinuation = { conversationId: string; competencyCode: CompetencyCode }
+
 /**
- * Explicit shape guard for the `/start` response, checked BEFORE
- * `question_context.end_phrase` is ever read.
+ * `null` when the response carries no continuation (today's path), the parsed
+ * continuation when it is well formed, `'malformed'` otherwise.
  *
- * Without this, an unguarded destructure throws inside the try block on a
- * bad body; `status` is undefined on a plain TypeError, so it used to land in
- * the retryable `error` state — retrying forever against a server that will
- * answer identically. That is the same defect class the 401 fix addresses:
- * retry cannot fix a contract violation, so this is a non-retryable terminal.
+ * Malformed means: not an object, a missing/empty id, a code that is not a
+ * competency code (prose cannot pass), or a continuation combined with a
+ * provider handle (token or URL). A continuation names a conversation the
+ * browser is already in; a handle would be a second one.
  */
-function isValidStartResponse(response: unknown): response is StartResponse {
+function parseContinuation(r: Record<string, unknown>): ParsedContinuation | null | 'malformed' {
+  const raw = r['continuation']
+  if (raw === undefined || raw === null) return null
+  if (typeof raw !== 'object') return 'malformed'
+
+  const c = raw as Record<string, unknown>
+  if (typeof c['conversation_id'] !== 'string' || c['conversation_id'] === '') return 'malformed'
+  if (typeof c['competency_code'] !== 'string') return 'malformed'
+  const competencyCode = asCompetencyCode(c['competency_code'])
+  if (competencyCode === null) return 'malformed'
+
+  if (r['provider_token'] != null || r['conversation_url'] != null) return 'malformed'
+
+  return { conversationId: c['conversation_id'], competencyCode }
+}
+
+/** Everything `isValidStartResponse` checks except the continuation. */
+function isBaseValidStartResponse(response: unknown): boolean {
   if (!response || typeof response !== 'object') return false
   const r = response as Record<string, unknown>
+
+  const conversationId = r['conversation_id']
+  if (
+    conversationId !== undefined &&
+    (typeof conversationId !== 'string' || conversationId === '')
+  ) {
+    return false
+  }
 
   // `number` ONLY, as the contract publishes it. Also accepting a string
   // widened the predicate past the type it returns: `response is StartResponse`
@@ -432,6 +473,22 @@ function isValidStartResponse(response: unknown): response is StartResponse {
   if (typeof q['question_index'] !== 'number') return false
 
   return true
+}
+
+/**
+ * Explicit shape guard for the `/start` response, checked BEFORE
+ * `question_context.end_phrase` is ever read.
+ *
+ * Without this, an unguarded destructure throws inside the try block on a
+ * bad body; `status` is undefined on a plain TypeError, so it used to land in
+ * the retryable `error` state — retrying forever against a server that will
+ * answer identically. That is the same defect class the 401 fix addresses:
+ * retry cannot fix a contract violation, so this is a non-retryable terminal.
+ */
+export function isValidStartResponse(response: unknown): response is StartResponse {
+  if (!isBaseValidStartResponse(response)) return false
+
+  return parseContinuation(response as Record<string, unknown>) !== 'malformed'
 }
 
 // ---------------------------------------------------------------------------
@@ -493,10 +550,17 @@ export function useInterviewSession(
    * trips later. `endQuestion()` and `pause()` guard on THIS flag now (B2).
    */
   const handoverActive = ref(false)
+  /**
+   * True from the first boundary input until `assertBoundary()` settles: the one
+   * in-flight guard that makes the three inputs (spoken phrase, 300 s timer, the
+   * server's turn budget) idempotent. Read by `pause()`/`endQuestion()` like
+   * `handoverActive`, and surfaced through `handoverInFlight` so Pause is disabled.
+   */
+  const boundaryInFlight = ref(false)
 
   const activeProvider = computed(() => activeSession.value?.provider ?? null)
   const activeConfig = computed(() => activeSession.value?.config ?? null)
-  const handoverInFlight = computed(() => handoverActive.value)
+  const handoverInFlight = computed(() => handoverActive.value || boundaryInFlight.value)
 
   const players = computed<SessionPlayer[]>(() => {
     const list: SessionPlayer[] = []
@@ -1183,7 +1247,118 @@ export function useInterviewSession(
     transitionTo(directive === 'done' ? 'done' : 'end_of_question')
   }
 
+  /**
+   * A handle that is joined to a conversation the server named and can take
+   * context steering: the only kind that is retargeted in place. Everything else
+   * (HeyGen, the mock, a Tavus handle from a project without single-session)
+   * keeps today's one-handle-per-competency path.
+   */
+  function isSteerable(handle: ProviderSession): handle is ProviderSession & {
+    conversationId: string
+    provider: InterviewProvider & SupportsContextSteering
+  } {
+    return (
+      handle.providerName === 'tavus' &&
+      handle.conversationId !== undefined &&
+      canSteerContext(handle.provider)
+    )
+  }
+
+  /**
+   * The one idempotent boundary assertion (design D5). Its three inputs (the
+   * avatar's closing phrase, the question timer, later the server's turn budget)
+   * all land here and a second entrant while one is in flight returns at once; if
+   * two genuinely race to `/end`, the loser's 409 maps to `noop` and acts on nothing.
+   *
+   * Order is the point: the uplink closes BEFORE `/end`, so no candidate speech
+   * exists in the window to be 409-dropped, and it reopens only at the steering
+   * acknowledgement or its failure (`applyContinuation`), never at the send.
+   */
+  async function assertBoundary(endedReason: 'completed' | EndQuestionReason): Promise<void> {
+    const handle = activeSession.value
+    if (!handle || !isSteerable(handle)) return
+    if (boundaryInFlight.value || handoverActive.value) return
+
+    boundaryInFlight.value = true
+    // Only `applyContinuation` (reached through the 'continue' branch) may keep
+    // the mic shut: it reopens at the steering ack or failure. Every other exit,
+    // a 409, a failed /end (callEnd degrades it to null, which pauses), pause/done
+    // or a throw, restores it here.
+    let micHandedOff = false
+    try {
+      await handle.provider.setMicMuted(true).catch(() => {})
+
+      const directive = await callEnd(handle.attribution.current, endedReason)
+      if (handle !== activeSession.value) return // torn down while /end was in flight
+
+      if (directive === 'noop') return
+
+      if (directive === 'continue') {
+        micHandedOff = true
+        await startSession(0, 'boundary')
+        return
+      }
+
+      handle.provider.stop().catch(() => {})
+      advanceAfterQuestion(directive)
+    } finally {
+      if (!micHandedOff) await handle.provider.setMicMuted(false).catch(() => {})
+      boundaryInFlight.value = false
+    }
+  }
+
+  /**
+   * The server granted a continuation: the joined conversation now serves
+   * `dbSessionId`. Moves the cursor (before anything is sent), steers the avatar,
+   * and reopens the mic at the acknowledgement or at the failure.
+   *
+   * A failed steering keeps the cursor on the new row and resends the SAME ticket
+   * once when the room is still joined. Otherwise, or on a second failure, the
+   * new competency ends as `timeout` and the next `/start` issues fresh (the
+   * browser then holds no usable handle, so the server refuses a continuation).
+   */
+  async function applyContinuation(
+    handle: ProviderSession,
+    dbSessionId: number,
+    continuation: ParsedContinuation
+  ): Promise<void> {
+    if (handle !== activeSession.value) return
+    if (!isSteerable(handle) || continuation.conversationId !== handle.conversationId) {
+      transitionTo('error')
+      return
+    }
+
+    const ticket = createBoundaryTicket(continuation.conversationId, continuation.competencyCode)
+    let steering!: ReturnType<typeof handle.provider.sendBoundary>
+    advanceAttribution(dbSessionId, () => {
+      steering = handle.provider.sendBoundary(ticket)
+    })
+
+    let result = await steering
+    if (result.ok) {
+      await handle.provider.setMicMuted(false).catch(() => {})
+      return
+    }
+
+    await handle.provider.setMicMuted(false).catch(() => {})
+    if (isJoinedFailure(result)) result = await handle.provider.sendBoundary(ticket)
+    if (result.ok) return
+
+    handle.provider.stop().catch(() => {})
+    advanceAfterQuestion(await callEnd(handle.attribution.current, 'timeout'))
+  }
+
+  /** The failures that leave the room joined, so a resend can still land. */
+  function isJoinedFailure(failure: SteeringFailure): boolean {
+    return failure.reason === 'timeout' || failure.reason === 'send_failed'
+  }
+
   function handleProviderComplete(handle: ProviderSession) {
+    if (isSteerable(handle)) {
+      void assertBoundary('completed')
+      return
+    }
+
     const isHeyGen = handle.providerName === 'heygen'
 
     if (isHeyGen) {
@@ -1214,16 +1389,30 @@ export function useInterviewSession(
     startSession(0, 'incoming')
   }
 
-  async function startSession(attemptNumber = 0, target: 'active' | 'incoming' = 'active') {
+  async function startSession(
+    attemptNumber = 0,
+    target: 'active' | 'incoming' | 'boundary' = 'active'
+  ) {
     if (target === 'active') {
       transitionTo('connecting')
     }
     // target === 'incoming': state stays `live` throughout (D2) — it never
     // enters `connecting` for the happy handover path.
+    // target === 'boundary': the browser is joined to a conversation and asks
+    // the server to retarget it. The state stays `live`; it only leaves it on the
+    // fresh-handle fallback below or on an error.
+
+    // The assertion that the browser is IN the room: sent from the boundary only,
+    // while the joined handle is still the live one. Every other entry (first
+    // connect, retry, pause/resume, re-offer, reload) has no handle to assert.
+    const joined = target === 'boundary' ? activeSession.value : null
 
     try {
       const response = await candidateFetch<StartResponse>('/candidate/interview/start', {
         method: 'POST',
+        ...(joined?.conversationId
+          ? { body: { live_conversation_id: joined.conversationId } }
+          : {}),
       })
 
       if (!isValidStartResponse(response)) {
@@ -1232,9 +1421,37 @@ export function useInterviewSession(
           abandonIncomingAttempt()
           return
         }
+        if (isBaseValidStartResponse(response)) {
+          // Only the continuation is wrong: a contract slip the next /start can
+          // fix, so the retryable screen, with no cursor move and nothing sent.
+          transitionTo('error')
+          return
+        }
         terminalReason.value = 'malformed_response'
         transitionTo('terminal')
         return
+      }
+
+      const continuation = parseContinuation(response as unknown as Record<string, unknown>)
+      if (continuation !== null && continuation !== 'malformed') {
+        // No handle was issued: the joined one keeps playing. Released before
+        // the steering is applied because a failed steering re-enters
+        // `confirmDevices()`, which the latch would otherwise refuse.
+        isResuming = false
+        if (target === 'boundary' && joined) {
+          await applyContinuation(joined, Number(response.session_id), continuation)
+        } else {
+          // A continuation to a caller that holds no handle cannot be honoured.
+          transitionTo('error')
+        }
+        return
+      }
+
+      if (target === 'boundary') {
+        // The server refused (or never offered) a continuation: this is today's
+        // path from here on. Leave the old room, then publish the fresh handle.
+        joined?.provider.stop().catch(() => {})
+        transitionTo('connecting')
       }
 
       // D4: end_phrase and final_phrase come from NESTED question_context — NOT top-level
@@ -1269,6 +1486,7 @@ export function useInterviewSession(
         dbSessionId,
         attribution: new AttributionCursor(dbSessionId),
         providerName,
+        ...(response.conversation_id ? { conversationId: response.conversation_id } : {}),
         // `=== true`, not a truthy read: an older API that does not send the
         // field must resolve to "show the avatar", and `undefined` must never
         // become "hide it".
@@ -1419,7 +1637,7 @@ export function useInterviewSession(
    */
   function pause() {
     if (state.value !== 'live') return
-    if (handoverActive.value) return
+    if (handoverActive.value || boundaryInFlight.value) return
 
     const handle = activeSession.value
 
@@ -1506,6 +1724,11 @@ export function useInterviewSession(
 
     const handle = activeSession.value
     if (!handle) return
+
+    if (isSteerable(handle)) {
+      await assertBoundary(reason)
+      return
+    }
 
     const directive = await callEnd(handle.attribution.current, reason)
     handle.provider.stop().catch(() => {})
