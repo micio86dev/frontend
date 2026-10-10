@@ -228,6 +228,8 @@ export interface ProviderSession {
   readonly attribution: AttributionCursor
   /** From the `/start` response. Never surfaced to the UI (D9) — provider-anonymity. */
   providerName: ProviderName
+  /** `conversation_ttl_seconds` of this handle's conversation, when the server named one. */
+  ttlSeconds?: number
   /**
    * The provider conversation this handle is joined to, when the server named it
    * (a fresh single-session `/start`). Its presence is the single-session gate:
@@ -1060,6 +1062,7 @@ export function useInterviewSession(
     incoming.provider.setMicMuted(false).catch(() => {})
     activeSession.value = incoming
     sessionId.value = incoming.attribution.current
+    armAgeTimer(incoming)
     // The machine stays `live` for the whole handover (D2); this also covers
     // a LATE promotion reached from the bound-exceeded `connecting` fallback.
     transitionTo('live')
@@ -1384,6 +1387,10 @@ export function useInterviewSession(
    * or handover is settling (the end is then expected), and never once the client
    * itself stopped the handle (`stoppedByClient`), which covers pause, done and
    * every deliberate teardown.
+   *
+   * The skip is safe, not a gap: a boundary or handover in flight always ends in a
+   * fresh handle, a failed steering that re-enters `/start`, or the bound and
+   * connecting-ceiling timers, so resuming here as well would double-start.
    */
   function handleUnannouncedEnd(handle: ProviderSession) {
     if (handle.providerName !== 'tavus') return
@@ -1392,9 +1399,17 @@ export function useInterviewSession(
     startNextSession()
   }
 
-  /** The conversation is about to age out: fetch its replacement now, mid-competency. */
-  function armAgeTimer(handle: ProviderSession, ttlSeconds: number | undefined) {
+  /**
+   * The conversation is about to age out: fetch its replacement now, mid-competency.
+   *
+   * The single timer follows the handle that is LIVE, so this runs only where a
+   * handle becomes `activeSession` (a plain publish, or `promote()`), never when
+   * a crossfade incoming is merely published: arming then would replace the live
+   * handle's timer with one for a handle that may never be promoted.
+   */
+  function armAgeTimer(handle: ProviderSession) {
     ageTimer.clear()
+    const ttlSeconds = handle.ttlSeconds
     if (handle.providerName !== 'tavus' || typeof ttlSeconds !== 'number') return
     const delay = ttlSeconds * 1000 - HANDOVER_LEAD_MS
     if (delay <= 0) return
@@ -1504,7 +1519,12 @@ export function useInterviewSession(
       // arrives while a live one exists crossfades, whatever the provider (D7).
       const live = activeSession.value
       const crossfade = target === 'incoming' || (target === 'boundary' && live !== null)
-      if (target === 'boundary' && !crossfade) transitionTo('connecting')
+      if (target === 'boundary' && !crossfade) {
+        // Leave the joined room: the live slot was unpublished while /start was in
+        // flight (a 401 terminal does that without a stop). Idempotent otherwise.
+        joined?.provider.stop().catch(() => {})
+        transitionTo('connecting')
+      }
 
       // D4: end_phrase and final_phrase come from NESTED question_context — NOT top-level
       const { end_phrase, final_phrase } = response.question_context
@@ -1541,6 +1561,9 @@ export function useInterviewSession(
         attribution: new AttributionCursor(dbSessionId),
         providerName,
         ...(response.conversation_id ? { conversationId: response.conversation_id } : {}),
+        ...(typeof response.conversation_ttl_seconds === 'number'
+          ? { ttlSeconds: response.conversation_ttl_seconds }
+          : {}),
         // `=== true`, not a truthy read: an older API that does not send the
         // field must resolve to "show the avatar", and `undefined` must never
         // become "hide it".
@@ -1564,8 +1587,8 @@ export function useInterviewSession(
       } else {
         sessionId.value = handle.attribution.current
         activeSession.value = handle
+        armAgeTimer(handle)
       }
-      armAgeTimer(handle, response.conversation_ttl_seconds)
     } catch (err) {
       isResuming = false
 

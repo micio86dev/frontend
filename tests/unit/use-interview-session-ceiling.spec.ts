@@ -30,6 +30,8 @@ vi.mock('~/app/composables/useCandidateSession', () => ({
 }))
 
 // eslint-disable-next-line import/first
+import { CandidateUnauthorizedError } from '~/app/utils/candidate-api'
+// eslint-disable-next-line import/first
 import { useInterviewSession } from '~/app/composables/useInterviewSession'
 
 type EventCallback = (payload: unknown) => void
@@ -232,6 +234,28 @@ describe('FE-06a age timer', () => {
     expect(starts()).toHaveLength(3)
   })
 
+  it('follows the handle that becomes live: re-armed at promotion, not at publish', async () => {
+    const session = await liveSession()
+    await vi.advanceTimersByTimeAsync(100_000)
+    queue('/candidate/interview/end', END_CONTINUE)
+    queue('/candidate/interview/start', fresh(B), fresh(B))
+    providers[0]!._emit('state', 'complete')
+    await flush()
+    expect(session.players.value.map((p) => p.role)).toEqual(['live', 'incoming'])
+
+    await vi.advanceTimersByTimeAsync(5_000)
+    await paintIncoming(session)
+    expect(session.players.value).toHaveLength(1)
+    expect(starts()).toHaveLength(2)
+
+    // The promoted handle's own clock started at promotion, 5 s after publish.
+    await vi.advanceTimersByTimeAsync(AGE_MS - 1_000)
+    expect(starts()).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await flush()
+    expect(starts()).toHaveLength(3)
+  })
+
   it('does not fire while a boundary is in flight', async () => {
     const session = await liveSession()
     let release!: (v: unknown) => void
@@ -328,5 +352,52 @@ describe('FE-06b unannounced end (N17)', () => {
 
     expect(session.state.value).toBe('done')
     expect(starts()).toHaveLength(1)
+  })
+})
+
+describe('unannounced end while a boundary is in flight (N17 skip, R3-003)', () => {
+  it('is left to the boundary, which re-establishes the handle: no second /start', async () => {
+    const session = await liveSession()
+    let release!: (v: unknown) => void
+    queue('/candidate/interview/end', new Promise((r) => (release = r)))
+    queue('/candidate/interview/start', fresh(B))
+    providers[0]!._emit('state', 'complete')
+    await vi.advanceTimersByTimeAsync(10)
+
+    providers[0]!._emit('state', 'stopped')
+    await flush()
+    expect(starts()).toHaveLength(1)
+
+    release(END_CONTINUE)
+    await flush()
+
+    expect(starts()).toHaveLength(2)
+    expect(session.players.value.map((p) => p.role)).toContain('incoming')
+  })
+})
+
+describe('boundary fallback leaves the joined room (R3-004)', () => {
+  it('stops the joined handle when it was unpublished while /start was in flight', async () => {
+    const session = await liveSession()
+    let release!: (v: unknown) => void
+    queue('/candidate/interview/end', END_CONTINUE)
+    queue('/candidate/interview/start', new Promise((r) => (release = r)))
+    providers[0]!._emit('state', 'complete')
+    await flush()
+    expect(starts()).toHaveLength(2)
+
+    // A 401 elsewhere ends the session and unpublishes the live slot without a stop.
+    mockCandidateFetch.mockImplementationOnce(async () => {
+      throw new CandidateUnauthorizedError()
+    })
+    providers[0]!._emit('transcript', { role: 'user', text: 'hi', ts: 1 })
+    await flush()
+    expect(session.state.value).toBe('terminal')
+    expect(providers[0]!._stop).not.toHaveBeenCalled()
+
+    release(fresh(B))
+    await flush()
+
+    expect(providers[0]!._stop).toHaveBeenCalled()
   })
 })
