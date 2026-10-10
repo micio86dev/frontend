@@ -545,3 +545,46 @@ describe('useInterviewSession — attribution tape across a cursor move', () => 
     expect(callsTo('/candidate/interview/end')[0]![1]).toMatchObject({ body: { session_id: A } })
   })
 })
+
+describe('useInterviewSession — muted boundary window and a single /end', () => {
+  it('[u1(A), end, u2(muted window), u3(B)] posts exactly {(A,u1),(B,u3)}', async () => {
+    const session = await liveSession()
+    const provider = providers[0]!
+    // The uplink is closed across the window (design D4b): a muted provider
+    // transcribes no candidate speech, so u2 never reaches the composable.
+    let muted = false
+    provider.setMicMuted.mockImplementation(async (m: boolean) => {
+      muted = m
+    })
+    const candidate = (text: string) => {
+      if (!muted) provider._emit('transcript', { role: 'user', text, ts: Date.now() })
+    }
+
+    candidate('u1')
+    await provider.setMicMuted(true)
+    candidate('u2') // inside the window: dropped
+    session.advanceAttribution(B)
+    await provider.setMicMuted(false)
+    candidate('u3')
+    await flush()
+
+    expect(utterances()).toEqual([
+      [A, 'u1'],
+      [B, 'u3'],
+    ])
+  })
+
+  it('moving the cursor posts no second /end for the outgoing row', async () => {
+    const session = await liveSession()
+    providers[0]!._emit('state', 'complete')
+    await flush()
+    expect(callsTo('/candidate/interview/end')).toHaveLength(1)
+
+    session.advanceAttribution(B)
+    await flush()
+
+    const ends = callsTo('/candidate/interview/end')
+    expect(ends).toHaveLength(1)
+    expect(ends[0]![1]).toMatchObject({ body: { session_id: A } })
+  })
+})
