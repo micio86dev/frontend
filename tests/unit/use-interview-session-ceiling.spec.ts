@@ -4,6 +4,8 @@
  * 06a: a fresh handle that arrives while a live one exists crossfades (whatever the
  * provider), and a conversation-age timer (`conversation_ttl_seconds` minus
  * `HANDOVER_LEAD_MS`) obtains that fresh handle mid-competency.
+ * 06b: a Tavus conversation that ends unannounced while a competency is `in_corso`
+ * is resumed through the same path (design N17).
  *
  * Harness mirrors use-interview-session-continuation.spec.ts.
  */
@@ -264,6 +266,67 @@ describe('FE-06a age timer', () => {
 
     await vi.advanceTimersByTimeAsync(AGE_MS * 2)
 
+    expect(starts()).toHaveLength(1)
+  })
+})
+
+describe('FE-06b unannounced end (N17)', () => {
+  it('a stop the client did not request resumes the in_corso row via /start', async () => {
+    const session = await liveSession()
+    queue('/candidate/interview/start', fresh(A))
+
+    providers[0]!._emit('state', 'stopped')
+    await flush()
+
+    expect(starts()).toHaveLength(2)
+    expect(starts()[1]![1]).toEqual({ method: 'POST' })
+    expect(ends()).toHaveLength(0)
+    expect(session.sessionId.value).toBe(A)
+    expect(session.players.value.map((p) => p.role)).toContain('incoming')
+  })
+
+  it('does not resume on a deliberate client-side stop', async () => {
+    const session = await liveSession()
+    queue('/candidate/interview/end', { next_action: 'pause' })
+
+    await session.endQuestion('timeout')
+    await flush()
+
+    expect(providers[0]!._stop).toHaveBeenCalled()
+    expect(starts()).toHaveLength(1)
+  })
+
+  it('does not resume when the client stops a Tavus handle that names no conversation', async () => {
+    const session = await liveSession(response(A))
+    queue('/candidate/interview/end', { next_action: 'pause' })
+
+    await session.endQuestion('timeout')
+    await flush()
+
+    expect(providers[0]!._stop).toHaveBeenCalled()
+    expect(starts()).toHaveLength(1)
+    expect(session.state.value).toBe('end_of_question')
+  })
+
+  it('does not resume on a pause', async () => {
+    const session = await liveSession()
+
+    session.pause()
+    await flush()
+
+    expect(starts()).toHaveLength(1)
+  })
+
+  it('does not resume after the final competency', async () => {
+    const session = await liveSession()
+    queue('/candidate/interview/end', { next_action: 'done' })
+
+    providers[0]!._emit('state', 'complete')
+    await flush()
+    providers[0]!._emit('state', 'stopped')
+    await flush()
+
+    expect(session.state.value).toBe('done')
     expect(starts()).toHaveLength(1)
   })
 })

@@ -520,10 +520,14 @@ export function isValidStartResponse(response: unknown): response is StartRespon
  * `handle.provider.stop()` freely — concurrently, redundantly, defensively —
  * and the real SDK/network teardown still only happens once.
  */
+/** Providers the client has asked to stop: their `stopped` is ours, not an unannounced end. */
+const stoppedByClient = new WeakSet<InterviewProvider>()
+
 function withIdempotentStop(provider: InterviewProvider): InterviewProvider {
   const originalStop = provider.stop.bind(provider)
   let stopPromise: Promise<void> | null = null
   provider.stop = () => {
+    stoppedByClient.add(provider)
     if (!stopPromise) stopPromise = originalStop()
     return stopPromise
   }
@@ -1100,6 +1104,9 @@ export function useInterviewSession(
         handleProviderComplete(handle)
       }
 
+      if (providerState === 'stopped' && isLive && !stoppedByClient.has(handle.provider)) {
+        handleUnannouncedEnd(handle)
+      }
       // An incoming handle's own `complete` is ignored (D2) — it has not
       // been asked a question at handover time; the guard makes it inert.
     })
@@ -1368,6 +1375,21 @@ export function useInterviewSession(
   /** The failures that leave the room joined, so a resend can still land. */
   function isJoinedFailure(failure: SteeringFailure): boolean {
     return failure.reason === 'timeout' || failure.reason === 'send_failed'
+  }
+
+  /**
+   * N17: a Tavus conversation ended without the client asking (the ceiling arrives
+   * unannounced). While the competency is still `in_corso` that is treated exactly
+   * like the age timer firing late: `/start` on the same row. Not while a boundary
+   * or handover is settling (the end is then expected), and never once the client
+   * itself stopped the handle (`stoppedByClient`), which covers pause, done and
+   * every deliberate teardown.
+   */
+  function handleUnannouncedEnd(handle: ProviderSession) {
+    if (handle.providerName !== 'tavus') return
+    if (state.value !== 'live' || boundaryInFlight.value || handoverActive.value) return
+    logHandoverEvent('unannounced-end')
+    startNextSession()
   }
 
   /** The conversation is about to age out: fetch its replacement now, mid-competency. */

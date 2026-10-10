@@ -76,6 +76,8 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
   private phrases: { endPhrase: string; finalPhrase: string } | null = null
   private emittedReady = false
   private steering: Steering | null = null
+  /** Set by `stop()`: a `left-meeting` after it is ours, not an unannounced end. */
+  private stopping = false
 
   /**
    * Avatar utterances already emitted (key -> time seen), oldest first.
@@ -178,7 +180,16 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
         this.attachTrack(track)
       })
 
-      this.call.on('left-meeting', () => this.failSteering('left'))
+      this.call.on('left-meeting', () => {
+        this.failSteering('left')
+
+        // The conversation ended without `stop()` (the ceiling, observed: design
+        // N17). Reported as a stop; the client decides whether that is a problem.
+        if (!this.stopping) {
+          this.stopping = true
+          this.emitState('stopped')
+        }
+      })
       this.call.on('error', () => this.failSteering('error'))
 
       this.call.on('app-message', (event) => {
@@ -392,6 +403,10 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
   }
 
   async stop(): Promise<void> {
+    const alreadyReported = this.stopping
+
+    this.stopping = true
+
     if (this.call) {
       try {
         await this.call.leave()
@@ -408,6 +423,9 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
     this.stream = null
     this.settleSteering({ ok: false, reason: 'left' })
     this.seenAvatar.clear()
-    this.emitState('stopped')
+
+    if (!alreadyReported) {
+      this.emitState('stopped')
+    }
   }
 }
