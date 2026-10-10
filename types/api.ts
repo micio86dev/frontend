@@ -10777,11 +10777,16 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Utterance persisted. `boundary_due` is true once the competency has met its turn budget. */
             202: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": {
+                        boundary_due: boolean;
+                    };
+                };
             };
             401: components["responses"]["AuthenticationException"];
             404: components["responses"]["ModelNotFoundException"];
