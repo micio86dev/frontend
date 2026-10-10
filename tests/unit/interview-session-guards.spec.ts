@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { ref, shallowRef, computed, nextTick, defineComponent, h } from 'vue'
 import type { SessionPlayer, SessionState } from '~/app/composables/useInterviewSession'
 import type { InterviewProvider, StartConfig } from '~/app/types/interview-provider'
@@ -84,11 +84,6 @@ function makeSession(state: SessionState, withProvider = false) {
     teardown: vi.fn(async () => undefined),
     notifyPainted: vi.fn(),
   }
-}
-
-async function flushPromises() {
-  for (let i = 0; i < 5; i++) await nextTick()
-  await new Promise((resolve) => setTimeout(resolve, 20))
 }
 
 async function mountSession(session: ReturnType<typeof makeSession>, attach = false) {
@@ -208,8 +203,10 @@ describe('InterviewSession.vue — network guard', () => {
 
     document.querySelector<HTMLButtonElement>('[data-testid="call-exit"]')!.click()
     await flushPromises()
+    await nextTick()
     document.querySelector<HTMLButtonElement>('[data-testid="call-exit-confirm"]')!.click()
     await flushPromises()
+    await nextTick()
     expect(session.pause).toHaveBeenCalledTimes(1)
     session.state.value = 'paused'
 
