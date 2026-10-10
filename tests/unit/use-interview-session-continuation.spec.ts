@@ -362,6 +362,34 @@ describe('single-session continuation flow', () => {
     expect(session.sessionId.value).toBe(B)
   })
 
+  it.each([
+    ['a network error', () => new Thrown(new TypeError('Failed to fetch'))],
+    ['a 5xx', () => new Thrown(Object.assign(new Error('boom'), { status: 503 }))],
+  ])(
+    'a non-409 /end failure (%s) restores the mic, frees the guard and advances nothing',
+    async (_label, failure) => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const session = await liveSession()
+      queue('/candidate/interview/end', failure())
+      queue('/candidate/interview/start', continuation(B))
+      log.length = 0
+
+      providers[0]!._emit('state', 'complete')
+      await flush()
+
+      // Degrades to the existing pause screen: no steering, no handle, cursor stays on A.
+      expect(log).toEqual(['mute', 'end', 'unmute'])
+      expect(starts()).toHaveLength(1)
+      expect(providers[0]!.sendBoundary).not.toHaveBeenCalled()
+      expect(mockCreateProvider).toHaveBeenCalledTimes(1)
+      expect(session.sessionId.value).toBe(A)
+      expect(session.state.value).toBe('end_of_question')
+
+      // The in-flight guard was reset, so a later boundary is not locked out.
+      expect(session.handoverInFlight.value).toBe(false)
+    }
+  )
+
   it('done after the last competency stops the provider and finishes', async () => {
     const session = await liveSession()
     queue('/candidate/interview/end', { next_action: 'done' })

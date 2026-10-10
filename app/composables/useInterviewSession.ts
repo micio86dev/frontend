@@ -1280,19 +1280,21 @@ export function useInterviewSession(
     if (boundaryInFlight.value || handoverActive.value) return
 
     boundaryInFlight.value = true
+    // Only `applyContinuation` (reached through the 'continue' branch) may keep
+    // the mic shut: it reopens at the steering ack or failure. Every other exit,
+    // a 409, a failed /end (callEnd degrades it to null, which pauses), pause/done
+    // or a throw, restores it here.
+    let micHandedOff = false
     try {
       await handle.provider.setMicMuted(true).catch(() => {})
 
       const directive = await callEnd(handle.attribution.current, endedReason)
       if (handle !== activeSession.value) return // torn down while /end was in flight
 
-      if (directive === 'noop') {
-        // Lost the race: nothing is advancing from here, so the mic must not stay shut.
-        await handle.provider.setMicMuted(false).catch(() => {})
-        return
-      }
+      if (directive === 'noop') return
 
       if (directive === 'continue') {
+        micHandedOff = true
         await startSession(0, 'boundary')
         return
       }
@@ -1300,6 +1302,7 @@ export function useInterviewSession(
       handle.provider.stop().catch(() => {})
       advanceAfterQuestion(directive)
     } finally {
+      if (!micHandedOff) await handle.provider.setMicMuted(false).catch(() => {})
       boundaryInFlight.value = false
     }
   }
