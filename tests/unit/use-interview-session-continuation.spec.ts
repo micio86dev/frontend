@@ -594,3 +594,67 @@ describe('steering_failed handling', () => {
     expect(ends()[1]![1]).toMatchObject({ body: { session_id: B, ended_reason: 'timeout' } })
   })
 })
+
+describe('boundary_due on the /utterance 202 (FE-05)', () => {
+  const say = () => providers[0]!._emit('transcript', { role: 'user', text: 'my answer', ts: 1 })
+
+  it('asserts the boundary when the server says it is due, without any closing phrase', async () => {
+    const session = await liveSession()
+    queue('/candidate/interview/utterance', { boundary_due: true })
+    queue('/candidate/interview/end', END_CONTINUE)
+    queue('/candidate/interview/start', continuation(B))
+
+    say()
+    await flush()
+
+    expect(ends()).toHaveLength(1)
+    expect(ends()[0]![1]).toMatchObject({ body: { session_id: A, ended_reason: 'completed' } })
+    expect(session.sessionId.value).toBe(B)
+  })
+
+  it('the spoken phrase and boundary_due in one tick cause ONE boundary', async () => {
+    const session = await liveSession()
+    queue('/candidate/interview/utterance', { boundary_due: true })
+    queue('/candidate/interview/end', END_CONTINUE)
+    queue('/candidate/interview/start', continuation(B))
+
+    say()
+    providers[0]!._emit('state', 'complete')
+    await flush()
+
+    expect(ends()).toHaveLength(1)
+    expect(providers[0]!.sendBoundary).toHaveBeenCalledTimes(1)
+    expect(session.sessionId.value).toBe(B)
+  })
+
+  it.each([
+    ['boundary_due false', { boundary_due: false }],
+    ['an empty body', undefined],
+    ['null', null],
+    ['a string', 'boundary_due'],
+    ['an empty object', {}],
+    ['a non-boolean flag', { boundary_due: 'true' }],
+  ])('%s does nothing', async (_label, body) => {
+    const session = await liveSession()
+    queue('/candidate/interview/utterance', body)
+
+    say()
+    await flush()
+
+    expect(ends()).toHaveLength(0)
+    expect(session.sessionId.value).toBe(A)
+    expect(session.state.value).toBe('live')
+  })
+
+  it('is ignored for a handle that cannot be steered (HeyGen/mock shape)', async () => {
+    steerableProviders = false
+    const session = await liveSession()
+    queue('/candidate/interview/utterance', { boundary_due: true })
+
+    say()
+    await flush()
+
+    expect(ends()).toHaveLength(0)
+    expect(session.sessionId.value).toBe(A)
+  })
+})
