@@ -221,7 +221,8 @@ test.describe('Single-session Tavus interview', () => {
     await start.click()
     await expect(exitButton(page)).toBeVisible({ timeout: 15000 })
 
-    expect(rec.starts).toHaveLength(3)
+    // The live screen is back (asserted above) and the third /start has landed.
+    await expect.poll(() => rec.starts.length).toBe(3)
     expect(rec.starts[2]).toBeNull()
     expect(rec.startReplies[2]?.['continuation']).toBeUndefined()
     expect(rec.startReplies[2]?.['conversation_id']).toBe('conv-2')
@@ -258,9 +259,16 @@ test.describe('Single-session Tavus interview', () => {
     expect(rec.starts[1]).toBeNull()
     expect(rec.startReplies[1]?.['session_id']).toBe(rec.startReplies[0]?.['session_id'])
     expect(rec.startReplies[1]?.['conversation_id']).toBe('conv-2')
-    // No boundary: nothing ended, nothing steered, the candidate never left the live screen.
-    expect(rec.ends).toBe(0)
-    expect(await steeringLog(page)).toEqual([])
+    // The handover settled: the candidate is on the live screen again.
     await expect(exitButton(page)).toBeVisible()
+    // No boundary: nothing ended, nothing steered. Late async steering would show up while the
+    // page clock keeps running, so sample a stable window instead of reading once.
+    for (let i = 0; i < 5; i++) {
+      await page.clock.fastForward(1_000)
+      await page.waitForTimeout(100)
+      expect(rec.ends).toBe(0)
+      expect(rec.starts).toHaveLength(2)
+      expect(await steeringLog(page)).toEqual([])
+    }
   })
 })
