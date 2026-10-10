@@ -48,7 +48,7 @@ append / respond wording and ack latency, G-D explicit `participant_left_timeout
   non-utterance app messages. The conversation id is redacted to its last four characters and the room URL is
   never printed.
 - File: `<out>/<scenario>-<epoch>.json` (summary plus raw app messages). `--out=<dir>` overrides the default
-  `/private/tmp/claude-501/spike`, a directory outside the repository, so nothing is written under the repo and
+  `<os tmp dir>/tavus-steering-spike`, a directory outside the repository, so nothing is written under the repo and
   no `.gitignore` entry is needed. If you point `--out` inside the repo, ignore it first.
 
 ### History

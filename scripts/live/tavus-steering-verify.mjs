@@ -25,6 +25,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { chromium } from '@playwright/test'
@@ -43,7 +44,7 @@ const scenario = args.scenario ?? 'steer'
 const roomUrl = args.url
 const conversationId = args.id
 const observeSecs = Number(args.secs ?? 300)
-const outDir = args.out ?? '/private/tmp/claude-501/spike'
+const outDir = args.out ?? join(tmpdir(), 'tavus-steering-spike')
 
 if (!roomUrl || !conversationId) {
   console.error('missing --url or --id')
