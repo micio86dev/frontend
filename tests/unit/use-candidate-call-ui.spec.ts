@@ -17,9 +17,11 @@
  * into the boolean true, so at runtime an operator who writes TRUE gets ON.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { useCandidateCallUi } from '~/app/composables/useCandidateCallUi'
 
-function withFlag(value: unknown): boolean {
+function callUiFor(value: unknown): boolean {
   vi.stubGlobal(
     'useRuntimeConfig',
     vi.fn(() => ({ public: { candidateCallUi: value } }))
@@ -34,11 +36,11 @@ afterEach(() => {
 
 describe('useCandidateCallUi', () => {
   it("is on for the string 'true'", () => {
-    expect(withFlag('true')).toBe(true)
+    expect(callUiFor('true')).toBe(true)
   })
 
   it('is on for the boolean true that Nuxt produces from the environment', () => {
-    expect(withFlag(true)).toBe(true)
+    expect(callUiFor(true)).toBe(true)
   })
 
   it.each([
@@ -52,7 +54,7 @@ describe('useCandidateCallUi', () => {
     ['undefined', undefined],
     ['null', null],
   ])('is off for %s', (_name, value) => {
-    expect(withFlag(value)).toBe(false)
+    expect(callUiFor(value)).toBe(false)
   })
 
   it('is off when the public config carries no such key (the app always declares it, so only a stub gets here)', () => {
@@ -68,34 +70,64 @@ describe('useCandidateCallUi', () => {
 // The rule above leans on how Nitro applies the environment to the config default.
 // Proven against Nitro's own applyEnv, not assumed: unset keeps 'true', anything
 // DEFINED (even empty) replaces it.
+//
+// applyEnv is not a documented Nitro API: it lives in a runtime internal reachable
+// only through the package's `./runtime/*` export. This helper is the ONLY place that
+// touches it. Verified against nitropack 2.13.4. The exact rule it pins:
+// `obj[key] = destr(process.env[NITRO_*] ?? process.env[NUXT_*]) ?? default`, so an
+// unset variable keeps the default and a set-but-empty one replaces it.
+// If a Nitro upgrade moves or renames it, the assertion below fails with this message.
+async function loadNitroApplyEnv(): Promise<
+  (
+    obj: { public: { candidateCallUi: unknown } },
+    opts: { prefix: string; altPrefix: string }
+  ) => { public: { candidateCallUi: unknown } }
+> {
+  const mod = await import(
+    // @ts-expect-error internal Nitro runtime module, no type declarations
+    'nitropack/runtime/internal/utils.env'
+  )
+  expect(
+    typeof mod.applyEnv,
+    'Nitro internal applyEnv moved or was renamed (verified on nitropack 2.13.4): re-pin the kill-switch rule in this helper'
+  ).toBe('function')
+
+  return mod.applyEnv
+}
+
 describe('the kill switch through Nitro applyEnv (default stays on)', () => {
   const KEY = 'NUXT_PUBLIC_CANDIDATE_CALL_UI'
+  // The SHIPPED default, read from nuxt.config.ts (no Nuxt runtime in Vitest), so the
+  // "unset -> on" case breaks if someone ships a different default.
+  const shippedDefault = /candidateCallUi:\s*'([^']*)'/.exec(
+    readFileSync(resolve(__dirname, '../../nuxt.config.ts'), 'utf8')
+  )?.[1]
 
-  async function flagWith(env: string | undefined): Promise<boolean> {
-    const { applyEnv } = await import(
-      // @ts-expect-error internal Nitro runtime module, no type declarations
-      '../../node_modules/nitropack/dist/runtime/internal/utils.env.mjs'
-    )
+  async function callUiForEnv(env: string | undefined): Promise<boolean> {
+    const applyEnv = await loadNitroApplyEnv()
     // stubEnv(KEY, undefined) removes the variable; unstubAllEnvs restores it.
     vi.stubEnv(KEY, env)
     try {
       const config = applyEnv(
-        { public: { candidateCallUi: 'true' } },
+        { public: { candidateCallUi: shippedDefault } },
         { prefix: 'NITRO_', altPrefix: 'NUXT_' }
       )
-      return withFlag(config.public.candidateCallUi)
+      return callUiFor(config.public.candidateCallUi)
     } finally {
       vi.unstubAllEnvs()
     }
   }
 
   it.each([
-    ['unset', undefined, true],
-    ['true', 'true', true],
-    ['false', 'false', false],
-    ['set but empty', '', false],
-    ['1', '1', false],
-  ] as const)('%s -> on is %s', async (_n, env, expected) => {
-    expect(await flagWith(env)).toBe(expected)
+    ['unset', true, undefined],
+    ['true', true, 'true'],
+    ['TRUE', true, 'TRUE'],
+    ['false', false, 'false'],
+    ['set but empty', false, ''],
+    ['1', false, '1'],
+    ['0', false, '0'],
+    ['yes', false, 'yes'],
+  ] as const)('%s -> on is %s', async (_n, expected, env) => {
+    expect(await callUiForEnv(env)).toBe(expected)
   })
 })
