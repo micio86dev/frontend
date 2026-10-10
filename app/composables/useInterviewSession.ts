@@ -789,9 +789,14 @@ export function useInterviewSession(
     }
   }
 
-  async function sendUtterance(dbSessionId: number, text: string, speaker: 'candidate' | 'avatar') {
+  /** Resolves true only when the 202 body carries a literal `boundary_due: true`. */
+  async function sendUtterance(
+    dbSessionId: number,
+    text: string,
+    speaker: 'candidate' | 'avatar'
+  ): Promise<boolean> {
     try {
-      await candidateFetch('/candidate/interview/utterance', {
+      const body = await candidateFetch<unknown>('/candidate/interview/utterance', {
         method: 'POST',
         body: {
           session_id: dbSessionId,
@@ -800,6 +805,7 @@ export function useInterviewSession(
           ts: new Date().toISOString(),
         },
       })
+      return (body as { boundary_due?: unknown } | null | undefined)?.boundary_due === true
     } catch (err) {
       // 401 → the stored session has already expired or been cleared
       // (candidateFetch clears it before throwing). Distinct, non-retryable
@@ -807,7 +813,7 @@ export function useInterviewSession(
       if (err instanceof CandidateUnauthorizedError) {
         terminalReason.value = 'session_expired'
         transitionTo('terminal')
-        return
+        return false
       }
 
       // 409 = silently dropped; any other error is also non-fatal for utterance
@@ -816,6 +822,7 @@ export function useInterviewSession(
       if (status !== 409) {
         console.warn('[useInterviewSession] /utterance error (non-fatal):', err)
       }
+      return false
     }
   }
 
@@ -1125,11 +1132,17 @@ export function useInterviewSession(
       // that moves between two lines must attribute each to its own row.
       // Tracked, not merely fired: `callEnd()` drains this set before it runs,
       // so the tail cannot be 409-dropped by its own /end.
-      const inFlight = sendUtterance(handle.attribution.current, entry.text, speaker).catch(
-        () => {}
-      )
+      const sent = sendUtterance(handle.attribution.current, entry.text, speaker).catch(() => false)
+      const inFlight = sent.then(() => {})
       inFlightUtterances.add(inFlight)
       void inFlight.finally(() => inFlightUtterances.delete(inFlight))
+      // Third boundary input (N9). Chained off `sent`, NOT the tracked promise:
+      // assertBoundary -> callEnd drains the tracked set and would wait on itself.
+      // assertBoundary gates on steerability and is idempotent against the other
+      // two inputs, so the flag is inert on every other path.
+      void sent.then((due) => {
+        if (due && handle === activeSession.value) void assertBoundary('completed')
+      })
     })
 
     handle.provider.on('error', (payload) => {
