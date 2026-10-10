@@ -150,7 +150,13 @@ beforeEach(() => {
   mockCreateProvider.mockImplementation(() => registerFreshMockProvider())
   vi.stubGlobal(
     'useRuntimeConfig',
-    vi.fn(() => ({ public: { apiBase: 'https://api.test', interviewProviderMock: 'false' } }))
+    vi.fn(() => ({
+      public: {
+        apiBase: 'https://api.test',
+        interviewProviderMock: 'false',
+        candidateCallUi: 'true',
+      },
+    }))
   )
   vi.stubGlobal('window', globalThis.window)
 })

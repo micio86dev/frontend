@@ -84,10 +84,11 @@ jobs:
       - name: Vitest unit tests + coverage
         run: node node_modules/.bin/vitest run --coverage --coverage.thresholds.lines=85
 
-      - name: Playwright E2E (chromium + webkit + mobile + call screen, incl. visual regression)
+      - name: Playwright E2E (chromium + webkit + mobile, incl. the call screen and visual regression)
         # webServer (playwright.config) builds + serves the SSR output once and
-        # starts four servers from it; the last has the call screen flag on and
-        # serves the chromium-call / webkit-call projects. Browsers come from the
+        # starts three servers from it (main, frame-policy stub, embed). The call
+        # screen is the default live interview, so it runs in the chromium / webkit
+        # projects like every other spec. Browsers come from the
         # container image (no `playwright install` needed).
         run: node node_modules/.bin/playwright test
 

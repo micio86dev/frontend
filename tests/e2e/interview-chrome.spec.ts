@@ -111,7 +111,9 @@ for (const [label, colour, rgb] of [
       await checkA11y(page)
 
       await page.getByRole('button', { name: /start the interview/i }).click()
-      await expect(page.getByRole('button', { name: /^pause$/i })).toBeVisible({ timeout: 15000 })
+      await expect(page.getByRole('button', { name: /^exit, you can resume later$/i })).toBeVisible(
+        { timeout: 15000 }
+      )
       await expect(page.getByRole('timer')).toBeVisible()
       await expect(page.getByText(/listen to the question/i)).toBeVisible()
       await expect.poll(() => canvasColour(page)).toBe(rgb)

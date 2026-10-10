@@ -204,13 +204,15 @@ function globalConfig() {
 
 async function mountPage(
   session: ReturnType<typeof makeSession>,
-  mocksOverride?: Record<string, unknown>
+  mocksOverride?: Record<string, unknown>,
+  attach = false
 ) {
   mockUseInterviewSession.mockReturnValue(session)
   const { default: Page } = await import('~/app/pages/interview/session.vue')
   const config = globalConfig()
   const wrapper = mount(Page, {
     global: { ...config, mocks: { ...config.mocks, ...mocksOverride } },
+    attachTo: attach ? document.body : undefined,
   })
   // `flushPromises`, not a single `nextTick`. This file already documents (at
   // its declaration below) that one tick is not enough to observe an async
@@ -253,13 +255,27 @@ beforeEach(() => {
   // useRuntimeConfig(), and an empty public config means the legacy screen.
   vi.stubGlobal(
     'useRuntimeConfig',
-    vi.fn(() => ({ public: {} }))
+    vi.fn(() => ({ public: { candidateCallUi: 'true' } }))
   )
 })
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  document.body.innerHTML = ''
 })
+
+/**
+ * The kill-switch path (candidate-interview-call-ui D1): `NUXT_PUBLIC_CANDIDATE_CALL_UI=false`
+ * serves the legacy live screen. The call screen is the default since UI-12, so a
+ * spec that names the legacy DOM turns the flag off EXPLICITLY. Deleted with the
+ * legacy screen in UI-13.
+ */
+function legacyScreen() {
+  vi.stubGlobal(
+    'useRuntimeConfig',
+    vi.fn(() => ({ public: { candidateCallUi: 'false' } }))
+  )
+}
 
 // Flush the microtask queue — the state/errorRedirectUrl watcher body is
 // async (`await session.teardown()` before `redirectToError()`), so a single
@@ -332,7 +348,46 @@ describe('interview/session.vue — timer expiry and skip', () => {
   // competency, so the 5-minute timer is the only client-side early end. Its
   // replacement is "renders NO skip control".
 
-  it('the pause button still routes to session.pause()', async () => {
+  it('Exit, once confirmed, routes to session.pause()', async () => {
+    const session = makeSession({ state: 'live' })
+    await mountPage(session, undefined, true)
+
+    document.querySelector<HTMLButtonElement>('[data-testid="call-exit"]')!.click()
+    await flushPromises()
+    expect(session.pause).not.toHaveBeenCalled()
+
+    document.querySelector<HTMLButtonElement>('[data-testid="call-exit-confirm"]')!.click()
+    await flushPromises()
+
+    expect(session.pause).toHaveBeenCalled()
+  })
+
+  // invisible-competency-handover D2 (Task 3.9 / 1.7) — DISABLED, never
+  // hidden, while a handover is in flight. Hiding it is itself a visible
+  // break; an enabled-but-inert button is the defect the live pause was
+  // fixed for.
+  it('disables (never hides) the Exit control while a HeyGen handover is in flight', async () => {
+    const incomingProvider = makeProvider()
+    const session = makeSession({
+      state: 'live',
+      incoming: { dbSessionId: 99, provider: incomingProvider, config: CONFIG },
+    })
+    const wrapper = await mountPage(session)
+
+    const exitButton = wrapper.find('[data-testid="call-exit"]')
+
+    expect(exitButton.exists()).toBe(true)
+    expect(exitButton.attributes('disabled')).toBeDefined()
+  })
+
+  it('the Exit control is enabled again once no handover is in flight', async () => {
+    const wrapper = await mountPage(makeSession({ state: 'live' }))
+
+    expect(wrapper.get('[data-testid="call-exit"]').attributes('disabled')).toBeUndefined()
+  })
+
+  it('the legacy Pause button still routes to session.pause() (kill switch)', async () => {
+    legacyScreen()
     const session = makeSession({ state: 'live' })
     const wrapper = await mountPage(session)
 
@@ -343,37 +398,6 @@ describe('interview/session.vue — timer expiry and skip', () => {
     await pauseButton!.trigger('click')
 
     expect(session.pause).toHaveBeenCalled()
-  })
-
-  // invisible-competency-handover D2 (Task 3.9 / 1.7) — DISABLED, never
-  // hidden, while a handover is in flight. Hiding it is itself a visible
-  // break; an enabled-but-inert button is the defect the live pause was
-  // fixed for.
-  it('disables (never hides) the Pause control while a HeyGen handover is in flight', async () => {
-    const incomingProvider = makeProvider()
-    const session = makeSession({
-      state: 'live',
-      incoming: { dbSessionId: 99, provider: incomingProvider, config: CONFIG },
-    })
-    const wrapper = await mountPage(session)
-
-    const pauseButton = wrapper
-      .findAll('button')
-      .find((b) => b.text().includes('interview.live.pause'))
-
-    expect(pauseButton).toBeDefined()
-    expect(pauseButton!.attributes('disabled')).toBeDefined()
-  })
-
-  it('the Pause control is enabled again once no handover is in flight', async () => {
-    const session = makeSession({ state: 'live' })
-    const wrapper = await mountPage(session)
-
-    const pauseButton = wrapper
-      .findAll('button')
-      .find((b) => b.text().includes('interview.live.pause'))
-
-    expect(pauseButton!.attributes('disabled')).toBeUndefined()
   })
 
   // Pausing a LIVE question keeps the provider session up (tearing it down would
@@ -401,6 +425,7 @@ describe('interview/session.vue — timer expiry and skip', () => {
     const session = makeSession({ state: 'paused' })
     const wrapper = await mountPage(session)
 
+    expect(wrapper.find('[data-testid="call-exit"]').exists()).toBe(false)
     const labels = wrapper.findAll('button').map((b) => b.text())
     expect(labels.some((l) => l.includes('interview.live.pause'))).toBe(false)
   })
@@ -832,6 +857,8 @@ describe('interview/session.vue — expired-session variant (D-D)', () => {
 // prove the reset-inside-`onProviderState` fix is race-free regardless of
 // which signal a real provider happens to deliver first.
 describe('interview/session.vue — question label', () => {
+  beforeEach(legacyScreen)
+
   const paramsAwareT = (key: string, params?: Record<string, unknown>) =>
     params ? `${key}|n=${params.n}` : key
 
@@ -1007,7 +1034,8 @@ describe('interview session — on the brand canvas in every state', () => {
     }
   )
 
-  it('leaves the avatar panel on its own dark layer, untouched', async () => {
+  it('leaves the avatar panel on its own dark layer, untouched (legacy screen)', async () => {
+    legacyScreen()
     const wrapper = await mountPage(makeSession({ state: 'live' }))
     const layer = wrapper.get('[data-slot="avatar-layer"]')
 
@@ -1036,7 +1064,8 @@ describe('interview session — header chrome', () => {
     expect(wrapper.find('[data-testid="interview-steps"]').exists()).toBe(false)
   })
 
-  it('moves the question label and the timer into the header while live', async () => {
+  it('moves the question label and the timer into the header while live (legacy screen)', async () => {
+    legacyScreen()
     const wrapper = await mountPage(makeSession({ state: 'live' }))
     const status = wrapper.get('header [data-testid="interview-status"]')
 
@@ -1047,7 +1076,8 @@ describe('interview session — header chrome', () => {
     expect(status.findComponent(InterviewTimerStub).exists()).toBe(true)
   })
 
-  it('shows server progress in the header once the server has stated a total', async () => {
+  it('shows server progress in the header once the server has stated a total (legacy screen)', async () => {
+    legacyScreen()
     const { default: ProgressBar } = await import('~/app/components/ProgressBar.vue')
     const session = makeSession({ state: 'live' })
     const wrapper = await mountPage(session)
@@ -1067,6 +1097,8 @@ describe('interview session — header chrome', () => {
 })
 
 describe('interview session — the live dock', () => {
+  beforeEach(legacyScreen)
+
   it('sets the caption and the Pause control on one white surface under the avatar', async () => {
     const wrapper = await mountPage(makeSession({ state: 'live' }))
     const dock = wrapper.get('[data-testid="live-dock"]')
