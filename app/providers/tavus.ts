@@ -29,7 +29,15 @@ import type {
   ProviderEvent,
   ProviderState,
   StartConfig,
+  SteeringFailure,
+  SteeringResult,
+  SupportsContextSteering,
 } from '~/app/types/interview-provider'
+import {
+  buildAdvancePayload,
+  RESPOND_TEXT,
+  type TavusBoundaryTicket,
+} from '~/app/utils/advance-interaction'
 import { matchesEndPhrase } from '~/app/utils/proctor-config'
 
 /** The slice of Daily's call object this provider uses. */
@@ -40,6 +48,18 @@ interface DailyCallObject {
   destroy(): Promise<void>
   setLocalAudio(enabled: boolean): void
   localAudio(): boolean
+  meetingState(): string
+  sendAppMessage(data: unknown, to: string): void
+}
+
+/** How long the avatar has to answer a boundary steering (N5). */
+export const STEERING_ACK_TIMEOUT_MS = 10_000
+
+/** One armed steering: settles once, and may hold the respond's user-role echo (N15). */
+interface Steering {
+  settle: (result: SteeringResult) => void
+  timer: ReturnType<typeof setTimeout>
+  held: { data: Record<string, unknown>; speech: string } | null
 }
 
 type EventCallback = (payload: unknown) => void
@@ -50,11 +70,12 @@ const SEEN_AVATAR_LIMIT = 50
 /** Twin window for avatar events that carry no `inference_id`. */
 const TWIN_WINDOW_MS = 2000
 
-export class TavusProvider implements InterviewProvider {
+export class TavusProvider implements InterviewProvider, SupportsContextSteering {
   private readonly listeners = new Map<ProviderEvent, EventCallback[]>()
   private call: DailyCallObject | null = null
   private phrases: { endPhrase: string; finalPhrase: string } | null = null
   private emittedReady = false
+  private steering: Steering | null = null
 
   /**
    * Avatar utterances already emitted (key -> time seen), oldest first.
@@ -157,6 +178,9 @@ export class TavusProvider implements InterviewProvider {
         this.attachTrack(track)
       })
 
+      this.call.on('left-meeting', () => this.failSteering('left'))
+      this.call.on('error', () => this.failSteering('error'))
+
       this.call.on('app-message', (event) => {
         this.handleAppMessage(event?.data as Record<string, unknown> | undefined)
       })
@@ -206,11 +230,40 @@ export class TavusProvider implements InterviewProvider {
       return
     }
 
+    // Echo filter (N15): hold the first user-role copy of the respond trigger
+    // while a steering is armed; it is settled when the avatar's reply arrives.
+    if (
+      properties?.role === 'user' &&
+      this.steering !== null &&
+      this.steering.held === null &&
+      speech.trim().toLowerCase() === RESPOND_TEXT.toLowerCase()
+    ) {
+      this.steering.held = { data, speech }
+
+      return
+    }
+
     // "pal" is Tavus's legacy duplicate of "replica": both are the avatar.
     const isAvatar = properties?.role === 'replica' || properties?.role === 'pal'
 
     if (isAvatar && this.isDuplicateAvatar(data, speech)) {
       return
+    }
+
+    // The first de-duplicated avatar utterance acknowledges the steering. A held
+    // echo is the platform's own text when the reply shares its inference_id;
+    // otherwise it was candidate speech after all and is released first.
+    const armed = isAvatar ? this.steering : null
+
+    if (armed !== null) {
+      const held = armed.held
+      const id = data.inference_id
+
+      this.settleSteering({ ok: true })
+
+      if (held !== null && !(typeof id === 'string' && id === held.data.inference_id)) {
+        this.emitUser(held.speech)
+      }
     }
 
     this.emit('transcript', {
@@ -225,6 +278,73 @@ export class TavusProvider implements InterviewProvider {
     if (isAvatar && this.phrases !== null && matchesEndPhrase(speech, this.phrases)) {
       this.emitState('complete')
     }
+  }
+
+  private emitUser(speech: string): void {
+    this.emit('transcript', { role: 'user', text: speech, ts: Date.now() })
+  }
+
+  /** Disarms the filter and resolves the caller; a still-held echo is dropped. */
+  private settleSteering(result: SteeringResult): void {
+    const s = this.steering
+
+    if (s === null) {
+      return
+    }
+
+    clearTimeout(s.timer)
+    this.steering = null
+    s.settle(result)
+  }
+
+  private failSteering(reason: SteeringFailure['reason']): void {
+    if (this.steering === null) {
+      return
+    }
+
+    const failure: SteeringFailure = { ok: false, reason }
+
+    this.settleSteering(failure)
+    this.emit('steering_failed', failure)
+  }
+
+  /**
+   * The ONLY outbound data-channel site: the append, then the mandatory respond
+   * (design N5). Resolves on the avatar's first utterance, or with a failure
+   * (also emitted as `steering_failed`); never throws.
+   */
+  sendBoundary(ticket: TavusBoundaryTicket): Promise<SteeringResult> {
+    const refuse = (reason: SteeringFailure['reason']): Promise<SteeringResult> => {
+      const failure: SteeringFailure = { ok: false, reason }
+
+      this.emit('steering_failed', failure)
+
+      return Promise.resolve(failure)
+    }
+
+    if (this.call === null || this.call.meetingState() !== 'joined-meeting') {
+      return refuse('not_joined')
+    }
+
+    if (this.steering !== null) {
+      return refuse('busy')
+    }
+
+    return new Promise<SteeringResult>((settle) => {
+      this.steering = {
+        settle,
+        held: null,
+        timer: setTimeout(() => this.failSteering('timeout'), STEERING_ACK_TIMEOUT_MS),
+      }
+
+      try {
+        for (const msg of buildAdvancePayload(ticket)) {
+          this.call?.sendAppMessage(msg, '*')
+        }
+      } catch {
+        this.failSteering('send_failed')
+      }
+    })
   }
 
   /**
@@ -286,6 +406,7 @@ export class TavusProvider implements InterviewProvider {
     }
 
     this.stream = null
+    this.settleSteering({ ok: false, reason: 'left' })
     this.seenAvatar.clear()
     this.emitState('stopped')
   }
