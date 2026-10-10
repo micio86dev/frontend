@@ -313,12 +313,13 @@ describe('single-session continuation flow', () => {
     providers[0]!._emit('state', 'complete')
     await flush()
 
+    // FE-06: a fresh handle arriving while a live one exists crossfades; the
+    // old conversation is released when the new one has painted, not before.
     expect(mockCreateProvider).toHaveBeenCalledTimes(2)
-    expect(providers[0]!._stop).toHaveBeenCalled()
     expect(providers[0]!.sendBoundary).not.toHaveBeenCalled()
-    expect(session.state.value).toBe('connecting')
-    expect(session.sessionId.value).toBe(B)
-    expect(session.players.value).toHaveLength(1)
+    expect(session.state.value).toBe('live')
+    expect(session.players.value.map((p) => p.role)).toEqual(['live', 'incoming'])
+    expect(session.sessionId.value).toBe(A)
   })
 
   it('a Tavus handle that never named a conversation keeps today path (no mute, no assertion)', async () => {

@@ -7317,6 +7317,7 @@ export interface operations {
                             total_competencies: number | null;
                         };
                         conversation_id?: string;
+                        conversation_ttl_seconds?: number;
                         continuation?: {
                             conversation_id: string;
                             competency_code: string;

@@ -82,10 +82,10 @@ describe('handle.dbSessionId is the player key only', () => {
     ).toEqual([])
   })
 
-  it('the composable reads it only for player keys and the painted match', () => {
+  it('the composable reads no handle.dbSessionId: keys and the painted match use playerKey', () => {
     const code = SOURCES.find((s) => s.file === COMPOSABLE)!.code
     const reads = [...code.matchAll(/\b(\w+)\.dbSessionId\b/g)].map((m) => m[0]).sort()
-    expect(reads).toEqual(['incoming.dbSessionId', 'incoming.dbSessionId', 'live.dbSessionId'])
+    expect(reads).toEqual([])
   })
 
   it('ProctorOverlay and the question-timer reset read the cursor-fed sessionId', () => {

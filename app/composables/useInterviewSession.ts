@@ -218,10 +218,18 @@ export interface ProviderSession {
    * which `useProctor` reads at snapshot time.
    */
   dbSessionId: number
+  /**
+   * The `players` key and the `notifyPainted` match. Equal to `dbSessionId`,
+   * except for a replacement conversation on the SAME row (the ceiling handover):
+   * two live keys must never collide, so that one takes a negative serial.
+   */
+  playerKey: number
   /** Which interview-session row this handle's transcript, `/end` and `/suspend` belong to now. */
   readonly attribution: AttributionCursor
   /** From the `/start` response. Never surfaced to the UI (D9) — provider-anonymity. */
   providerName: ProviderName
+  /** `conversation_ttl_seconds` of this handle's conversation, when the server named one. */
+  ttlSeconds?: number
   /**
    * The provider conversation this handle is joined to, when the server named it
    * (a fresh single-session `/start`). Its presence is the single-session gate:
@@ -355,6 +363,12 @@ const RETRY_DELAY_MS = 3000
 const UTTERANCE_DRAIN_CEILING_MS = 3_000
 
 const HANDOVER_BOUND_MS = 10_000
+
+/**
+ * How long before a Tavus conversation's ceiling (`conversation_ttl_seconds`) the
+ * client asks for its replacement (design N11/N17). Retuned after live gate G-B.
+ */
+const HANDOVER_LEAD_MS = 120_000
 
 /** DESIGN.md §10 — fade, 200ms, ease-in-out; instant under reduced motion. */
 const CROSSFADE_MS = 200
@@ -508,10 +522,14 @@ export function isValidStartResponse(response: unknown): response is StartRespon
  * `handle.provider.stop()` freely — concurrently, redundantly, defensively —
  * and the real SDK/network teardown still only happens once.
  */
+/** Providers the client has asked to stop: their `stopped` is ours, not an unannounced end. */
+const stoppedByClient = new WeakSet<InterviewProvider>()
+
 function withIdempotentStop(provider: InterviewProvider): InterviewProvider {
   const originalStop = provider.stop.bind(provider)
   let stopPromise: Promise<void> | null = null
   provider.stop = () => {
+    stoppedByClient.add(provider)
     if (!stopPromise) stopPromise = originalStop()
     return stopPromise
   }
@@ -567,7 +585,7 @@ export function useInterviewSession(
     const live = activeSession.value
     if (live) {
       list.push({
-        key: live.dbSessionId,
+        key: live.playerKey,
         provider: live.provider,
         config: live.config,
         role: 'live',
@@ -578,7 +596,7 @@ export function useInterviewSession(
     const incoming = incomingSession.value
     if (incoming) {
       list.push({
-        key: incoming.dbSessionId,
+        key: incoming.playerKey,
         provider: incoming.provider,
         config: incoming.config,
         role: incomingEntering.value ? 'entering' : 'incoming',
@@ -597,6 +615,9 @@ export function useInterviewSession(
   const handoverBoundTimer = createCancelableTimer()
   const promoteTimer = createCancelableTimer()
   const connectingCeilingTimer = createCancelableTimer()
+  /** Counts down the live Tavus conversation's age (N11); survives handovers, re-armed per fresh handle. */
+  const ageTimer = createCancelableTimer()
+  let replacementKeySerial = 0
 
   // ---- Helpers -------------------------------------------------------------
 
@@ -667,6 +688,7 @@ export function useInterviewSession(
 
   /** D1: clears the LIVE slot only — a hidden incoming is untouched by this. */
   function clearActiveProvider() {
+    ageTimer.clear()
     activeSession.value = null
   }
 
@@ -1040,6 +1062,7 @@ export function useInterviewSession(
     incoming.provider.setMicMuted(false).catch(() => {})
     activeSession.value = incoming
     sessionId.value = incoming.attribution.current
+    armAgeTimer(incoming)
     // The machine stays `live` for the whole handover (D2); this also covers
     // a LATE promotion reached from the bound-exceeded `connecting` fallback.
     transitionTo('live')
@@ -1051,9 +1074,9 @@ export function useInterviewSession(
    * incoming handle — the live handle's own paint only drives its own
    * opacity, never the handover (F3: `ready` is not a frame; painted is).
    */
-  function notifyPainted(dbSessionId: number) {
+  function notifyPainted(playerKey: number) {
     const incoming = incomingSession.value
-    if (!incoming || incoming.dbSessionId !== dbSessionId) return
+    if (!incoming || incoming.playerKey !== playerKey) return
     if (incomingEntering.value) return // idempotent — a defensive re-fire is a no-op
 
     incomingEntering.value = true
@@ -1082,6 +1105,10 @@ export function useInterviewSession(
 
       if (providerState === 'complete' && isLive) {
         handleProviderComplete(handle)
+      }
+
+      if (providerState === 'stopped' && isLive && !stoppedByClient.has(handle.provider)) {
+        handleUnannouncedEnd(handle)
       }
       // An incoming handle's own `complete` is ignored (D2) — it has not
       // been asked a question at handover time; the guard makes it inert.
@@ -1353,6 +1380,47 @@ export function useInterviewSession(
     return failure.reason === 'timeout' || failure.reason === 'send_failed'
   }
 
+  /**
+   * N17: a Tavus conversation ended without the client asking (the ceiling arrives
+   * unannounced). While the competency is still `in_corso` that is treated exactly
+   * like the age timer firing late: `/start` on the same row. Not while a boundary
+   * or handover is settling (the end is then expected), and never once the client
+   * itself stopped the handle (`stoppedByClient`), which covers pause, done and
+   * every deliberate teardown.
+   *
+   * The skip is safe, not a gap: a boundary or handover in flight always ends in a
+   * fresh handle, a failed steering that re-enters `/start`, or the bound and
+   * connecting-ceiling timers, so resuming here as well would double-start.
+   */
+  function handleUnannouncedEnd(handle: ProviderSession) {
+    if (handle.providerName !== 'tavus') return
+    if (state.value !== 'live' || boundaryInFlight.value || handoverActive.value) return
+    logHandoverEvent('unannounced-end')
+    startNextSession()
+  }
+
+  /**
+   * The conversation is about to age out: fetch its replacement now, mid-competency.
+   *
+   * The single timer follows the handle that is LIVE, so this runs only where a
+   * handle becomes `activeSession` (a plain publish, or `promote()`), never when
+   * a crossfade incoming is merely published: arming then would replace the live
+   * handle's timer with one for a handle that may never be promoted.
+   */
+  function armAgeTimer(handle: ProviderSession) {
+    ageTimer.clear()
+    const ttlSeconds = handle.ttlSeconds
+    if (handle.providerName !== 'tavus' || typeof ttlSeconds !== 'number') return
+    const delay = ttlSeconds * 1000 - HANDOVER_LEAD_MS
+    if (delay <= 0) return
+    ageTimer.arm(() => {
+      if (handle !== activeSession.value || state.value !== 'live') return
+      if (boundaryInFlight.value || handoverActive.value) return
+      logHandoverEvent('age-ceiling')
+      startNextSession()
+    }, delay)
+  }
+
   function handleProviderComplete(handle: ProviderSession) {
     if (isSteerable(handle)) {
       void assertBoundary('completed')
@@ -1447,9 +1515,13 @@ export function useInterviewSession(
         return
       }
 
-      if (target === 'boundary') {
-        // The server refused (or never offered) a continuation: this is today's
-        // path from here on. Leave the old room, then publish the fresh handle.
+      // The server refused (or never offered) a continuation. A fresh handle that
+      // arrives while a live one exists crossfades, whatever the provider (D7).
+      const live = activeSession.value
+      const crossfade = target === 'incoming' || (target === 'boundary' && live !== null)
+      if (target === 'boundary' && !crossfade) {
+        // Leave the joined room: the live slot was unpublished while /start was in
+        // flight (a 401 terminal does that without a stop). Idempotent otherwise.
         joined?.provider.stop().catch(() => {})
         transitionTo('connecting')
       }
@@ -1484,9 +1556,14 @@ export function useInterviewSession(
         provider: withIdempotentStop(createProvider(providerName, isMock())),
         config: startConfig,
         dbSessionId,
+        // A replacement on the SAME row (mid-competency) must not share its key.
+        playerKey: live?.playerKey === dbSessionId ? -++replacementKeySerial : dbSessionId,
         attribution: new AttributionCursor(dbSessionId),
         providerName,
         ...(response.conversation_id ? { conversationId: response.conversation_id } : {}),
+        ...(typeof response.conversation_ttl_seconds === 'number'
+          ? { ttlSeconds: response.conversation_ttl_seconds }
+          : {}),
         // `=== true`, not a truthy read: an older API that does not send the
         // field must resolve to "show the avatar", and `undefined` must never
         // become "hide it".
@@ -1498,11 +1575,19 @@ export function useInterviewSession(
       // (absent_phrase) must already have a listener.
       wireProviderEvents(handle)
 
-      if (target === 'incoming') {
+      if (crossfade) {
         incomingSession.value = handle
+        // Tavus cannot arm the bound at `complete` like HeyGen does: the ceiling is
+        // only known from this response. Armed at publish, unless a HeyGen handover
+        // already holds it.
+        if (live !== null && !handoverActive.value) {
+          handoverActive.value = true
+          armHandoverBound()
+        }
       } else {
         sessionId.value = handle.attribution.current
         activeSession.value = handle
+        armAgeTimer(handle)
       }
     } catch (err) {
       isResuming = false
@@ -1771,6 +1856,7 @@ export function useInterviewSession(
 
   async function teardown() {
     removeResizeListener()
+    ageTimer.clear()
     endHandover()
     const live = activeSession.value
     const incoming = incomingSession.value
