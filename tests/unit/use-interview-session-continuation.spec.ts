@@ -31,6 +31,8 @@ vi.mock('~/app/composables/useCandidateSession', () => ({
 
 // eslint-disable-next-line import/first
 import { useInterviewSession, isValidStartResponse } from '~/app/composables/useInterviewSession'
+// eslint-disable-next-line import/first
+import { CandidateUnauthorizedError } from '~/app/utils/candidate-api'
 
 type EventCallback = (payload: unknown) => void
 type SteeringResult = { ok: true } | { ok: false; reason: string }
@@ -656,5 +658,88 @@ describe('boundary_due on the /utterance 202 (FE-05)', () => {
 
     expect(ends()).toHaveLength(0)
     expect(session.sessionId.value).toBe(A)
+  })
+
+  it('a 401 on /utterance is the terminal session_expired and asserts no boundary', async () => {
+    const session = await liveSession()
+    queue('/candidate/interview/utterance', new Thrown(new CandidateUnauthorizedError()))
+
+    say()
+    await flush()
+
+    expect(ends()).toHaveLength(0)
+    expect(providers[0]!.sendBoundary).not.toHaveBeenCalled()
+    expect(session.state.value).toBe('terminal')
+    expect(session.terminalReason.value).toBe('session_expired')
+    expect(session.sessionId.value).toBe(A)
+  })
+
+  it('a network error on /utterance is non-fatal: no boundary, state unchanged', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const session = await liveSession()
+    queue('/candidate/interview/utterance', new Thrown(new TypeError('Failed to fetch')))
+
+    say()
+    await flush()
+
+    expect(ends()).toHaveLength(0)
+    expect(providers[0]!.sendBoundary).not.toHaveBeenCalled()
+    expect(session.state.value).toBe('live')
+    expect(session.sessionId.value).toBe(A)
+    expect(warn).toHaveBeenCalled()
+  })
+
+  it('a send that REJECTS (even its error handler throws) resolves false: no boundary, no unhandled rejection', async () => {
+    // sendUtterance swallows fetch errors itself; the `.catch(() => false)` wrapper
+    // is the last line of defence for anything that escapes it, e.g. a throwing logger.
+    vi.spyOn(console, 'warn').mockImplementation(() => {
+      throw new Error('logger exploded')
+    })
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      const session = await liveSession()
+      queue('/candidate/interview/utterance', new Thrown(new TypeError('Failed to fetch')))
+
+      say()
+      await flush()
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(unhandled).not.toHaveBeenCalled()
+      expect(ends()).toHaveLength(0)
+      expect(providers[0]!.sendBoundary).not.toHaveBeenCalled()
+      expect(session.state.value).toBe('live')
+      expect(session.sessionId.value).toBe(A)
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
+  })
+
+  it('boundary_due arriving while a user-initiated /end is in flight causes no second /end (R3-001)', async () => {
+    const session = await liveSession()
+    let releaseEnd!: (v: unknown) => void
+    queue(
+      '/candidate/interview/end',
+      new Promise((resolve) => {
+        releaseEnd = resolve
+      })
+    )
+    queue('/candidate/interview/start', continuation(B))
+    queue('/candidate/interview/utterance', { boundary_due: true })
+
+    void session.endQuestion('timeout')
+    await flush()
+    expect(ends()).toHaveLength(1)
+
+    say() // the 202 now says boundary_due while the user-initiated /end is pending
+    await flush()
+    expect(ends()).toHaveLength(1)
+
+    releaseEnd(END_CONTINUE)
+    await flush()
+
+    expect(ends()).toHaveLength(1)
+    expect(providers[0]!.sendBoundary).toHaveBeenCalledTimes(1)
+    expect(session.sessionId.value).toBe(B)
   })
 })
