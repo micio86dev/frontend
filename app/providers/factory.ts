@@ -14,7 +14,14 @@
  * at module scope — those are lazy-loaded inside the provider constructors.
  */
 
-import type { InterviewProvider, ProviderName } from '~/app/types/interview-provider'
+import type {
+  InterviewProvider,
+  ProviderName,
+  SteeringResult,
+  SupportsContextSteering,
+} from '~/app/types/interview-provider'
+import type { TavusBoundaryTicket } from '~/app/utils/advance-interaction'
+import { buildAdvancePayload } from '~/app/utils/advance-interaction'
 import { HeyGenProvider } from '~/app/providers/heygen'
 import { TavusProvider } from '~/app/providers/tavus'
 
@@ -69,16 +76,17 @@ export function createProvider(name: ProviderName, mock: boolean): InterviewProv
  * defer that dispatch so a test can drive the invisible-competency-handover
  * bound (10s) and crossfade paths deterministically instead of racing them.
  */
-function createMockProvider(): InterviewProvider & {
-  emitEndPhrase: () => void
-  emitFinalPhrase: () => void
-  emitToolCall: () => void
-  emitSpeaking: () => void
-  emitListening: () => void
-  emitTranscript: (text: string, role?: 'user' | 'avatar') => void
-  holdPainted: () => void
-  releasePainted: () => void
-} {
+function createMockProvider(): InterviewProvider &
+  SupportsContextSteering & {
+    emitEndPhrase: () => void
+    emitFinalPhrase: () => void
+    emitToolCall: () => void
+    emitSpeaking: () => void
+    emitListening: () => void
+    emitTranscript: (text: string, role?: 'user' | 'avatar') => void
+    holdPainted: () => void
+    releasePainted: () => void
+  } {
   type CB = (payload: unknown) => void
   const listeners = new Map<string, CB[]>()
   let storedCfg: { endPhrase?: string; finalPhrase?: string } | null = null
@@ -121,6 +129,19 @@ function createMockProvider(): InterviewProvider & {
       emitState('stopped')
     },
     nudgeWrapUp() {},
+    /**
+     * Steering RECORDER (E2E only): appends the two data-channel messages a real
+     * Tavus provider would send, in order, to `window.__mockSteeringLog`, then
+     * acknowledges at once. The echo filter and the ack timeout live in the real
+     * provider and are not modelled here.
+     */
+    async sendBoundary(ticket: TavusBoundaryTicket): Promise<SteeringResult> {
+      if (typeof window !== 'undefined') {
+        const win = window as unknown as { __mockSteeringLog?: unknown[] }
+        win.__mockSteeringLog = [...(win.__mockSteeringLog ?? []), ...buildAdvancePayload(ticket)]
+      }
+      return { ok: true }
+    },
     emitEndPhrase() {
       if (storedCfg?.endPhrase) {
         emit('transcript', { role: 'avatar', text: storedCfg.endPhrase, ts: Date.now() })
