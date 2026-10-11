@@ -941,6 +941,17 @@
                                                     "required": [
                                                         "manage"
                                                     ]
+                                                },
+                                                "currencies": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "manage": {
+                                                            "type": "boolean"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "manage"
+                                                    ]
                                                 }
                                             },
                                             "required": [
@@ -953,7 +964,8 @@
                                                 "participants",
                                                 "clients",
                                                 "platformSettings",
-                                                "catalogue"
+                                                "catalogue",
+                                                "currencies"
                                             ]
                                         }
                                     },
@@ -3064,6 +3076,41 @@
                                     },
                                     "required": [
                                         "message"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/AuthenticationException"
+                    }
+                }
+            }
+        },
+        "/currencies": {
+            "get": {
+                "operationId": "currency.index",
+                "summary": "List the active currencies",
+                "tags": [
+                    "Currency"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Array of `CurrencyResource`",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/CurrencyResource"
+                                            }
+                                        }
+                                    },
+                                    "required": [
+                                        "data"
                                     ]
                                 }
                             }
@@ -7248,7 +7295,7 @@
             },
             "patch": {
                 "operationId": "organization.update",
-                "description": "Accepts `name`, the default webhook settings and `primary_color`. Any other field in the body is\nignored.",
+                "description": "Accepts `name`, the default webhook settings, `primary_color` and `currency_code` (active catalogue codes only). Any other field in the body is\nignored.",
                 "summary": "Update the organization",
                 "tags": [
                     "Organization"
@@ -9244,6 +9291,232 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/ValidationException"
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/AuthenticationException"
+                    }
+                }
+            }
+        },
+        "/admin/currencies": {
+            "get": {
+                "operationId": "platformCurrency.index",
+                "summary": "List every currency, inactive ones included",
+                "tags": [
+                    "PlatformCurrency"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Array of `CurrencyResource`",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/CurrencyResource"
+                                            }
+                                        }
+                                    },
+                                    "required": [
+                                        "data"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/AuthorizationException"
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/AuthenticationException"
+                    }
+                }
+            },
+            "post": {
+                "operationId": "platformCurrency.store",
+                "summary": "Add a currency to the catalogue",
+                "tags": [
+                    "PlatformCurrency"
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StoreCurrencyRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "`CurrencyResource`",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/components/schemas/CurrencyResource"
+                                        }
+                                    },
+                                    "required": [
+                                        "data"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/AuthorizationException"
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/AuthenticationException"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/ValidationException"
+                    }
+                }
+            }
+        },
+        "/admin/currencies/{code}": {
+            "patch": {
+                "operationId": "platformCurrency.update",
+                "summary": "Edit a currency's rate, symbol, decimals or active flag",
+                "tags": [
+                    "PlatformCurrency"
+                ],
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateCurrencyRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "`CurrencyResource`",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/components/schemas/CurrencyResource"
+                                        }
+                                    },
+                                    "required": [
+                                        "data"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/AuthorizationException"
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/AuthenticationException"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/ValidationException"
+                    },
+                    "409": {
+                        "description": "The currency is in use, or it is USD (immutable).",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "enum": [
+                                                "currency_in_use",
+                                                "currency_usd_immutable"
+                                            ]
+                                        }
+                                    },
+                                    "required": [
+                                        "message"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "platformCurrency.destroy",
+                "summary": "Delete a currency nobody uses",
+                "tags": [
+                    "PlatformCurrency"
+                ],
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No content"
+                    },
+                    "409": {
+                        "description": "",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "message": {
+                                                    "type": "string",
+                                                    "const": "currency_in_use"
+                                                }
+                                            },
+                                            "required": [
+                                                "message"
+                                            ]
+                                        },
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "message": {
+                                                    "type": "string",
+                                                    "const": "currency_usd_immutable"
+                                                }
+                                            },
+                                            "required": [
+                                                "message"
+                                            ]
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/AuthorizationException"
                     },
                     "401": {
                         "$ref": "#/components/responses/AuthenticationException"
@@ -14794,6 +15067,44 @@
                 ],
                 "title": "CreateInterviewRequest"
             },
+            "CurrencyResource": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "symbol": {
+                        "type": "string"
+                    },
+                    "decimals": {
+                        "type": "integer"
+                    },
+                    "rate_per_usd": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "rate_as_of": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "is_active": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "code",
+                    "symbol",
+                    "decimals",
+                    "rate_per_usd",
+                    "rate_as_of",
+                    "is_active"
+                ],
+                "title": "CurrencyResource"
+            },
             "DashboardActivityResource": {
                 "type": "object",
                 "properties": {
@@ -15301,6 +15612,9 @@
                             "null"
                         ]
                     },
+                    "currency_code": {
+                        "type": "string"
+                    },
                     "logo_url": {
                         "type": [
                             "string",
@@ -15343,6 +15657,7 @@
                     "name",
                     "slug",
                     "primary_color",
+                    "currency_code",
                     "logo_url",
                     "default_webhook_url",
                     "default_webhook_events",
@@ -17548,6 +17863,55 @@
                 ],
                 "title": "StoreCompetencyRequest"
             },
+            "StoreCurrencyRequest": {
+                "type": "object",
+                "description": "The body of `POST /api/admin/currencies` (superadmin only).\n\nError codes are machine slugs, not sentences (the app that renders them owns\nthe language). A rate and its date travel together; activation needs a rate.",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "pattern": "^[A-Z]{3}$"
+                    },
+                    "symbol": {
+                        "type": "string",
+                        "maxLength": 8
+                    },
+                    "decimals": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4
+                    },
+                    "rate_per_usd": {
+                        "description": "Canonical form is a decimal string (up to six decimals, as `CurrencyResource` returns it);\na JSON number is also accepted. Required together with `rate_as_of`; activating\n(`is_active: true`) requires a rate.",
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "rate_as_of": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date"
+                    },
+                    "is_active": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "code",
+                    "symbol",
+                    "decimals"
+                ],
+                "title": "StoreCurrencyRequest"
+            },
             "StoreDefaultQuestionRequest": {
                 "type": "object",
                 "description": "The body of `POST /api/catalogue/default-questions`. The question is required in both `en` and `it`.",
@@ -17594,6 +17958,11 @@
                         "type": "string",
                         "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
                         "maxLength": 255
+                    },
+                    "currency_code": {
+                        "type": "string",
+                        "description": "Omitted means USD (the column default).",
+                        "pattern": "^[A-Z]{3}$"
                     }
                 },
                 "required": [
@@ -18027,6 +18396,40 @@
                 },
                 "title": "UpdateCompetencyRequest"
             },
+            "UpdateCurrencyRequest": {
+                "type": "object",
+                "description": "The body of `PATCH /api/admin/currencies/{code}` (superadmin only).\n\nThe code is the primary key and never changes: sending it is refused. A\nrate is never cleared once set, and a rate and its date travel together.",
+                "properties": {
+                    "symbol": {
+                        "type": "string",
+                        "maxLength": 8
+                    },
+                    "decimals": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4
+                    },
+                    "rate_per_usd": {
+                        "description": "Canonical form is a decimal string (up to six decimals, as `CurrencyResource` returns it);\na JSON number is also accepted.",
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "number"
+                            }
+                        ]
+                    },
+                    "rate_as_of": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "is_active": {
+                        "type": "boolean"
+                    }
+                },
+                "title": "UpdateCurrencyRequest"
+            },
             "UpdateDefaultQuestionRequest": {
                 "type": "object",
                 "description": "The body of `PATCH /api/catalogue/default-questions/{defaultQuestion}`. The question cannot be\nmoved to another competency.",
@@ -18051,7 +18454,7 @@
             },
             "UpdateManagedOrganizationRequest": {
                 "type": "object",
-                "description": "Validates PATCH /api/admin/organizations/{id} (superadmin only).\n\nOnly `name` and `primary_color` are writable here. `slug` is a tenancy\nidentifier and is never editable; the webhook defaults and the logo keep\ntheir own tenant-facing endpoints.",
+                "description": "Validates PATCH /api/admin/organizations/{id} (superadmin only).\n\nOnly `name`, `primary_color` and `currency_code` are writable here. `slug` is a tenancy\nidentifier and is never editable; the webhook defaults and the logo keep\ntheir own tenant-facing endpoints.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -18063,13 +18466,17 @@
                             "null"
                         ],
                         "pattern": "^#[0-9a-fA-F]{6}$"
+                    },
+                    "currency_code": {
+                        "type": "string",
+                        "pattern": "^[A-Z]{3}$"
                     }
                 },
                 "title": "UpdateManagedOrganizationRequest"
             },
             "UpdateOrganizationRequest": {
                 "type": "object",
-                "description": "The body of `PATCH /api/organization`: the organization name, the default webhook settings and\nthe primary colour. Any other field is ignored.",
+                "description": "The body of `PATCH /api/organization`: the organization name, the default webhook settings,\nthe primary colour and the display currency. Any other field is ignored.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -18111,6 +18518,10 @@
                         ],
                         "description": "The primary colour is CSS, and is validated as CSS rather than as\na string that happens to look like one. It is interpolated into a custom property in both Nuxt apps, so a\nvalue that is not a colour becomes a stylesheet that silently\ndoes not apply, and one carrying `;` or `}` appends rules of its\nown to every page an operator's candidates load.\n\n`\\z`, NOT `$`, and that difference is the whole security of this\nrule. In PCRE `$` also matches immediately BEFORE a final\nnewline, so `/^#[0-9a-f]{6}$/` accepts `\"#123456\\n\"` \u2014 and the\nnewline is exactly what lets a payload open a second declaration\nonce it is interpolated into a stylesheet. `\\z` matches only at\nthe true end of the subject. Caught by the injection test, which\nfailed against the `$` version of this rule.\n\nThree-digit shorthand is deliberately refused so the apps never\nhave to expand it \u2014 one canonical form, and an operator pasting\n`#abc` is told so rather than getting a colour that quietly\ndiffers from the one they copied.\n\n`nullable` is the route back to the product palette; without it,\nchoosing a colour would be a one-way door.",
                         "pattern": "^#[0-9a-fA-F]{6}$"
+                    },
+                    "currency_code": {
+                        "type": "string",
+                        "pattern": "^[A-Z]{3}$"
                     }
                 },
                 "title": "UpdateOrganizationRequest"
