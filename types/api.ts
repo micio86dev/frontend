@@ -1419,8 +1419,9 @@ export interface paths {
         head?: never;
         /**
          * Update the organization
-         * @description Accepts `name`, the default webhook settings, `primary_color` and `currency_code` (active catalogue codes only). Any other field in the body is
-         *     ignored.
+         * @description Accepts `name`, the default webhook settings, `primary_color` and
+         *     `currency_code` (active catalogue codes only). Any other field in the body
+         *     is ignored.
          */
         patch: operations["organization.update"];
         trace?: never;
