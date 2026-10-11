@@ -22,47 +22,13 @@
     <template v-if="preInterviewStep" #header-end>
       <InterviewSteps :current="preInterviewStep" />
     </template>
-    <!-- candidate-interview-call-ui: the status pill is superseded by the side panel. -->
-    <template v-else-if="session.state.value === 'live' && avatarMounted && !callUi" #header-end>
-      <!--
-        A white pill, like the logo plate: the timer turns red in its last ten
-        seconds, and red only has a measured contrast on white, never on an
-        arbitrary client colour.
-      -->
-      <div
-        data-testid="interview-status"
-        class="flex h-11 items-center gap-4 rounded-full bg-card px-5 text-card-foreground shadow-sm"
-      >
-        <!-- Beta testing aid (no product/UX polish intended): labels the
-             current avatar turn as "N" for the competency's primary
-             question or "N.k" for its k-th adaptive follow-up. HEURISTIC,
-             not ground truth — see questionLabel's docblock. -->
-        <span class="text-sm font-semibold" data-testid="question-label">
-          {{ $t('interview.live.question_label', { n: questionLabel }) }}
-        </span>
-        <template v-if="session.totalCompetencies.value">
-          <span aria-hidden="true" class="h-5 w-px bg-border" />
-          <InterviewProgressBar
-            compact
-            :current="session.endedCompetencies.value ?? 0"
-            :total="session.totalCompetencies.value"
-          />
-        </template>
-        <span aria-hidden="true" class="h-5 w-px bg-border" />
-        <InterviewTimer
-          :seconds="questionRemaining"
-          @tick="questionRemaining = $event"
-          @expired="onTimerExpired"
-        />
-      </div>
-    </template>
 
     <!--
       The one Toaster of the interview: IntegrityToast (inside ProctorOverlay)
       fires its notices into it. Outside every state branch, so it is mounted
       exactly once and a notice survives the live screen giving way to another.
     -->
-    <IntegrityToaster :position="callUi ? 'top-left' : undefined" />
+    <IntegrityToaster position="top-left" />
 
     <!--
       Player mount layer (invisible-competency-handover D3/D5/D6) — ALWAYS
@@ -88,13 +54,13 @@
       handover the moment it is promoted.
     -->
     <!--
-      candidate-interview-call-ui D3 — flag on: the SAME layer, inside the call
+      candidate-interview-call-ui D3 — the SAME layer, inside the call
       layout. `CallStage` renders this slot in every state, so the layer element
       and every keyed `AvatarPlayer` in it survive connecting, live, paused and a
       handover; only the classes change. The interviewer's tile frame (name chip
       and speaking ring) is inside the layer, around the players.
     -->
-    <CallStage v-if="callUi" :live="callStageLive" :embedded="embedded">
+    <CallStage :live="callStageLive" :embedded="embedded">
       <template #layer="{ live }">
         <div
           data-slot="avatar-layer"
@@ -120,7 +86,7 @@
                   :muted="p.muted"
                   :audio-only="p.audioOnly"
                   :overlay="p.role !== 'live'"
-                  @state="onCallPlayerState(p.role, p.key, $event)"
+                  @state="onPlayerState(p.key, $event)"
                   @transcript="onTranscriptFromPlayer(p.role, $event)"
                   @error="onProviderError"
                   @painted="session.notifyPainted(p.key)"
@@ -165,28 +131,6 @@
         </ClientOnly>
       </template>
     </CallStage>
-    <div
-      v-else-if="session.players.value.length > 0"
-      data-slot="avatar-layer"
-      class="relative mx-auto w-full max-w-3xl overflow-hidden rounded-surface shadow-avatar"
-      :class="hasLivePlayer ? '' : 'sr-only'"
-    >
-      <template v-for="p in session.players.value" :key="p.key">
-        <ClientOnly>
-          <AvatarPlayer
-            :provider="p.provider"
-            :config="p.config"
-            :muted="p.muted"
-            :audio-only="p.audioOnly"
-            :overlay="p.role !== 'live'"
-            @state="onProviderState(p.role, $event)"
-            @transcript="onTranscriptFromPlayer(p.role, $event)"
-            @error="onProviderError"
-            @painted="session.notifyPainted(p.key)"
-          />
-        </ClientOnly>
-      </template>
-    </div>
 
     <!-- Consent screen -->
     <section
@@ -364,79 +308,8 @@
       </Button>
     </section>
 
-    <section
-      v-else-if="avatarMounted && !callUi"
-      class="flex w-full max-w-3xl flex-col"
-      :aria-label="$t('interview.live.region_label')"
-    >
-      <!--
-        The <AvatarPlayer> instance(s) themselves render from the persistent
-        player mount layer above `<main>`'s exclusive chain, not here — see
-        that block's comment (invisible-competency-handover D3/D5/D6). This
-        section owns only the surrounding chrome: timer, caption, pause and
-        proctoring. The paused panel is its own branch above — pausing tears the
-        provider session down, so this branch is gone by then.
-      -->
-
-      <template v-if="session.state.value === 'live'">
-        <!--
-          The live dock: ONE white surface under the avatar for the caption and
-          the one control. The caption reads on white whatever the client
-          colour; on the bare canvas it would depend on it. The question label
-          and the timer live in the header's status pill.
-        -->
-        <div
-          data-testid="live-dock"
-          class="brand-canvas__surface flex min-h-18 items-center gap-6 rounded-surface bg-card px-6 py-4 text-card-foreground shadow-surface"
-        >
-          <!--
-            Caption and hint share one grid cell: the caption stays mounted (it
-            is the live region that announces each question) and the hint sits
-            in its place until the first question arrives.
-          -->
-          <div class="grid min-w-0 flex-1 items-center">
-            <InterviewCaption class="[grid-area:1/1]" :text="currentCaption" />
-            <p
-              v-if="!currentCaption"
-              data-testid="live-hint"
-              class="text-sm leading-7 text-muted-foreground [grid-area:1/1]"
-            >
-              {{ $t('interview.live.listen_hint') }}
-            </p>
-          </div>
-          <!-- No Skip control: a competency must not be skippable. The timer is
-               the only client-side early end, so a question cannot hang the
-               session while the candidate cannot opt out of one.
-
-               invisible-competency-handover D2: DISABLED (never hidden) while
-               a HeyGen handover is in flight. Hiding it is itself a visible
-               break; an enabled-but-inert button is the defect the live
-               pause was fixed for. -->
-          <Button
-            variant="outline"
-            class="h-(--spacing-control) shrink-0 px-5"
-            :loading="session.handoverInFlight.value"
-            @click="onPauseClicked"
-          >
-            {{ $t('interview.live.pause') }}
-          </Button>
-        </div>
-
-        <!-- Invisible proctoring overlay -->
-        <ClientOnly v-if="confirmedStream">
-          <ProctorOverlay
-            :stream="confirmedStream"
-            :session-id="session.sessionId.value"
-            :on-events-updated="onIntegrityEventsUpdated"
-          />
-        </ClientOnly>
-      </template>
-    </section>
-
     <!--
-      candidate-interview-call-ui — flag on: the same slot in the chain as the
-      section above, so every state still resolves exactly as before, but the
-      stage itself is rendered with the player layer (CallStage). What is left here
+      candidate-interview-call-ui — the stage itself is rendered with the player layer (CallStage). What is left here
       is the invisible proctoring overlay: mounted only in `live`, so a suspend
       unmounts it, and fed the very stream the own tile shows (one camera request).
     -->
@@ -641,14 +514,11 @@ import { useTabVisibilityGuard } from '~/composables/useTabVisibilityGuard'
 import { useNetworkGuard } from '~/composables/useNetworkGuard'
 import { useCandidateSession } from '~/composables/useCandidateSession'
 import { formatDeadline } from '~/utils/call-deadline'
-import { useCandidateCallUi } from '~/composables/useCandidateCallUi'
 import { useSpeakerTurn } from '~/composables/useSpeakerTurn'
 import { useInterviewClock } from '~/composables/useInterviewClock'
 import { useSupportUrl } from '~/composables/useSupportUrl'
 import { Button } from '~/components/ui/button'
 import { Alert, AlertTitle } from '~/components/ui/alert'
-import InterviewTimer from '~/components/InterviewTimer.vue'
-import InterviewCaption from '~/components/InterviewCaption.vue'
 import CallQuestion from '~/components/molecules/CallQuestion.vue'
 import CallExitDialog from '~/components/molecules/CallExitDialog.vue'
 import CallHelpLink from '~/components/molecules/CallHelpLink.vue'
@@ -854,9 +724,6 @@ const hasRunACompetency = computed(() => (session.endedCompetencies.value ?? 0) 
 
 const currentCaption = ref('')
 
-/** The new candidate call screen is switched on (candidate-interview-call-ui D1). */
-const callUi = useCandidateCallUi()
-
 // The target of the three terminal-state support links: the configured support
 // URL (https: or mailto: only), else the shipped mailbox.
 const supportUrl = useSupportUrl()
@@ -866,13 +733,10 @@ const supportUrl = useSupportUrl()
  * then do the question band, the side panel and the own tile exist, and only then
  * does the canvas widen to the stage's column.
  */
-const callStageLive = computed(
-  () => callUi && session.state.value === 'live' && avatarMounted.value
-)
+const callStageLive = computed(() => session.state.value === 'live' && avatarMounted.value)
 
 // ---------------------------------------------------------------------------
-// Call stage signals (candidate-interview-call-ui D4, D7) — armed only with the
-// flag on, so the old screen runs no analyser and no extra timer.
+// Call stage signals (candidate-interview-call-ui D4, D7).
 // ---------------------------------------------------------------------------
 
 /**
@@ -891,9 +755,8 @@ const liveAvatarStream = computed(() =>
   liveKey.value === null ? null : (playerStreams.get(liveKey.value) ?? null)
 )
 
-/** The stage's `state` handler: the counting the old screen does, plus the per-player record. */
-function onCallPlayerState(role: HandoverRole, key: number, state: ProviderState): void {
-  onProviderState(role, state)
+/** The stage's `state` handler: the per-player record. */
+function onPlayerState(key: number, state: ProviderState): void {
   playerStates.set(key, state)
 }
 
@@ -907,23 +770,19 @@ function onAvatarStream(key: number, stream: MediaStream | null): void {
   playerStates.delete(key)
 }
 
-const speakerTurn = callUi
-  ? useSpeakerTurn({
-      // Same `ref` no-argument-overload artifact as `sessionId` below: the domain
-      // value is never `undefined`.
-      state: session.state as Ref<SessionState>,
-      providerState: liveProviderState,
-      avatarStream: liveAvatarStream,
-      micStream: confirmedStream,
-    })
-  : null
-const speaker = computed(() => speakerTurn?.speaker.value ?? 'none')
+const speakerTurn = useSpeakerTurn({
+  // Same `ref` no-argument-overload artifact as `sessionId` below: the domain
+  // value is never `undefined`.
+  state: session.state as Ref<SessionState>,
+  providerState: liveProviderState,
+  avatarStream: liveAvatarStream,
+  micStream: confirmedStream,
+})
+const speaker = speakerTurn.speaker
 
 /** Whole seconds of live interview time, for "03:12 / 25:00". It stops while suspended. */
-const interviewClock = callUi
-  ? useInterviewClock({ isRunning: () => session.state.value === 'live' })
-  : null
-const elapsedSeconds = computed(() => interviewClock?.elapsed.value ?? 0)
+const interviewClock = useInterviewClock({ isRunning: () => session.state.value === 'live' })
+const elapsedSeconds = interviewClock.elapsed
 
 const QUESTION_TIME_LIMIT = 300 // 5 minutes default
 
@@ -941,51 +800,6 @@ const QUESTION_TIME_LIMIT = 300 // 5 minutes default
  */
 const questionRemaining = ref(QUESTION_TIME_LIMIT)
 
-/**
- * Count of avatar speaking turns in the CURRENT competency session — a beta
- * testing aid (no ground-truth signal distinguishes a primary question from
- * an adaptive follow-up; see SystemPromptComposer / STAR protocol on the
- * api side). The FIRST avatar turn of a session is the primary question; any
- * turn after that is a live-generated follow-up. HEURISTIC: a barge-in that
- * interrupts the avatar mid-sentence and lets it resume could double-count
- * one logical question as two 'speaking' turns — acceptable for a QA label,
- * not for anything that must be exact.
- */
-const avatarTurnCount = ref(0)
-
-/**
- * The session id `avatarTurnCount` was last counted for.
- *
- * The counter used to reset from a `watch` on `sessionId`, racing its own
- * increment: both are driven by independent async signals (the DB session
- * id from `/start`, a 'speaking' event from the avatar provider), with no
- * ordering between them. A 'speaking' event for the NEW session could arrive
- * before the watcher flushed and be erased by the reset, or a trailing event
- * from the OLD session could land after the reset and be miscounted as the
- * new session's first turn. Resetting inline inside `onProviderState`
- * instead — the same handler that increments — makes the check and the
- * increment one synchronous read-modify-write, with no scheduler in between
- * and therefore nothing left to race.
- */
-const countedSessionId = ref<number | null>(null)
-
-/**
- * "N" for the primary question, "N.k" for the k-th follow-up.
- *
- * `competencyOrdinal` (from `endedCompetencies`) and `avatarTurnCount` (from
- * `sessionId` via `countedSessionId`, see above) are two independent signals
- * with no shared source — the label they combine is a heuristic display aid,
- * never ground truth, and the two can theoretically skew during the brief
- * window between one competency ending and the next session id arriving.
- */
-const questionLabel = computed(() => {
-  const competencyOrdinal = (session.endedCompetencies.value ?? 0) + 1
-
-  return avatarTurnCount.value <= 1
-    ? String(competencyOrdinal)
-    : `${competencyOrdinal}.${avatarTurnCount.value - 1}`
-})
-
 // A new competency gets a full clock — the pause exemption above must not leak
 // across questions. Keyed on the DB session id, which /start reissues per
 // competency, rather than on the `live` transition, which a resume also makes.
@@ -996,35 +810,16 @@ watch(
   }
 )
 
-/** Only the LIVE role's turns count — a hidden handover player's own 'speaking' is not this competency's question. */
-function onProviderState(role: HandoverRole, state: ProviderState): void {
-  if (role !== 'live' || state !== 'speaking') {
-    return
-  }
-
-  if (session.sessionId.value !== countedSessionId.value) {
-    avatarTurnCount.value = 0
-    // `?? null`: `UseInterviewSessionReturn['sessionId']`'s `ReturnType<typeof
-    // ref<number | null>>` resolves through `ref`'s no-argument overload,
-    // widening to `number | null | undefined` — a type artifact only, since
-    // the domain value is never actually `undefined`.
-    countedSessionId.value = session.sessionId.value ?? null
-  }
-
-  avatarTurnCount.value += 1
-}
-
 function onTranscript(entry: { text: string }): void {
   currentCaption.value = entry.text
 }
 
 /**
- * candidate-interview-call-ui D6 — with the call screen on, a new session id (a
+ * candidate-interview-call-ui D6 — a new session id (a
  * competency boundary, a resume) starts the written question again from the
  * listen hint, so the previous competency's closing phrase is never shown as the
  * new question. `sync` because the new competency's first avatar utterance must
- * never be erased by this reset running late. Flag off: the legacy caption is
- * left alone, as it always was.
+ * never be erased by this reset running late.
  */
 const callQuestion = ref<InstanceType<typeof CallQuestion> | null>(null)
 
@@ -1037,7 +832,6 @@ const callQuestion = ref<InstanceType<typeof CallQuestion> | null>(null)
 watch(
   () => session.sessionId.value,
   (id, previous) => {
-    if (!callUi) return
     currentCaption.value = ''
     if (previous != null && id != null && id !== previous) {
       void nextTick(() => callQuestion.value?.focusOnBoundary())
@@ -1058,11 +852,11 @@ function onTranscriptFromPlayer(
   entry: { text: string; role?: 'user' | 'avatar' }
 ): void {
   if (role !== 'live') return
-  // candidate-interview-call-ui D6 — with the call screen on, only the avatar's
+  // candidate-interview-call-ui D6 — only the avatar's
   // words are displayed. The filter is on the DISPLAY alone: every entry,
   // candidate's included, still reaches POST /utterance through the provider's
   // own `transcript` listener in useInterviewSession.
-  if (callUi && entry.role !== 'avatar') return
+  if (entry.role !== 'avatar') return
   onTranscript(entry)
 }
 
@@ -1127,11 +921,6 @@ const pauseReason = ref<PauseReason>('manual')
 /** True only while THIS guard is the reason the session is paused — so its onReconnected never resumes a pause the candidate started manually. */
 const pausedByNetworkGuard = ref(false)
 const networkPermanentlyFailed = ref(false)
-
-function onPauseClicked(): void {
-  pauseReason.value = 'manual'
-  session.pause()
-}
 
 /**
  * candidate-interview-call-ui D9 — the candidate confirmed Exit. This IS the

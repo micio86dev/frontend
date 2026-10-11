@@ -1,5 +1,5 @@
 /**
- * InterviewSession.vue behind the `candidateCallUi` flag
+ * InterviewSession.vue, the candidate call screen
  * (candidate-interview-call-ui). Grows slice by slice; UI-04 is the written
  * question: only the avatar's words are displayed, and only the DISPLAY is
  * filtered.
@@ -21,7 +21,6 @@ import type { InterviewProvider } from '~/app/types/interview-provider'
 vi.setConfig({ testTimeout: 30000 })
 
 const {
-  flag,
   captured,
   guards,
   storedSession,
@@ -31,9 +30,6 @@ const {
   mockUseExitRedirect,
   speakerTurn,
 } = vi.hoisted(() => ({
-  // `raw` overrides what the runtime config carries, so a test can feed the REAL
-  // `useCandidateCallUi` a value that is neither 'true' nor empty ('1', 'yes').
-  flag: { on: true, raw: undefined as unknown },
   captured: {
     session: null as null | Record<string, unknown>,
     handover: null as null | { value: boolean },
@@ -250,12 +246,6 @@ function fakeStream(): MediaStream {
   }) as unknown as MediaStream
 }
 
-const InterviewCaptionStub = defineComponent({
-  name: 'InterviewCaption',
-  props: { text: { type: String, required: true } },
-  setup: (props) => () => h('p', { 'data-testid': 'caption' }, props.text),
-})
-
 const mounted: Array<{ unmount: () => void }> = []
 
 async function mountLive({
@@ -298,7 +288,6 @@ async function mountLive({
               h('div', slots.default?.()),
         }),
         AvatarPlayer: AvatarPlayerStub,
-        InterviewCaption: InterviewCaptionStub,
         DeviceCheck: stream ? DeviceCheckStub : true,
         ProctorOverlay: true,
         CallSelfView: CallSelfViewStub,
@@ -342,9 +331,8 @@ function utterances() {
     .map((call: unknown[]) => (call[1] as { body: Record<string, unknown> }).body)
 }
 
-/** What the candidate reads: the band with the flag on, the legacy caption with it off. */
+/** What the candidate reads: the written question band. */
 const caption = (wrapper: Awaited<ReturnType<typeof mountLive>>['wrapper']) => {
-  if (!flag.on) return wrapper.get('[data-testid="caption"]').text()
   const question = wrapper.find('[data-testid="call-question"] p:not([data-testid])')
   return question.exists() ? question.text() : ''
 }
@@ -354,8 +342,6 @@ const hint = (wrapper: Awaited<ReturnType<typeof mountLive>>['wrapper']) =>
 
 beforeEach(() => {
   vi.clearAllMocks()
-  flag.on = true
-  flag.raw = undefined
   playerLifecycle.mounted = 0
   playerLifecycle.unmounted = 0
   realPlayer.emitNullOnUnmount = false
@@ -396,7 +382,6 @@ beforeEach(() => {
       public: {
         apiBase: 'https://api.test',
         interviewProviderMock: 'false',
-        candidateCallUi: flag.raw !== undefined ? flag.raw : flag.on ? 'true' : '',
       },
     }))
   )
@@ -409,14 +394,13 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('InterviewSession — the written question (flag on)', () => {
-  it('renders the question band instead of the legacy caption', async () => {
+describe('InterviewSession — the written question', () => {
+  it('renders the question band', async () => {
     const { wrapper } = await mountLive()
     providers[0]!._emit('transcript', { role: 'avatar', text: 'First question', ts: 1 })
     await flushPromises()
 
     expect(wrapper.get('[data-testid="call-question"]').text()).toBe('First question')
-    expect(wrapper.find('[data-testid="caption"]').exists()).toBe(false)
   })
 
   it("shows the avatar's utterance and replaces it with the next one", async () => {
@@ -569,41 +553,6 @@ describe('InterviewSession — focus at a competency boundary', () => {
 
     expect(document.activeElement).toBe(confirm)
   })
-
-  it('never moves focus with the flag off', async () => {
-    flag.on = false
-    const { session } = await mountLive({ attach: true })
-
-    session.advanceAttribution(NEXT)
-    await flushPromises()
-
-    expect(document.activeElement).toBe(document.body)
-  })
-})
-
-describe('InterviewSession — the legacy caption (flag off)', () => {
-  it('renders the legacy caption and hint, not the question band', async () => {
-    flag.on = false
-    const { wrapper } = await mountLive()
-
-    expect(wrapper.find('[data-testid="caption"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="live-hint"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="call-question"]').exists()).toBe(false)
-  })
-
-  it('behaves exactly as before: whatever the provider says is the caption, and a new session does not clear it', async () => {
-    flag.on = false
-    const { wrapper, session } = await mountLive()
-
-    providers[0]!._emit('transcript', { role: 'avatar', text: 'First question', ts: 1 })
-    providers[0]!._emit('transcript', { role: 'user', text: 'My spoken answer', ts: 2 })
-    await flushPromises()
-    expect(caption(wrapper)).toBe('My spoken answer')
-
-    session.advanceAttribution(NEXT)
-    await flushPromises()
-    expect(caption(wrapper)).toBe('My spoken answer')
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -636,7 +585,7 @@ async function exitTheInterview() {
   await settle()
 }
 
-describe('InterviewSession — Exit (flag on)', () => {
+describe('InterviewSession — Exit', () => {
   it('confirming suspends through the existing pause, exactly once', async () => {
     const { wrapper, session } = await mountLive({ attach: true })
     const pause = vi.spyOn(session, 'pause')
@@ -723,21 +672,6 @@ describe('InterviewSession — Exit (flag on)', () => {
     expect(exitButton().getAttribute('aria-busy')).toBe('true')
   })
 
-  it("keeps the existing paused copy for a manual pause (the old screen's Pause button; the call screen has none)", async () => {
-    flag.on = false
-    const { wrapper } = await mountLive({ attach: true })
-
-    await wrapper
-      .findAll('button')
-      .find((b) => b.text().includes('interview.live.pause'))!
-      .trigger('click')
-    await settle()
-
-    expect(wrapper.get('#paused-heading').text()).toBe('interview.paused.title')
-    expect(wrapper.text()).not.toContain('interview.call.suspended')
-    expect(wrapper.get('#paused-heading').attributes('tabindex')).toBeUndefined()
-  })
-
   it('keeps the existing paused copy for a tab-hidden pause', async () => {
     const { wrapper } = await mountLive({ attach: true })
 
@@ -795,44 +729,6 @@ describe('InterviewSession — Exit (flag on)', () => {
   })
 })
 
-describe('InterviewSession — Exit (flag off)', () => {
-  it('renders no Exit button: the old screen is exactly as it was', async () => {
-    flag.on = false
-    await mountLive({ attach: true })
-
-    expect(exitButton()).toBeNull()
-  })
-})
-
-// ---------------------------------------------------------------------------
-// UI-09 — the stage, assembled behind the flag.
-// ---------------------------------------------------------------------------
-
-describe('InterviewSession — the live tree with the flag off (characterization)', () => {
-  // Recorded from the code before the stage was assembled (develop at UI-08). Only the exact string 'true'
-  // (or the boolean) switches the call screen on, so these values must all render
-  // the old screen, byte for byte.
-  it.each([
-    ['unset', undefined],
-    ['empty', ''],
-    ['1', '1'],
-    ['yes', 'yes'],
-    ['false', 'false'],
-  ])('renders the old live screen byte for byte when the flag is %s', async (_label, raw) => {
-    flag.on = false
-    flag.raw = raw === undefined ? '' : raw
-    const { wrapper } = await mountLive()
-
-    // Elements, attributes and text. Comment nodes (the template's own comments and
-    // Vue's `v-if` placeholders) are not part of what a candidate gets.
-    const tree = wrapper
-      .html()
-      .replace(/<!--[\s\S]*?-->/g, '')
-      .replace(/\n[ \t]*(?=\n)/g, '')
-    await expect(tree).toMatchFileSnapshot('./__snapshots__/interview-session-live-flag-off.snap')
-  })
-})
-
 type Mounted = Awaited<ReturnType<typeof mountLive>>['wrapper']
 
 const layer = (wrapper: Mounted) => wrapper.get('[data-slot="avatar-layer"]').element
@@ -858,17 +754,9 @@ async function beginHandover(session: { state: { value: string } }) {
   expect(session.state.value).toBe('live')
 }
 
-describe('InterviewSession — the stage (flag on)', () => {
-  it('renders the four stage parts and none of the old live chrome', async () => {
+describe('InterviewSession — the stage', () => {
+  it('renders the four stage parts', async () => {
     const { wrapper } = await mountLive({ stream: fakeStream() })
-
-    for (const gone of ['interview-status', 'live-dock', 'question-label']) {
-      expect(wrapper.find(`[data-testid="${gone}"]`).exists(), gone).toBe(false)
-    }
-    expect(wrapper.findAll('button').some((b) => b.text().includes('interview.live.pause'))).toBe(
-      false
-    )
-    expect(wrapper.find('[data-testid="live-hint"]').exists()).toBe(false)
 
     const parts = {
       question: wrapper.get('[data-testid="call-question"]').element,
@@ -1075,7 +963,7 @@ describe('InterviewSession — the stage (flag on)', () => {
   })
 })
 
-describe('InterviewSession — embedded (flag on)', () => {
+describe('InterviewSession — embedded', () => {
   // `100dvh` and its kin make the page's height depend on the iframe's own height, and
   // the host sizes the iframe from the height the embed page reports: it never settles.
   const VIEWPORT_HEIGHT_UNIT = /\d(?:vh|dvh|svh|lvh)(?![a-z])/i
@@ -1096,7 +984,7 @@ describe('InterviewSession — embedded (flag on)', () => {
   })
 })
 
-describe('InterviewSession — the player layer is never re-parented (flag on, R1)', () => {
+describe('InterviewSession — the player layer is never re-parented (R1)', () => {
   it('hides the empty layer from assistive technology until a player exists, on the same node', async () => {
     const { wrapper, session } = await mountLive({ begin: false })
     const node = layer(wrapper)
@@ -1155,7 +1043,7 @@ describe('InterviewSession — the player layer is never re-parented (flag on, R
     expect(layer(wrapper)).toBe(node)
     const incoming = wrapper.findAllComponents(AvatarPlayerStub)[1]!
     expect(incoming.props('overlay')).toBe(true)
-    // The incoming overlaps the outgoing inside the one layer, exactly as without the flag.
+    // The incoming overlaps the outgoing inside the one layer.
     expect(incoming.element.closest('[data-slot="avatar-layer"]')).toBe(node)
 
     incoming.vm.$emit('painted')

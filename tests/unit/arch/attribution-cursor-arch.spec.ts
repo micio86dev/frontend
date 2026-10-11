@@ -92,7 +92,6 @@ describe('handle.dbSessionId is the player key only', () => {
     const code = SOURCES.find((s) => s.file === 'components/InterviewSession.vue')!.code
     expect([...code.matchAll(/:session-id="([^"]+)"/g)].map((m) => m[1])).toEqual([
       'session.sessionId.value',
-      'session.sessionId.value',
     ])
     expect(code).toContain('() => session.sessionId.value,')
   })

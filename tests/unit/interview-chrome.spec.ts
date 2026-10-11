@@ -9,7 +9,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ProgressBar from '../../app/components/ProgressBar.vue'
-import InterviewCaption from '../../app/components/InterviewCaption.vue'
 import InterviewTimer from '../../app/components/InterviewTimer.vue'
 import InterviewSteps from '../../app/components/molecules/InterviewSteps.vue'
 import { useCandidateBranding } from '../../app/composables/useCandidateBranding'
@@ -54,13 +53,6 @@ describe.each(MATRIX)('interview chrome — %s', (_label, color, onPrimary) => {
     // #ffd400 on the light track is 1.0:1; the ink is >= 3:1 on it for any brand.
     expect(fill.classes()).toContain('bg-primary-ink')
     expect(fill.classes()).not.toContain('bg-primary')
-    for (const classes of allClasses(wrapper)) expect(classes).not.toMatch(CANVAS_COLOURED)
-  })
-
-  it('sets the caption in card text, for the white dock it sits on', () => {
-    const wrapper = mount(InterviewCaption, { props: { text: 'A question' }, global })
-
-    expect(wrapper.classes()).toContain('text-card-foreground')
     for (const classes of allClasses(wrapper)) expect(classes).not.toMatch(CANVAS_COLOURED)
   })
 

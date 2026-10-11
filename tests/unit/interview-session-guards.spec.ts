@@ -104,7 +104,6 @@ async function mountSession(session: ReturnType<typeof makeSession>, attach = fa
         DeviceCheck: true,
         ProctorOverlay: true,
         InterviewTimer: true,
-        InterviewCaption: true,
         InterviewProgressBar: true,
       },
     },
@@ -133,10 +132,10 @@ beforeEach(() => {
     vi.fn(() => ({ t: (key: string) => key, locale: ref('it') }))
   )
   // afterEach unstubs every global, wiping the shared setup.ts stub; the
-  // component reads the call-screen flag through useRuntimeConfig().
+  // component reads the support URL through useRuntimeConfig().
   vi.stubGlobal(
     'useRuntimeConfig',
-    vi.fn(() => ({ public: { candidateCallUi: 'true' } }))
+    vi.fn(() => ({ public: {} }))
   )
 })
 

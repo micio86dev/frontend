@@ -3,7 +3,6 @@
  *
  * Tests:
  *   - InterviewTimer.vue: countdown, expired event, timer_label i18n key
- *   - InterviewCaption.vue: renders text, reactive update, empty text
  *   - ProgressBar.vue: aria-valuenow, visual progress
  *   - IntegrityToast.vue: mounts with and without events (the toast copy and the
  *     real Toaster are covered in integrity-toast.spec.ts)
@@ -147,31 +146,6 @@ describe('InterviewTimer.vue', () => {
     expect(clearSpy).toHaveBeenCalled()
     vi.useRealTimers()
     clearSpy.mockRestore()
-  })
-})
-
-// ---- InterviewCaption.vue ----
-
-describe('InterviewCaption.vue', () => {
-  it('renders text from props', async () => {
-    const { default: Caption } = await import('../../app/components/InterviewCaption.vue')
-    const wrapper = mount(Caption, { props: { text: 'Hello world' } })
-    expect(wrapper.text()).toContain('Hello world')
-  })
-
-  it('updates reactively when text prop changes', async () => {
-    const { default: Caption } = await import('../../app/components/InterviewCaption.vue')
-    const wrapper = mount(Caption, { props: { text: 'Initial text' } })
-    await wrapper.setProps({ text: 'Updated text' })
-    expect(wrapper.text()).toContain('Updated text')
-  })
-
-  it('renders an empty element (not error) when text is empty', async () => {
-    const { default: Caption } = await import('../../app/components/InterviewCaption.vue')
-    const wrapper = mount(Caption, { props: { text: '' } })
-    // Should not throw; element should exist but be empty
-    expect(wrapper.exists()).toBe(true)
-    expect(wrapper.text()).toBe('')
   })
 })
 

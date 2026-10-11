@@ -33,10 +33,7 @@ vi.stubGlobal('definePageMeta', vi.fn())
 vi.stubGlobal('useHead', vi.fn())
 vi.stubGlobal(
   'useRuntimeConfig',
-  // candidateCallUi mirrors the nuxt.config.ts default ('true', UI-12): a spec that
-  // does not choose gets the call screen, like a deployment that sets nothing. A spec
-  // for the legacy kill-switch path turns it off EXPLICITLY.
-  vi.fn(() => ({ public: { apiBase: '', appEnv: 'local', candidateCallUi: 'true' } }))
+  vi.fn(() => ({ public: { apiBase: '', appEnv: 'local' } }))
 )
 vi.stubGlobal(
   'useNuxtApp',

@@ -22,11 +22,10 @@
  * it globally and then dynamically import the config module.
  */
 
-import { describe, it, expect, beforeAll, vi } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createRouter, toRouteMatcher } from 'radix3'
-import { useCandidateCallUi } from '~/app/composables/useCandidateCallUi'
 
 /**
  * Rather than executing the module (which requires @tailwindcss/vite at module scope),
@@ -195,40 +194,11 @@ describe('nuxt.config.ts — the reusable entry route sits under the interview r
   })
 })
 
-describe('nuxt.config.ts — runtimeConfig.public.candidateCallUi (candidate-interview-call-ui, D1)', () => {
-  const source = readFileSync(CONFIG_PATH, 'utf-8')
-  // Everything from `public: {` to the end of the runtimeConfig block.
-  const publicBlock = source.slice(source.indexOf('public: {'))
+describe('nuxt.config.ts — the candidate call screen is not switchable (candidate-interview-call-ui, UI-13)', () => {
+  it('declares no call-screen flag: the removed NUXT_PUBLIC_CANDIDATE_CALL_UI kill switch cannot come back by accident', () => {
+    const source = readFileSync(CONFIG_PATH, 'utf-8')
 
-  it("declares the flag under runtimeConfig.public, defaulting to 'true' (the call screen is the default)", () => {
-    // `NUXT_PUBLIC_CANDIDATE_CALL_UI` can only reach runtimeConfig at runtime if
-    // the key exists here. The default is ON since UI-12 (owner go, 2026-10-09): an
-    // UNSET variable keeps the default, so a deployment that never heard of the flag
-    // serves the call screen. Nitro only overrides a default with a DEFINED value.
-    expect(publicBlock).toMatch(/candidateCallUi:\s*'true'/)
-  })
-
-  it('switches the call screen on through the composable with exactly that default', () => {
-    // Not the literal alone: the value the config ships must be one the composable
-    // reads as ON, or the default would be a string that quietly means off.
-    const shipped = /candidateCallUi:\s*'([^']*)'/.exec(publicBlock)?.[1]
-
-    vi.stubGlobal(
-      'useRuntimeConfig',
-      vi.fn(() => ({ public: { candidateCallUi: shipped } }))
-    )
-
-    try {
-      expect(useCandidateCallUi()).toBe(true)
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
-  it('does not put the flag in the server-only part of runtimeConfig', () => {
-    const serverPart = source.slice(source.indexOf('runtimeConfig: {'), source.indexOf('public: {'))
-
-    expect(serverPart).not.toContain('candidateCallUi')
+    expect(source).not.toMatch(/candidateCallUi/i)
   })
 })
 

@@ -66,7 +66,6 @@ describe.each(PAGES)('%s renders on the brand canvas', (path) => {
 const CHROME = [
   'app/components/InterviewSession.vue',
   'app/components/ProgressBar.vue',
-  'app/components/InterviewCaption.vue',
   'app/components/InterviewTimer.vue',
   'app/components/molecules/InterviewGuide.vue',
   'app/components/molecules/InterviewSteps.vue',
