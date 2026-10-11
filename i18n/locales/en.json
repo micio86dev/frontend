@@ -49,11 +49,9 @@
     },
     "live": {
       "timer_label": "Time remaining",
-      "pause": "Pause",
       "voice_visualizer_label": "Interviewer voice",
       "avatar_label": "Interviewer",
       "region_label": "Live interview",
-      "question_label": "Q{n}",
       "listen_hint": "Listen to the question, then answer out loud. Take your time."
     },
     "call": {

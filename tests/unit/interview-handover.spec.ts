@@ -154,7 +154,6 @@ beforeEach(() => {
       public: {
         apiBase: 'https://api.test',
         interviewProviderMock: 'false',
-        candidateCallUi: 'true',
       },
     }))
   )
