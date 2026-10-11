@@ -3871,7 +3871,12 @@ export interface components {
             code: string;
             symbol: string;
             decimals: number;
-            rate_per_usd?: number | null;
+            /**
+             * @description Canonical form is a decimal string (up to six decimals, as `CurrencyResource` returns it);
+             *     a JSON number is also accepted. Required together with `rate_as_of`; activating
+             *     (`is_active: true`) requires a rate.
+             */
+            rate_per_usd?: string | number | null;
             /** Format: date */
             rate_as_of?: string | null;
             is_active?: boolean;
@@ -4066,10 +4071,13 @@ export interface components {
          *     rate is never cleared once set, and a rate and its date travel together.
          */
         UpdateCurrencyRequest: {
-            code?: string;
             symbol?: string;
             decimals?: number;
-            rate_per_usd?: number;
+            /**
+             * @description Canonical form is a decimal string (up to six decimals, as `CurrencyResource` returns it);
+             *     a JSON number is also accepted.
+             */
+            rate_per_usd?: string | number;
             /** Format: date */
             rate_as_of?: string;
             is_active?: boolean;
@@ -8784,11 +8792,23 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["CurrencyResource"];
-                    } | Record<string, never>;
+                    };
                 };
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
+            /** @description The currency is in use, or it is USD (immutable). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        message: "currency_in_use" | "currency_usd_immutable";
+                    };
+                };
+            };
             422: components["responses"]["ValidationException"];
         };
     };
