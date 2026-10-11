@@ -19,7 +19,7 @@
     -->
     <a
       v-if="reason === 'absent_phrase'"
-      href="mailto:support@beai.app"
+      :href="supportUrl"
       class="inline-flex min-h-(--spacing-control) items-center text-base font-semibold text-primary-ink underline decoration-2 underline-offset-4 hover:decoration-4"
       data-testid="terminal-contact"
     >
@@ -56,8 +56,11 @@
  */
 import { computed } from 'vue'
 import NoticeShell from '~/components/molecules/NoticeShell.vue'
+import { useSupportUrl } from '~/composables/useSupportUrl'
 
 definePageMeta({ ssr: false })
+
+const supportUrl = useSupportUrl()
 
 const route = useRoute()
 const { t } = useI18n()

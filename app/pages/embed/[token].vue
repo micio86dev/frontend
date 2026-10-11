@@ -20,7 +20,7 @@
     :message="$t(`interview.terminal.${exchangeErrorReason}.body`)"
   />
 
-  <InterviewSession v-else ref="interviewRef" />
+  <InterviewSession v-else ref="interviewRef" embedded />
 </template>
 
 <script setup lang="ts">

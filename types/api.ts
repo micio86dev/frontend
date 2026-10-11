@@ -596,6 +596,23 @@ export interface paths {
         patch: operations["competency.update"];
         trace?: never;
     };
+    "/currencies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the active currencies */
+        get: operations["currency.index"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboard/metrics": {
         parameters: {
             query?: never;
@@ -1402,8 +1419,9 @@ export interface paths {
         head?: never;
         /**
          * Update the organization
-         * @description Accepts `name`, the default webhook settings and `primary_color`. Any other field in the body is
-         *     ignored.
+         * @description Accepts `name`, the default webhook settings, `primary_color` and
+         *     `currency_code` (active catalogue codes only). Any other field in the body
+         *     is ignored.
          */
         patch: operations["organization.update"];
         trace?: never;
@@ -1842,6 +1860,42 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/admin/currencies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List every currency, inactive ones included */
+        get: operations["platformCurrency.index"];
+        put?: never;
+        /** Add a currency to the catalogue */
+        post: operations["platformCurrency.store"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/currencies/{code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a currency nobody uses */
+        delete: operations["platformCurrency.destroy"];
+        options?: never;
+        head?: never;
+        /** Edit a currency's rate, symbol, decimals or active flag */
+        patch: operations["platformCurrency.update"];
         trace?: never;
     };
     "/admin/platform-users": {
@@ -3162,6 +3216,15 @@ export interface components {
              */
             exit_redirect_url?: string | null;
         };
+        /** CurrencyResource */
+        CurrencyResource: {
+            code: string;
+            symbol: string;
+            decimals: number;
+            rate_per_usd: string | null;
+            rate_as_of: string | null;
+            is_active: boolean;
+        };
         /** DashboardActivityResource */
         DashboardActivityResource: {
             id: number;
@@ -3290,6 +3353,7 @@ export interface components {
             name: string;
             slug: string;
             primary_color: string | null;
+            currency_code: string;
             logo_url: string | null;
             default_webhook_url: string | null;
             default_webhook_events: string[] | null;
@@ -3798,6 +3862,27 @@ export interface components {
             type: "standard" | "potential";
         };
         /**
+         * StoreCurrencyRequest
+         * @description The body of `POST /api/admin/currencies` (superadmin only).
+         *
+         *     Error codes are machine slugs, not sentences (the app that renders them owns
+         *     the language). A rate and its date travel together; activation needs a rate.
+         */
+        StoreCurrencyRequest: {
+            code: string;
+            symbol: string;
+            decimals: number;
+            /**
+             * @description Canonical form is a decimal string (up to six decimals, as `CurrencyResource` returns it);
+             *     a JSON number is also accepted. Required together with `rate_as_of`; activating
+             *     (`is_active: true`) requires a rate.
+             */
+            rate_per_usd?: string | number | null;
+            /** Format: date */
+            rate_as_of?: string | null;
+            is_active?: boolean;
+        };
+        /**
          * StoreDefaultQuestionRequest
          * @description The body of `POST /api/catalogue/default-questions`. The question is required in both `en` and `it`.
          */
@@ -3820,6 +3905,8 @@ export interface components {
         StoreOrganizationRequest: {
             name: string;
             slug: string;
+            /** @description Omitted means USD (the column default). */
+            currency_code?: string;
         };
         /**
          * StorePlatformUserRequest
@@ -3978,6 +4065,25 @@ export interface components {
             type?: "standard" | "potential";
         };
         /**
+         * UpdateCurrencyRequest
+         * @description The body of `PATCH /api/admin/currencies/{code}` (superadmin only).
+         *
+         *     The code is the primary key and never changes: sending it is refused. A
+         *     rate is never cleared once set, and a rate and its date travel together.
+         */
+        UpdateCurrencyRequest: {
+            symbol?: string;
+            decimals?: number;
+            /**
+             * @description Canonical form is a decimal string (up to six decimals, as `CurrencyResource` returns it);
+             *     a JSON number is also accepted.
+             */
+            rate_per_usd?: string | number;
+            /** Format: date */
+            rate_as_of?: string;
+            is_active?: boolean;
+        };
+        /**
          * UpdateDefaultQuestionRequest
          * @description The body of `PATCH /api/catalogue/default-questions/{defaultQuestion}`. The question cannot be
          *     moved to another competency.
@@ -3993,18 +4099,19 @@ export interface components {
          * UpdateManagedOrganizationRequest
          * @description Validates PATCH /api/admin/organizations/{id} (superadmin only).
          *
-         *     Only `name` and `primary_color` are writable here. `slug` is a tenancy
+         *     Only `name`, `primary_color` and `currency_code` are writable here. `slug` is a tenancy
          *     identifier and is never editable; the webhook defaults and the logo keep
          *     their own tenant-facing endpoints.
          */
         UpdateManagedOrganizationRequest: {
             name?: string;
             primary_color?: string | null;
+            currency_code?: string;
         };
         /**
          * UpdateOrganizationRequest
-         * @description The body of `PATCH /api/organization`: the organization name, the default webhook settings and
-         *     the primary colour. Any other field is ignored.
+         * @description The body of `PATCH /api/organization`: the organization name, the default webhook settings,
+         *     the primary colour and the display currency. Any other field is ignored.
          */
         UpdateOrganizationRequest: {
             name?: string;
@@ -4037,6 +4144,7 @@ export interface components {
              *     choosing a colour would be a one-way door.
              */
             primary_color?: string | null;
+            currency_code?: string;
         };
         /**
          * UpdatePasswordRequest
@@ -4435,6 +4543,17 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
+            /** @description A superadmin must first select the organization to act for (`organization_context_required`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
         };
     };
     "apiClient.store": {
@@ -4469,14 +4588,14 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
+            /** @description A superadmin must first select the organization to act for (`organization_context_required`). */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        /** @constant */
-                        error: "no_client_selected";
+                        message: string;
                     };
                 };
             };
@@ -4694,6 +4813,9 @@ export interface operations {
                                 viewAny: boolean;
                             };
                             catalogue: {
+                                manage: boolean;
+                            };
+                            currencies: {
                                 manage: boolean;
                             };
                         };
@@ -5749,6 +5871,29 @@ export interface operations {
                 };
             };
             422: components["responses"]["ValidationException"];
+        };
+    };
+    "currency.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `CurrencyResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CurrencyResource"][];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
         };
     };
     "dashboard.metrics": {
@@ -7277,7 +7422,13 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": {
+                    live_conversation_id?: string;
+                };
+            };
+        };
         responses: {
             200: {
                 headers: {
@@ -7298,6 +7449,12 @@ export interface operations {
                             prompt_version: string | null;
                             competency_ordinal: number | null;
                             total_competencies: number | null;
+                        };
+                        conversation_id?: string;
+                        conversation_ttl_seconds?: number;
+                        continuation?: {
+                            conversation_id: string;
+                            competency_code: string;
                         };
                     };
                 };
@@ -7632,6 +7789,17 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
+            /** @description A superadmin must first select the organization to act for (`organization_context_required`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
             422: components["responses"]["ValidationException"];
         };
     };
@@ -7667,6 +7835,17 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
+            /** @description A superadmin must first select the organization to act for (`organization_context_required`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
             422: components["responses"]["ValidationException"];
         };
     };
@@ -7692,6 +7871,17 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
+            /** @description A superadmin must first select the organization to act for (`organization_context_required`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
         };
     };
     "organizations.logo": {
@@ -8491,6 +8681,138 @@ export interface operations {
             422: components["responses"]["ValidationException"];
         };
     };
+    "platformCurrency.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of `CurrencyResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CurrencyResource"][];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+        };
+    };
+    "platformCurrency.store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreCurrencyRequest"];
+            };
+        };
+        responses: {
+            /** @description `CurrencyResource` */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CurrencyResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            422: components["responses"]["ValidationException"];
+        };
+    };
+    "platformCurrency.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        message: "currency_in_use";
+                    } | {
+                        /** @constant */
+                        message: "currency_usd_immutable";
+                    };
+                };
+            };
+        };
+    };
+    "platformCurrency.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateCurrencyRequest"];
+            };
+        };
+        responses: {
+            /** @description `CurrencyResource` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CurrencyResource"];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
+            /** @description The currency is in use, or it is USD (immutable). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        message: "currency_in_use" | "currency_usd_immutable";
+                    };
+                };
+            };
+            422: components["responses"]["ValidationException"];
+        };
+    };
     "platformUser.index": {
         parameters: {
             query?: never;
@@ -8942,6 +9264,17 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
+            /** @description A superadmin must first select the organization to act for (`organization_context_required`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
             422: components["responses"]["ValidationException"];
         };
     };
@@ -10632,6 +10965,17 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
+            /** @description A superadmin must first select the organization to act for (`organization_context_required`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
             /** @description Refused: the write would leave no active administrator. */
             422: {
                 headers: {
@@ -10666,6 +11010,17 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
+            /** @description A superadmin must first select the organization to act for (`organization_context_required`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
         };
     };
     "utterance.store": {
@@ -10688,11 +11043,16 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Utterance persisted. `boundary_due` is true once the competency has met its turn budget. */
             202: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": {
+                        boundary_due: boolean;
+                    };
+                };
             };
             401: components["responses"]["AuthenticationException"];
             404: components["responses"]["ModelNotFoundException"];

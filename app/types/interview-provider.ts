@@ -22,6 +22,8 @@
  *   const { end_phrase, final_phrase } = response.question_context
  */
 
+import type { TavusBoundaryTicket } from '~/app/utils/advance-interaction'
+
 /** The set of supported provider backends. */
 export type ProviderName = 'heygen' | 'tavus'
 
@@ -29,8 +31,20 @@ export type ProviderName = 'heygen' | 'tavus'
 export type ProviderState =
   'connecting' | 'ready' | 'listening' | 'speaking' | 'stopped' | 'complete'
 
-/** Events the InterviewProvider can emit. */
-export type ProviderEvent = 'transcript' | 'state' | 'error'
+/**
+ * Events the InterviewProvider can emit. `steering_failed` is emitted by a
+ * context-steering provider (Tavus) only; payload is a SteeringFailure.
+ */
+export type ProviderEvent = 'transcript' | 'state' | 'error' | 'steering_failed'
+
+/** Why a boundary steering did not complete. */
+export type SteeringFailure = {
+  ok: false
+  reason: 'not_joined' | 'send_failed' | 'left' | 'error' | 'timeout' | 'busy'
+}
+
+/** Resolved by sendBoundary: acknowledged by the avatar, or failed. */
+export type SteeringResult = { ok: true } | SteeringFailure
 
 /** Normalized transcript entry emitted on each 'transcript' event. */
 export interface TranscriptEntry {
@@ -80,6 +94,21 @@ export interface StartConfig {
    * Omitted means "provider default".
    */
   audioDeviceId?: string
+}
+
+/**
+ * Narrow capability: send the competency-boundary steering into a live
+ * conversation. Implemented by the Tavus provider only; HeyGen and the mock
+ * carry no stub, consumers narrow with canSteerContext().
+ */
+export interface SupportsContextSteering {
+  sendBoundary(ticket: TavusBoundaryTicket): Promise<SteeringResult>
+}
+
+export function canSteerContext(
+  provider: InterviewProvider
+): provider is InterviewProvider & SupportsContextSteering {
+  return typeof (provider as Partial<SupportsContextSteering>).sendBoundary === 'function'
 }
 
 /**

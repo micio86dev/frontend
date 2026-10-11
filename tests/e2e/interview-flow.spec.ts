@@ -565,11 +565,13 @@ test.describe('Interview flow — E2E', () => {
         p.emitEndPhrase()
       })
 
-      // POSITIVE signal first: the Pause control renders only while `live`, so
+      // POSITIVE signal first: the Exit control renders only while `live`, so
       // seeing it means a NEW competency actually started. Asserting only the
       // absence of the other screens would pass just as happily if the page had
       // died — the same hole as the assertion-free test this replaced.
-      await expect(page.getByRole('button', { name: /^pause$/i })).toBeVisible({ timeout: 15000 })
+      await expect(page.getByRole('button', { name: /^exit, you can resume later$/i })).toBeVisible(
+        { timeout: 15000 }
+      )
       await expect(doneScreen(page)).toBeHidden()
       await expect(page.getByRole('button', { name: /resume interview/i })).toBeHidden()
     })
@@ -659,7 +661,7 @@ test.describe('Interview flow — E2E', () => {
      * directly, or via the page's `absolute inset-0` fallthrough class on
      * the SAME element). Never trusts absence alone (a dead page would also
      * report zero gap frames) — every caller MUST additionally assert a
-     * positive, live-only signal (the Pause control) after driving the
+     * positive, live-only signal (the Exit control) after driving the
      * handover.
      */
     async function installGapSampler(
@@ -740,7 +742,7 @@ test.describe('Interview flow — E2E', () => {
       })
     }
 
-    test('D6 — zero gap frames across a HeyGen continue handover, and Pause is visible again afterward', async ({
+    test('D6 — zero gap frames across a HeyGen continue handover, and Exit is visible again afterward', async ({
       page,
     }) => {
       await driveToLive(page)
@@ -783,10 +785,12 @@ test.describe('Interview flow — E2E', () => {
       expect(result.gapFrames).toBe(0)
 
       // Positive signal, never absence alone (per interview-flow.spec.ts's
-      // own precedent above): the live-only Pause control is visible again,
+      // own precedent above): the live-only Exit control is visible again,
       // proving a NEW competency actually started — not merely that nothing
       // broke.
-      await expect(page.getByRole('button', { name: /^pause$/i })).toBeVisible()
+      await expect(
+        page.getByRole('button', { name: /^exit, you can resume later$/i })
+      ).toBeVisible()
     })
 
     test('D5 — a stalled incoming falls back to the transition panel at the bound, never an error screen', async ({
@@ -876,7 +880,9 @@ test.describe('Interview flow — E2E', () => {
       expect(result.samples.length).toBeGreaterThan(30)
       expect(result.gapFrames).toBe(0)
 
-      await expect(page.getByRole('button', { name: /^pause$/i })).toBeVisible()
+      await expect(
+        page.getByRole('button', { name: /^exit, you can resume later$/i })
+      ).toBeVisible()
 
       // The promoted (formerly incoming, now visible) <video> must not be
       // silently stuck muted by WebKit's autoplay gate.
@@ -994,16 +1000,24 @@ test.describe('Interview flow — E2E', () => {
     })
   })
 
-  test.describe('Pause / Resume', () => {
+  test.describe('Exit / Resume', () => {
     test.beforeEach(async ({ page }) => {
       // This block had no setup: the test it replaced never got past consent, so
       // it never needed any. Reaching `live` needs both the API routes and the
-      // device mocks.
+      // device mocks. /suspend is fire-and-forget, but answered here so the exit
+      // never reaches for a real address.
       await mockInterviewRoutes(page)
       await injectDeviceMocks(page)
+      await page.route('**/api/candidate/interview/suspend', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ status: 'ok' }),
+        })
+      )
     })
 
-    test('pausing a live question mutes, keeps the session, and resumes the SAME competency', async ({
+    test('exiting a live question suspends it, and Resume brings the candidate back to live', async ({
       page,
     }) => {
       // The previous test here asserted only that the device-check heading was
@@ -1017,22 +1031,22 @@ test.describe('Interview flow — E2E', () => {
       })
       await page.getByRole('button', { name: /start the interview/i }).click()
 
-      const pauseButton = page.getByRole('button', { name: /^pause$/i })
-      await expect(pauseButton).toBeVisible({ timeout: 15000 })
+      const exitButton = page.getByRole('button', { name: /^exit, you can resume later$/i })
+      await expect(exitButton).toBeVisible({ timeout: 15000 })
 
-      await pauseButton.click()
+      // Exit asks first; confirming suspends (the existing pause, torn down).
+      await exitButton.click()
+      await page.getByRole('button', { name: /^suspend and leave$/i }).click()
 
-      // Paused: the resume control is reachable, and it is the IN-AVATAR panel —
-      // the provider session stays alive, which is the whole point of this pause.
+      // Suspended: the resume control is reachable and the live-only Exit is gone.
       const resumeButton = page.getByRole('button', { name: /^resume$/i })
       await expect(resumeButton).toBeVisible({ timeout: 10000 })
-      await expect(pauseButton).toBeHidden()
+      await expect(exitButton).toBeHidden()
 
       await resumeButton.click()
 
-      // Back on the SAME competency: `live` again, no /start in between, so no
-      // done screen and no scheduled-pause screen.
-      await expect(pauseButton).toBeVisible({ timeout: 10000 })
+      // Back to `live`: no done screen and no scheduled-pause screen.
+      await expect(exitButton).toBeVisible({ timeout: 10000 })
       await expect(doneScreen(page)).toBeHidden()
       await expect(page.getByRole('button', { name: /resume interview/i })).toBeHidden()
     })

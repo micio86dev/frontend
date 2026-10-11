@@ -101,7 +101,16 @@
 import { ref, shallowRef, computed, type ComputedRef } from 'vue'
 import { createProvider } from '~/app/providers/factory'
 import { effectiveViewportWidth } from '~/app/utils/browser-gate'
-import type { InterviewProvider, ProviderName, StartConfig } from '~/app/types/interview-provider'
+import {
+  canSteerContext,
+  type InterviewProvider,
+  type ProviderName,
+  type StartConfig,
+  type SteeringFailure,
+  type SupportsContextSteering,
+} from '~/app/types/interview-provider'
+import { createBoundaryTicket } from '~/app/utils/advance-interaction'
+import { asCompetencyCode, type CompetencyCode } from '~/app/utils/competency-codes'
 import type { operations } from '~~/types/api'
 
 import type { IntegrityEventInternal } from '~/app/utils/proctor-config'
@@ -112,6 +121,12 @@ import {
 } from '~/app/utils/candidate-api'
 import { useCandidateSession } from '~/app/composables/useCandidateSession'
 import { createCancelableTimer } from '~/app/utils/cancelable-timer'
+import {
+  AttributionCursor,
+  BoundarySendError,
+  assertSessionId,
+  type AdvanceTicket,
+} from '~/app/utils/attribution-cursor'
 
 /**
  * The `/candidate/interview/start` success body, DERIVED from the generated
@@ -193,9 +208,34 @@ export type EndQuestionReason = 'timeout'
 export interface ProviderSession {
   provider: InterviewProvider
   config: StartConfig
+  /**
+   * Identifies the PLAYER only: the `players` key, the keyed `v-for`, and
+   * `notifyPainted` matching. It is the id this handle was created for and never
+   * changes. Everything that means "the competency row being attributed to now"
+   * (`/end`, `/suspend`, utterances, the resize integrity flush and `sessionId`)
+   * reads {@link ProviderSession.attribution} instead (A2). Snapshots do not read
+   * it directly: `ProctorOverlay` is fed `sessionId.value` (the cursor-fed ref),
+   * which `useProctor` reads at snapshot time.
+   */
   dbSessionId: number
+  /**
+   * The `players` key and the `notifyPainted` match. Equal to `dbSessionId`,
+   * except for a replacement conversation on the SAME row (the ceiling handover):
+   * two live keys must never collide, so that one takes a negative serial.
+   */
+  playerKey: number
+  /** Which interview-session row this handle's transcript, `/end` and `/suspend` belong to now. */
+  readonly attribution: AttributionCursor
   /** From the `/start` response. Never surfaced to the UI (D9) — provider-anonymity. */
   providerName: ProviderName
+  /** `conversation_ttl_seconds` of this handle's conversation, when the server named one. */
+  ttlSeconds?: number
+  /**
+   * The provider conversation this handle is joined to, when the server named it
+   * (a fresh single-session `/start`). Its presence is the single-session gate:
+   * without it the handle takes today's one-handle-per-competency path.
+   */
+  conversationId?: string
   /**
    * This project's template runs voice-only (`/start` → `audio_only`).
    *
@@ -283,6 +323,28 @@ export interface UseInterviewSessionReturn {
    * handle — the live handle's own paint only drives its own opacity (D6).
    */
   notifyPainted: (dbSessionId: number) => void
+  /**
+   * Move the attribution cursor of the LIVE handle to `nextSessionId`, then (and
+   * only then) hand the resulting ticket to `sendBoundary`. Unsent integrity
+   * events are flushed against the outgoing row first. Returns the ticket, or
+   * `null` (nothing moved, nothing sent) when no handle is live.
+   *
+   * Handover window. Only the ACTIVE handle moves: a hidden `incomingSession`
+   * keeps its own cursor (its creation-time row) and becomes `sessionId` when it
+   * is promoted.
+   *
+   * Failure contract. An invalid `nextSessionId` throws `RangeError` before
+   * anything is flushed, moved or sent. If `sendBoundary` throws, the cursor
+   * STAYS advanced (write-before-send; the flush and the move are irreversible)
+   * and a `BoundarySendError` is thrown carrying the minted `ticket` and the
+   * sender's error as `cause` — never swallowed, never rolled back.
+   *
+   * No caller yet: the single-conversation boundary flow (FE-04) is the first.
+   */
+  advanceAttribution: (
+    nextSessionId: number,
+    sendBoundary?: (ticket: AdvanceTicket) => void
+  ) => AdvanceTicket | null
 }
 
 // ---------------------------------------------------------------------------
@@ -301,6 +363,12 @@ const RETRY_DELAY_MS = 3000
 const UTTERANCE_DRAIN_CEILING_MS = 3_000
 
 const HANDOVER_BOUND_MS = 10_000
+
+/**
+ * How long before a Tavus conversation's ceiling (`conversation_ttl_seconds`) the
+ * client asks for its replacement (design N11/N17). Retuned after live gate G-B.
+ */
+const HANDOVER_LEAD_MS = 120_000
 
 /** DESIGN.md §10 — fade, 200ms, ease-in-out; instant under reduced motion. */
 const CROSSFADE_MS = 200
@@ -353,19 +421,45 @@ function providerErrorCode(payload: unknown): string | null {
 // /start response shape guard
 // ---------------------------------------------------------------------------
 
+type ParsedContinuation = { conversationId: string; competencyCode: CompetencyCode }
+
 /**
- * Explicit shape guard for the `/start` response, checked BEFORE
- * `question_context.end_phrase` is ever read.
+ * `null` when the response carries no continuation (today's path), the parsed
+ * continuation when it is well formed, `'malformed'` otherwise.
  *
- * Without this, an unguarded destructure throws inside the try block on a
- * bad body; `status` is undefined on a plain TypeError, so it used to land in
- * the retryable `error` state — retrying forever against a server that will
- * answer identically. That is the same defect class the 401 fix addresses:
- * retry cannot fix a contract violation, so this is a non-retryable terminal.
+ * Malformed means: not an object, a missing/empty id, a code that is not a
+ * competency code (prose cannot pass), or a continuation combined with a
+ * provider handle (token or URL). A continuation names a conversation the
+ * browser is already in; a handle would be a second one.
  */
-function isValidStartResponse(response: unknown): response is StartResponse {
+function parseContinuation(r: Record<string, unknown>): ParsedContinuation | null | 'malformed' {
+  const raw = r['continuation']
+  if (raw === undefined || raw === null) return null
+  if (typeof raw !== 'object') return 'malformed'
+
+  const c = raw as Record<string, unknown>
+  if (typeof c['conversation_id'] !== 'string' || c['conversation_id'] === '') return 'malformed'
+  if (typeof c['competency_code'] !== 'string') return 'malformed'
+  const competencyCode = asCompetencyCode(c['competency_code'])
+  if (competencyCode === null) return 'malformed'
+
+  if (r['provider_token'] != null || r['conversation_url'] != null) return 'malformed'
+
+  return { conversationId: c['conversation_id'], competencyCode }
+}
+
+/** Everything `isValidStartResponse` checks except the continuation. */
+function isBaseValidStartResponse(response: unknown): boolean {
   if (!response || typeof response !== 'object') return false
   const r = response as Record<string, unknown>
+
+  const conversationId = r['conversation_id']
+  if (
+    conversationId !== undefined &&
+    (typeof conversationId !== 'string' || conversationId === '')
+  ) {
+    return false
+  }
 
   // `number` ONLY, as the contract publishes it. Also accepting a string
   // widened the predicate past the type it returns: `response is StartResponse`
@@ -395,6 +489,22 @@ function isValidStartResponse(response: unknown): response is StartResponse {
   return true
 }
 
+/**
+ * Explicit shape guard for the `/start` response, checked BEFORE
+ * `question_context.end_phrase` is ever read.
+ *
+ * Without this, an unguarded destructure throws inside the try block on a
+ * bad body; `status` is undefined on a plain TypeError, so it used to land in
+ * the retryable `error` state — retrying forever against a server that will
+ * answer identically. That is the same defect class the 401 fix addresses:
+ * retry cannot fix a contract violation, so this is a non-retryable terminal.
+ */
+export function isValidStartResponse(response: unknown): response is StartResponse {
+  if (!isBaseValidStartResponse(response)) return false
+
+  return parseContinuation(response as Record<string, unknown>) !== 'malformed'
+}
+
 // ---------------------------------------------------------------------------
 // Idempotent teardown (C2)
 // ---------------------------------------------------------------------------
@@ -412,10 +522,14 @@ function isValidStartResponse(response: unknown): response is StartResponse {
  * `handle.provider.stop()` freely — concurrently, redundantly, defensively —
  * and the real SDK/network teardown still only happens once.
  */
+/** Providers the client has asked to stop: their `stopped` is ours, not an unannounced end. */
+const stoppedByClient = new WeakSet<InterviewProvider>()
+
 function withIdempotentStop(provider: InterviewProvider): InterviewProvider {
   const originalStop = provider.stop.bind(provider)
   let stopPromise: Promise<void> | null = null
   provider.stop = () => {
+    stoppedByClient.add(provider)
     if (!stopPromise) stopPromise = originalStop()
     return stopPromise
   }
@@ -454,17 +568,24 @@ export function useInterviewSession(
    * trips later. `endQuestion()` and `pause()` guard on THIS flag now (B2).
    */
   const handoverActive = ref(false)
+  /**
+   * True from the first boundary input until `assertBoundary()` settles: the one
+   * in-flight guard that makes the three inputs (spoken phrase, 300 s timer, the
+   * server's turn budget) idempotent. Read by `pause()`/`endQuestion()` like
+   * `handoverActive`, and surfaced through `handoverInFlight` so Pause is disabled.
+   */
+  const boundaryInFlight = ref(false)
 
   const activeProvider = computed(() => activeSession.value?.provider ?? null)
   const activeConfig = computed(() => activeSession.value?.config ?? null)
-  const handoverInFlight = computed(() => handoverActive.value)
+  const handoverInFlight = computed(() => handoverActive.value || boundaryInFlight.value)
 
   const players = computed<SessionPlayer[]>(() => {
     const list: SessionPlayer[] = []
     const live = activeSession.value
     if (live) {
       list.push({
-        key: live.dbSessionId,
+        key: live.playerKey,
         provider: live.provider,
         config: live.config,
         role: 'live',
@@ -475,7 +596,7 @@ export function useInterviewSession(
     const incoming = incomingSession.value
     if (incoming) {
       list.push({
-        key: incoming.dbSessionId,
+        key: incoming.playerKey,
         provider: incoming.provider,
         config: incoming.config,
         role: incomingEntering.value ? 'entering' : 'incoming',
@@ -494,6 +615,9 @@ export function useInterviewSession(
   const handoverBoundTimer = createCancelableTimer()
   const promoteTimer = createCancelableTimer()
   const connectingCeilingTimer = createCancelableTimer()
+  /** Counts down the live Tavus conversation's age (N11); survives handovers, re-armed per fresh handle. */
+  const ageTimer = createCancelableTimer()
+  let replacementKeySerial = 0
 
   // ---- Helpers -------------------------------------------------------------
 
@@ -564,6 +688,7 @@ export function useInterviewSession(
 
   /** D1: clears the LIVE slot only — a hidden incoming is untouched by this. */
   function clearActiveProvider() {
+    ageTimer.clear()
     activeSession.value = null
   }
 
@@ -572,6 +697,22 @@ export function useInterviewSession(
       window.removeEventListener('resize', resizeListener)
       resizeListener = null
     }
+  }
+
+  /**
+   * Hand every unsent integrity event to the keepalive transport, addressed to
+   * `sessionId`, and acknowledge them on dispatch. Shared by the resize flush
+   * and by `advanceAttribution()`, which must flush against the OUTGOING row
+   * before the cursor moves.
+   */
+  function flushPendingIntegrity(sessionId: number | null) {
+    const pending = options.getPendingIntegrityEvents?.() ?? []
+    if (pending.length === 0) return
+    flushIntegrityKeepalive({
+      session_id: sessionId,
+      events: pending.map((e) => ({ kind: e.type, ts: e.ts, payload: e.meta ?? null })),
+    })
+    options.onIntegrityEventsFlushed?.(pending)
   }
 
   function attachResizeListener() {
@@ -590,15 +731,7 @@ export function useInterviewSession(
         // gone from the pending buffer, with only a console.warn (from a page
         // that is about to navigate away) marking the loss. Same ceiling
         // sendBeacon already had; written down here because it was not before.
-        const pending = options.getPendingIntegrityEvents?.() ?? []
-        if (pending.length > 0) {
-          const payload = {
-            session_id: activeSession.value?.dbSessionId ?? null,
-            events: pending.map((e) => ({ kind: e.type, ts: e.ts, payload: e.meta ?? null })),
-          }
-          flushIntegrityKeepalive(payload)
-          options.onIntegrityEventsFlushed?.(pending)
-        }
+        flushPendingIntegrity(activeSession.value?.attribution.current ?? null)
 
         // Stop provider before navigating (suppress errors — non-fatal during teardown).
         // Pre-existing, unrelated to the handover machinery — kept explicit and
@@ -656,9 +789,14 @@ export function useInterviewSession(
     }
   }
 
-  async function sendUtterance(dbSessionId: number, text: string, speaker: 'candidate' | 'avatar') {
+  /** Resolves true only when the 202 body carries a literal `boundary_due: true`. */
+  async function sendUtterance(
+    dbSessionId: number,
+    text: string,
+    speaker: 'candidate' | 'avatar'
+  ): Promise<boolean> {
     try {
-      await candidateFetch('/candidate/interview/utterance', {
+      const body = await candidateFetch<unknown>('/candidate/interview/utterance', {
         method: 'POST',
         body: {
           session_id: dbSessionId,
@@ -667,6 +805,7 @@ export function useInterviewSession(
           ts: new Date().toISOString(),
         },
       })
+      return (body as { boundary_due?: unknown } | null | undefined)?.boundary_due === true
     } catch (err) {
       // 401 → the stored session has already expired or been cleared
       // (candidateFetch clears it before throwing). Distinct, non-retryable
@@ -674,7 +813,7 @@ export function useInterviewSession(
       if (err instanceof CandidateUnauthorizedError) {
         terminalReason.value = 'session_expired'
         transitionTo('terminal')
-        return
+        return false
       }
 
       // 409 = silently dropped; any other error is also non-fatal for utterance
@@ -683,6 +822,7 @@ export function useInterviewSession(
       if (status !== 409) {
         console.warn('[useInterviewSession] /utterance error (non-fatal):', err)
       }
+      return false
     }
   }
 
@@ -928,7 +1068,8 @@ export function useInterviewSession(
     // ~200ms crossfade window, with two unmuted mics again.
     incoming.provider.setMicMuted(false).catch(() => {})
     activeSession.value = incoming
-    sessionId.value = incoming.dbSessionId
+    sessionId.value = incoming.attribution.current
+    armAgeTimer(incoming)
     // The machine stays `live` for the whole handover (D2); this also covers
     // a LATE promotion reached from the bound-exceeded `connecting` fallback.
     transitionTo('live')
@@ -940,9 +1081,9 @@ export function useInterviewSession(
    * incoming handle — the live handle's own paint only drives its own
    * opacity, never the handover (F3: `ready` is not a frame; painted is).
    */
-  function notifyPainted(dbSessionId: number) {
+  function notifyPainted(playerKey: number) {
     const incoming = incomingSession.value
-    if (!incoming || incoming.dbSessionId !== dbSessionId) return
+    if (!incoming || incoming.playerKey !== playerKey) return
     if (incomingEntering.value) return // idempotent — a defensive re-fire is a no-op
 
     incomingEntering.value = true
@@ -972,6 +1113,10 @@ export function useInterviewSession(
       if (providerState === 'complete' && isLive) {
         handleProviderComplete(handle)
       }
+
+      if (providerState === 'stopped' && isLive && !stoppedByClient.has(handle.provider)) {
+        handleUnannouncedEnd(handle)
+      }
       // An incoming handle's own `complete` is ignored (D2) — it has not
       // been asked a question at handover time; the guard makes it inert.
     })
@@ -979,15 +1124,25 @@ export function useInterviewSession(
     handle.provider.on('transcript', (payload) => {
       const entry = payload as { role: 'user' | 'avatar'; text: string; ts: number }
       const speaker = entry.role === 'user' ? 'candidate' : 'avatar'
-      // D2: resolved by the EMITTING handle's own dbSessionId — never shared
-      // module state. This is the permanent fix for the api v0.26.4-shaped
+      // D2: resolved by the EMITTING handle's own attribution cursor — never
+      // shared module state. This is the permanent fix for the api v0.26.4-shaped
       // defect: an outgoing's tail transcript can never land on the
-      // incoming's row, because it never reads the incoming's id at all.
+      // incoming's row, because it never reads the incoming's cursor at all.
+      // Read at EMIT time, not captured when the handler is wired: a cursor
+      // that moves between two lines must attribute each to its own row.
       // Tracked, not merely fired: `callEnd()` drains this set before it runs,
       // so the tail cannot be 409-dropped by its own /end.
-      const inFlight = sendUtterance(handle.dbSessionId, entry.text, speaker).catch(() => {})
+      const sent = sendUtterance(handle.attribution.current, entry.text, speaker).catch(() => false)
+      const inFlight = sent.then(() => {})
       inFlightUtterances.add(inFlight)
       void inFlight.finally(() => inFlightUtterances.delete(inFlight))
+      // Third boundary input (N9). Chained off `sent`, NOT the tracked promise:
+      // assertBoundary -> callEnd drains the tracked set and would wait on itself.
+      // assertBoundary gates on steerability and is idempotent against the other
+      // two inputs, so the flag is inert on every other path.
+      void sent.then((due) => {
+        if (due && handle === activeSession.value) void assertBoundary('completed')
+      })
     })
 
     handle.provider.on('error', (payload) => {
@@ -1049,6 +1204,18 @@ export function useInterviewSession(
         // already gone." Falls to the exact same fallback the bound timer
         // uses.
         releaseOutgoing('dead')
+        return
+      }
+
+      if (handoverActive.value) {
+        // The outgoing died AFTER `complete` (the handover began) but before
+        // its replacement exists: the server's `/end` stops the outgoing
+        // session, so this is the expected end of a finished question, not a
+        // failure. Keep the handover alive — `activeSession` stays set so the
+        // pending `/end` still reaches `handleHandoverDirective`, which builds
+        // the incoming; the bound timer and the connecting-ceiling keep
+        // bounding it. The mic is already muted (`beginHandover`).
+        logHandoverEvent('outgoing-died-before-incoming')
         return
       }
 
@@ -1120,7 +1287,159 @@ export function useInterviewSession(
     transitionTo(directive === 'done' ? 'done' : 'end_of_question')
   }
 
+  /**
+   * A handle that is joined to a conversation the server named and can take
+   * context steering: the only kind that is retargeted in place. Everything else
+   * (HeyGen, the mock, a Tavus handle from a project without single-session)
+   * keeps today's one-handle-per-competency path.
+   */
+  function isSteerable(handle: ProviderSession): handle is ProviderSession & {
+    conversationId: string
+    provider: InterviewProvider & SupportsContextSteering
+  } {
+    return (
+      handle.providerName === 'tavus' &&
+      handle.conversationId !== undefined &&
+      canSteerContext(handle.provider)
+    )
+  }
+
+  /**
+   * The one idempotent boundary assertion (design D5). Its three inputs (the
+   * avatar's closing phrase, the question timer, later the server's turn budget)
+   * all land here and a second entrant while one is in flight returns at once; if
+   * two genuinely race to `/end`, the loser's 409 maps to `noop` and acts on nothing.
+   *
+   * Order is the point: the uplink closes BEFORE `/end`, so no candidate speech
+   * exists in the window to be 409-dropped, and it reopens only at the steering
+   * acknowledgement or its failure (`applyContinuation`), never at the send.
+   */
+  async function assertBoundary(endedReason: 'completed' | EndQuestionReason): Promise<void> {
+    const handle = activeSession.value
+    if (!handle || !isSteerable(handle)) return
+    if (boundaryInFlight.value || handoverActive.value) return
+
+    boundaryInFlight.value = true
+    // Only `applyContinuation` (reached through the 'continue' branch) may keep
+    // the mic shut: it reopens at the steering ack or failure. Every other exit,
+    // a 409, a failed /end (callEnd degrades it to null, which pauses), pause/done
+    // or a throw, restores it here.
+    let micHandedOff = false
+    try {
+      await handle.provider.setMicMuted(true).catch(() => {})
+
+      const directive = await callEnd(handle.attribution.current, endedReason)
+      if (handle !== activeSession.value) return // torn down while /end was in flight
+
+      if (directive === 'noop') return
+
+      if (directive === 'continue') {
+        micHandedOff = true
+        await startSession(0, 'boundary')
+        return
+      }
+
+      handle.provider.stop().catch(() => {})
+      advanceAfterQuestion(directive)
+    } finally {
+      if (!micHandedOff) await handle.provider.setMicMuted(false).catch(() => {})
+      boundaryInFlight.value = false
+    }
+  }
+
+  /**
+   * The server granted a continuation: the joined conversation now serves
+   * `dbSessionId`. Moves the cursor (before anything is sent), steers the avatar,
+   * and reopens the mic at the acknowledgement or at the failure.
+   *
+   * A failed steering keeps the cursor on the new row and resends the SAME ticket
+   * once when the room is still joined. Otherwise, or on a second failure, the
+   * new competency ends as `timeout` and the next `/start` issues fresh (the
+   * browser then holds no usable handle, so the server refuses a continuation).
+   */
+  async function applyContinuation(
+    handle: ProviderSession,
+    dbSessionId: number,
+    continuation: ParsedContinuation
+  ): Promise<void> {
+    if (handle !== activeSession.value) return
+    if (!isSteerable(handle) || continuation.conversationId !== handle.conversationId) {
+      transitionTo('error')
+      return
+    }
+
+    const ticket = createBoundaryTicket(continuation.conversationId, continuation.competencyCode)
+    let steering!: ReturnType<typeof handle.provider.sendBoundary>
+    advanceAttribution(dbSessionId, () => {
+      steering = handle.provider.sendBoundary(ticket)
+    })
+
+    let result = await steering
+    if (result.ok) {
+      await handle.provider.setMicMuted(false).catch(() => {})
+      return
+    }
+
+    await handle.provider.setMicMuted(false).catch(() => {})
+    if (isJoinedFailure(result)) result = await handle.provider.sendBoundary(ticket)
+    if (result.ok) return
+
+    handle.provider.stop().catch(() => {})
+    advanceAfterQuestion(await callEnd(handle.attribution.current, 'timeout'))
+  }
+
+  /** The failures that leave the room joined, so a resend can still land. */
+  function isJoinedFailure(failure: SteeringFailure): boolean {
+    return failure.reason === 'timeout' || failure.reason === 'send_failed'
+  }
+
+  /**
+   * N17: a Tavus conversation ended without the client asking (the ceiling arrives
+   * unannounced). While the competency is still `in_corso` that is treated exactly
+   * like the age timer firing late: `/start` on the same row. Not while a boundary
+   * or handover is settling (the end is then expected), and never once the client
+   * itself stopped the handle (`stoppedByClient`), which covers pause, done and
+   * every deliberate teardown.
+   *
+   * The skip is safe, not a gap: a boundary or handover in flight always ends in a
+   * fresh handle, a failed steering that re-enters `/start`, or the bound and
+   * connecting-ceiling timers, so resuming here as well would double-start.
+   */
+  function handleUnannouncedEnd(handle: ProviderSession) {
+    if (handle.providerName !== 'tavus') return
+    if (state.value !== 'live' || boundaryInFlight.value || handoverActive.value) return
+    logHandoverEvent('unannounced-end')
+    startNextSession()
+  }
+
+  /**
+   * The conversation is about to age out: fetch its replacement now, mid-competency.
+   *
+   * The single timer follows the handle that is LIVE, so this runs only where a
+   * handle becomes `activeSession` (a plain publish, or `promote()`), never when
+   * a crossfade incoming is merely published: arming then would replace the live
+   * handle's timer with one for a handle that may never be promoted.
+   */
+  function armAgeTimer(handle: ProviderSession) {
+    ageTimer.clear()
+    const ttlSeconds = handle.ttlSeconds
+    if (handle.providerName !== 'tavus' || typeof ttlSeconds !== 'number') return
+    const delay = ttlSeconds * 1000 - HANDOVER_LEAD_MS
+    if (delay <= 0) return
+    ageTimer.arm(() => {
+      if (handle !== activeSession.value || state.value !== 'live') return
+      if (boundaryInFlight.value || handoverActive.value) return
+      logHandoverEvent('age-ceiling')
+      startNextSession()
+    }, delay)
+  }
+
   function handleProviderComplete(handle: ProviderSession) {
+    if (isSteerable(handle)) {
+      void assertBoundary('completed')
+      return
+    }
+
     const isHeyGen = handle.providerName === 'heygen'
 
     if (isHeyGen) {
@@ -1128,7 +1447,7 @@ export function useInterviewSession(
     }
 
     // Avatar signalled completion → call /end with 'completed'
-    callEnd(handle.dbSessionId, 'completed')
+    callEnd(handle.attribution.current, 'completed')
       .then((directive) => {
         if (isHeyGen && handle === activeSession.value) {
           handleHandoverDirective(directive, handle)
@@ -1151,16 +1470,30 @@ export function useInterviewSession(
     startSession(0, 'incoming')
   }
 
-  async function startSession(attemptNumber = 0, target: 'active' | 'incoming' = 'active') {
+  async function startSession(
+    attemptNumber = 0,
+    target: 'active' | 'incoming' | 'boundary' = 'active'
+  ) {
     if (target === 'active') {
       transitionTo('connecting')
     }
     // target === 'incoming': state stays `live` throughout (D2) — it never
     // enters `connecting` for the happy handover path.
+    // target === 'boundary': the browser is joined to a conversation and asks
+    // the server to retarget it. The state stays `live`; it only leaves it on the
+    // fresh-handle fallback below or on an error.
+
+    // The assertion that the browser is IN the room: sent from the boundary only,
+    // while the joined handle is still the live one. Every other entry (first
+    // connect, retry, pause/resume, re-offer, reload) has no handle to assert.
+    const joined = target === 'boundary' ? activeSession.value : null
 
     try {
       const response = await candidateFetch<StartResponse>('/candidate/interview/start', {
         method: 'POST',
+        ...(joined?.conversationId
+          ? { body: { live_conversation_id: joined.conversationId } }
+          : {}),
       })
 
       if (!isValidStartResponse(response)) {
@@ -1169,9 +1502,41 @@ export function useInterviewSession(
           abandonIncomingAttempt()
           return
         }
+        if (isBaseValidStartResponse(response)) {
+          // Only the continuation is wrong: a contract slip the next /start can
+          // fix, so the retryable screen, with no cursor move and nothing sent.
+          transitionTo('error')
+          return
+        }
         terminalReason.value = 'malformed_response'
         transitionTo('terminal')
         return
+      }
+
+      const continuation = parseContinuation(response as unknown as Record<string, unknown>)
+      if (continuation !== null && continuation !== 'malformed') {
+        // No handle was issued: the joined one keeps playing. Released before
+        // the steering is applied because a failed steering re-enters
+        // `confirmDevices()`, which the latch would otherwise refuse.
+        isResuming = false
+        if (target === 'boundary' && joined) {
+          await applyContinuation(joined, Number(response.session_id), continuation)
+        } else {
+          // A continuation to a caller that holds no handle cannot be honoured.
+          transitionTo('error')
+        }
+        return
+      }
+
+      // The server refused (or never offered) a continuation. A fresh handle that
+      // arrives while a live one exists crossfades, whatever the provider (D7).
+      const live = activeSession.value
+      const crossfade = target === 'incoming' || (target === 'boundary' && live !== null)
+      if (target === 'boundary' && !crossfade) {
+        // Leave the joined room: the live slot was unpublished while /start was in
+        // flight (a 401 terminal does that without a stop). Idempotent otherwise.
+        joined?.provider.stop().catch(() => {})
+        transitionTo('connecting')
       }
 
       // D4: end_phrase and final_phrase come from NESTED question_context — NOT top-level
@@ -1204,7 +1569,14 @@ export function useInterviewSession(
         provider: withIdempotentStop(createProvider(providerName, isMock())),
         config: startConfig,
         dbSessionId,
+        // A replacement on the SAME row (mid-competency) must not share its key.
+        playerKey: live?.playerKey === dbSessionId ? -++replacementKeySerial : dbSessionId,
+        attribution: new AttributionCursor(dbSessionId),
         providerName,
+        ...(response.conversation_id ? { conversationId: response.conversation_id } : {}),
+        ...(typeof response.conversation_ttl_seconds === 'number'
+          ? { ttlSeconds: response.conversation_ttl_seconds }
+          : {}),
         // `=== true`, not a truthy read: an older API that does not send the
         // field must resolve to "show the avatar", and `undefined` must never
         // become "hide it".
@@ -1216,11 +1588,19 @@ export function useInterviewSession(
       // (absent_phrase) must already have a listener.
       wireProviderEvents(handle)
 
-      if (target === 'incoming') {
+      if (crossfade) {
         incomingSession.value = handle
+        // Tavus cannot arm the bound at `complete` like HeyGen does: the ceiling is
+        // only known from this response. Armed at publish, unless a HeyGen handover
+        // already holds it.
+        if (live !== null && !handoverActive.value) {
+          handoverActive.value = true
+          armHandoverBound()
+        }
       } else {
-        sessionId.value = dbSessionId
+        sessionId.value = handle.attribution.current
         activeSession.value = handle
+        armAgeTimer(handle)
       }
     } catch (err) {
       isResuming = false
@@ -1355,7 +1735,7 @@ export function useInterviewSession(
    */
   function pause() {
     if (state.value !== 'live') return
-    if (handoverActive.value) return
+    if (handoverActive.value || boundaryInFlight.value) return
 
     const handle = activeSession.value
 
@@ -1375,7 +1755,7 @@ export function useInterviewSession(
     handle?.provider.stop().catch(() => {})
 
     if (handle) {
-      void callSuspend(handle.dbSessionId)
+      void callSuspend(handle.attribution.current)
     }
 
     clearActiveProvider()
@@ -1443,13 +1823,53 @@ export function useInterviewSession(
     const handle = activeSession.value
     if (!handle) return
 
-    const directive = await callEnd(handle.dbSessionId, reason)
+    if (isSteerable(handle)) {
+      await assertBoundary(reason)
+      return
+    }
+
+    const directive = await callEnd(handle.attribution.current, reason)
     handle.provider.stop().catch(() => {})
     advanceAfterQuestion(directive)
   }
 
+  function advanceAttribution(
+    nextSessionId: number,
+    sendBoundary?: (ticket: AdvanceTicket) => void
+  ): AdvanceTicket | null {
+    const handle = activeSession.value
+    if (!handle) return null
+
+    // Refuse an invalid id BEFORE the irreversible steps below: the flush
+    // acknowledges the proctor's events, and none of that should happen for a
+    // move that is going to be rejected anyway.
+    assertSessionId(nextSessionId)
+
+    // Events the proctor buffered while the outgoing row was current belong to
+    // that row: ship them before the cursor moves, or they would be re-addressed.
+    flushPendingIntegrity(handle.attribution.current)
+
+    // The cursor is written BEFORE the signal is sent: anything the provider
+    // transcribes from here on is the new competency's.
+    const ticket = handle.attribution.advance(nextSessionId)
+    sessionId.value = handle.attribution.current
+    if (sendBoundary) {
+      try {
+        sendBoundary(ticket)
+      } catch (err) {
+        // The move above cannot be undone, so a failed send does NOT roll the
+        // cursor back (transcript that already landed on the new row must stay
+        // there). Rethrown — never swallowed — with the ticket attached, so the
+        // caller can retry the send without minting a second move.
+        throw new BoundarySendError(ticket, err)
+      }
+    }
+    return ticket
+  }
+
   async function teardown() {
     removeResizeListener()
+    ageTimer.clear()
     endHandover()
     const live = activeSession.value
     const incoming = incomingSession.value
@@ -1492,5 +1912,6 @@ export function useInterviewSession(
     endQuestion,
     teardown,
     notifyPainted,
+    advanceAttribution,
   }
 }

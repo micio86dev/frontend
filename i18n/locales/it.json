@@ -56,6 +56,38 @@
       "question_label": "D{n}",
       "listen_hint": "Ascolta la domanda, poi rispondi a voce. Prenditi il tuo tempo."
     },
+    "call": {
+      "question_region": "Domanda corrente",
+      "panel_label": "Avanzamento del colloquio",
+      "progress": "Domanda {n} di {total}",
+      "duration_label": "Durata",
+      "duration_value": "{elapsed} / {total}",
+      "duration_sr": "{elapsed} trascorsi su un massimo di {total}",
+      "question_timer_label": "Tempo rimanente per questa domanda",
+      "interviewer_name": "Intervistatore AI",
+      "you": "Tu",
+      "avatar_speaking": "L'intervistatore sta parlando",
+      "candidate_speaking": "Stai parlando",
+      "self_view": "La tua fotocamera",
+      "self_view_off": "Fotocamera non disponibile",
+      "exit": {
+        "label": "Esci, riprenderai dopo",
+        "title": "Vuoi uscire dal colloquio?",
+        "body": "Il colloquio verrà sospeso e non viene registrato nulla. Potrai riprenderlo dalla stessa domanda riaprendo il link di invito da questo browser, entro le {time}.",
+        "body_no_deadline": "Il colloquio verrà sospeso e non viene registrato nulla. Potrai riprenderlo dalla stessa domanda riaprendo il link di invito da questo browser.",
+        "confirm": "Sospendi ed esci",
+        "cancel": "Resta nel colloquio"
+      },
+      "suspended": {
+        "title": "Colloquio sospeso",
+        "body": "Hai sospeso il colloquio. Per riprendere, riapri il link di invito da questo browser entro le {time}, oppure premi Riprendi.",
+        "body_no_deadline": "Hai sospeso il colloquio. Per riprendere, riapri il link di invito da questo browser, oppure premi Riprendi."
+      },
+      "help": {
+        "label": "Problemi con audio o video?",
+        "new_tab": "(si apre in una nuova scheda)"
+      }
+    },
     "end_of_question": {
       "title": "Domanda completata",
       "next": "Prossima domanda",

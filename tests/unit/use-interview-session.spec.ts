@@ -1707,6 +1707,59 @@ describe('useInterviewSession', () => {
   })
 
   // ---------------------------------------------------------------------------
+  // The outgoing dying DURING a handover, before the incoming exists (the
+  // server's /end stops the outgoing HeyGen session while its replacement is
+  // still being requested) is expected, not an interview-ending error.
+  // ---------------------------------------------------------------------------
+
+  describe('invisible-competency-handover — outgoing dies before the incoming exists: expected, not an error', () => {
+    it('RED — outgoing error after complete, /end still pending: state is NOT error, and the incoming still takes over once /end returns', async () => {
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
+      const outgoing = mockProviderRegistry[0]!
+
+      let resolveEnd!: (value: unknown) => void
+      mockCandidateFetch.mockImplementationOnce(
+        () => new Promise((resolve) => (resolveEnd = resolve))
+      )
+      mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: 99 }))
+
+      outgoing._emit('state', 'complete')
+      await nextTick()
+      expect(session.handoverInFlight.value).toBe(true)
+      expect(mockProviderRegistry.length).toBe(1) // no incoming yet
+
+      outgoing._emit('error', { code: 'disconnected', message: 'stopped by /end' })
+      await flushPromises()
+
+      expect(session.state.value).not.toBe('error')
+      expect(session.handoverInFlight.value).toBe(true)
+
+      resolveEnd({ ended_competencies: 1, total_competencies: 3, next_action: 'continue' })
+      await flushPromises()
+
+      // The incoming was built and, once it paints, becomes the live player.
+      expect(mockProviderRegistry.length).toBe(2)
+      expect(session.state.value).not.toBe('error')
+      session.notifyPainted(99)
+      await vi.advanceTimersByTimeAsync(200)
+      await flushPromises()
+
+      expect(session.state.value).toBe('live')
+      expect(session.sessionId.value).toBe(99)
+      expect(session.activeProvider.value).toBe(mockProviderRegistry[1])
+    })
+
+    it('the same error with NO handover in progress still goes to error', async () => {
+      const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
+
+      mockProviderRegistry[0]!._emit('error', { code: 'disconnected', message: 'lost' })
+      await flushPromises()
+
+      expect(session.state.value).toBe('error')
+    })
+  })
+
+  // ---------------------------------------------------------------------------
   // Four-lens review B3/B4/C3 — the connecting-ceiling bounds the
   // bound-exceeded `connecting` fallback, which previously had no ceiling
   // at all.

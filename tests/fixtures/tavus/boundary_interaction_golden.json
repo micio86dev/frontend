@@ -1,0 +1,18 @@
+[
+  {
+    "message_type": "conversation",
+    "event_type": "conversation.append_llm_context",
+    "conversation_id": "c0golden",
+    "properties": {
+      "context": "The candidate has finished that topic. Begin topic code INN now."
+    }
+  },
+  {
+    "message_type": "conversation",
+    "event_type": "conversation.respond",
+    "conversation_id": "c0golden",
+    "properties": {
+      "text": "Please continue."
+    }
+  }
+]

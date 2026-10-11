@@ -52,6 +52,19 @@ const REQUIRED_KEYS = [
   'interview.device_check.camera_fallback',
   'interview.device_check.mic_fallback',
   'interview.live.timer_label',
+  // candidate-interview-call-ui UI-06 — the call side panel: progress sentence and
+  // landmark name, the duration maximum (visual + screen-reader text), and the
+  // longer per-question timer caption.
+  'interview.call.panel_label',
+  'interview.call.progress',
+  'interview.call.duration_label',
+  'interview.call.duration_value',
+  'interview.call.duration_sr',
+  'interview.call.question_timer_label',
+  // candidate-interview-call-ui UI-08 — the audio/video help link and its
+  // visually hidden new-tab note.
+  'interview.call.help.label',
+  'interview.call.help.new_tab',
   'interview.live.pause',
   'interview.scheduled_pause.title',
   'interview.scheduled_pause.body',
@@ -123,6 +136,26 @@ const REQUIRED_KEYS = [
   // terminal, distinct from `link_invalid` (which would be untrue).
   'interview.terminal.link_reopen.title',
   'interview.terminal.link_reopen.body',
+  // candidate-interview-call-ui UI-05 — the own-camera tile and the interviewer chip.
+  'interview.call.interviewer_name',
+  'interview.call.you',
+  // UI-09 — the hidden text a lit tile carries (the ring is never colour alone).
+  'interview.call.avatar_speaking',
+  'interview.call.candidate_speaking',
+  'interview.call.self_view',
+  'interview.call.self_view_off',
+  // candidate-interview-call-ui UI-07 — the Exit button, its confirmation, and the
+  // suspended screen. The two `_no_deadline` bodies exist because the deadline is
+  // dropped, not guessed, when the stored session cannot be read.
+  'interview.call.exit.label',
+  'interview.call.exit.title',
+  'interview.call.exit.body',
+  'interview.call.exit.body_no_deadline',
+  'interview.call.exit.confirm',
+  'interview.call.exit.cancel',
+  'interview.call.suspended.title',
+  'interview.call.suspended.body',
+  'interview.call.suspended.body_no_deadline',
 ]
 
 describe('i18n interview flow keys', () => {

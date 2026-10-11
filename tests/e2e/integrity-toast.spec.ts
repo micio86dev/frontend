@@ -27,7 +27,7 @@ function messagesOf(locale: 'it' | 'en') {
     interview: {
       consent: { accept: string }
       device_check: { continue: string }
-      live: { pause: string }
+      call: { exit: { label: string } }
       integrity_toast: Record<string, { title: string; description: string }> & {
         region_label: string
         close: string
@@ -48,7 +48,7 @@ async function reachLiveScreen(page: Page, path: string, messages: Messages): Pr
   const start = page.getByRole('button', { name: messages.interview.device_check.continue })
   await expect(start).toBeEnabled({ timeout: 8000 })
   await start.click()
-  await expect(page.getByRole('button', { name: messages.interview.live.pause })).toBeVisible({
+  await expect(page.getByRole('button', { name: messages.interview.call.exit.label })).toBeVisible({
     timeout: 15000,
   })
 }
@@ -124,14 +124,15 @@ for (const [label, colour] of [
       expect(colours.title).toBe('rgb(10, 10, 10)')
       expect(colours.accent).toBe('rgb(185, 28, 28)')
 
-      // Clear of the header's status pill and of the live dock's Pause control.
+      // Clear of the call panel (and so of its Exit control): the toaster sits top left.
       const toastBox = (await toast.boundingBox())!
-      const pillBox = (await page.getByTestId('interview-status').boundingBox())!
-      const pauseBox = (await page
-        .getByRole('button', { name: en.interview.live.pause })
-        .boundingBox())!
-      expect(toastBox.y).toBeGreaterThanOrEqual(pillBox.y + pillBox.height)
-      expect(toastBox.y + toastBox.height).toBeLessThanOrEqual(pauseBox.y)
+      const panelBox = (await page.getByTestId('call-panel').boundingBox())!
+      const overlapsPanel =
+        toastBox.x < panelBox.x + panelBox.width &&
+        toastBox.x + toastBox.width > panelBox.x &&
+        toastBox.y < panelBox.y + panelBox.height &&
+        toastBox.y + toastBox.height > panelBox.y
+      expect(overlapsPanel, 'the toast overlaps the call panel').toBe(false)
 
       // Painted on top: nothing in the interview (the avatar panel) covers it.
       for (const part of ['[data-title]', '[data-description]']) {

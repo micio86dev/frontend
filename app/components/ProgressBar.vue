@@ -1,6 +1,9 @@
 <template>
   <div :class="compact ? 'flex items-center gap-2.5' : 'flex flex-col gap-1'">
-    <div v-if="!compact" class="flex items-center justify-between text-sm text-muted-foreground">
+    <div
+      v-if="!compact && !hideCounts"
+      class="flex items-center justify-between text-sm text-muted-foreground"
+    >
       <span>{{ current }} / {{ total }}</span>
       <span>{{ percentage }}%</span>
     </div>
@@ -15,6 +18,7 @@
       :aria-valuenow="current"
       :aria-valuemin="0"
       :aria-valuemax="total"
+      :aria-valuetext="valueText"
       :aria-label="$t('interview.progress.label')"
       class="h-2 overflow-hidden rounded-full bg-secondary"
       :class="compact ? 'w-24' : 'w-full'"
@@ -24,7 +28,10 @@
         :style="{ width: `${percentage}%` }"
       />
     </div>
-    <span v-if="compact" class="text-sm font-medium tabular-nums text-muted-foreground">
+    <span
+      v-if="compact && !hideCounts"
+      class="text-sm font-medium tabular-nums text-muted-foreground"
+    >
       {{ current }} / {{ total }}
     </span>
   </div>
@@ -40,6 +47,12 @@
  *   compact — one line (bar + count) for the interview header's status pill;
  *             the default stacks the count and percentage over a full bar for
  *             the scheduled-pause screen.
+ *   hideCounts — drop the "n / total" and percentage text, keeping only the bar,
+ *             for a caller that states the position in its own sentence (the call
+ *             side panel). Default false: the output is unchanged.
+ *   valueText — human-readable `aria-valuetext` for the bar, so a screen reader
+ *             hears "Domanda 2 di 5" rather than a bare number. Omitted by
+ *             default, in which case no attribute is rendered.
  *
  * Always drawn on a white surface (the pause card or the header pill), so the
  * card text tokens apply. Accessible: role="progressbar" with
@@ -52,8 +65,10 @@ const props = withDefaults(
     current: number
     total: number
     compact?: boolean
+    hideCounts?: boolean
+    valueText?: string
   }>(),
-  { compact: false }
+  { compact: false, hideCounts: false, valueText: undefined }
 )
 
 const percentage = computed(() => {

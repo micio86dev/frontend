@@ -5,9 +5,14 @@ import { DEFAULT_STACK_URL } from './tests/e2e/support/stack-origin'
  * Playwright E2E configuration — 3 required browser projects per D14.
  *
  * Projects:
- *   chromium  — Desktop Chromium, full suite (all E2E specs)
- *   webkit    — Desktop Safari/WebKit, full suite (all E2E specs)
+ *   chromium  — Desktop Chromium, full suite (all E2E specs, incl. the call screen)
+ *   webkit    — Desktop Safari/WebKit, full suite (all E2E specs, incl. the call screen)
  *   mobile    — Mobile device viewport, SA-11 gate spec ONLY (asserts unsupported-experience)
+ *
+ * The candidate call screen (candidate-interview-call-ui) is the default live
+ * interview since UI-12, so `interview-call*.spec.ts` run in `chromium` / `webkit`
+ * against the main server like every other spec. The two embed tests among them
+ * use the embed server (4176) because framing needs the frame-policy stub.
  *
  * Firefox is intentionally excluded per NFR (product is desktop Chrome/Edge/Safari only).
  * E2E is a required, blocking tier and must run 100% green (D15).
@@ -125,6 +130,9 @@ export default defineConfig({
             // at the network layer — a suite that phoned Google on every run would be
             // slow, flaky, and reporting CI traffic into a real property.
             NUXT_PUBLIC_GA_MEASUREMENT_ID: 'G-E2ETEST',
+            // The call screen's help link (interview-call.spec.ts): an https: page so its
+            // new-tab attributes can be asserted; the mailto: case rewrites it in the document.
+            NUXT_PUBLIC_SUPPORT_URL: 'https://support.example.test/help',
           },
           reuseExistingServer: !process.env['CI'],
           timeout: 180_000,
@@ -140,6 +148,14 @@ export default defineConfig({
             PORT: '4176',
             NITRO_PORT: '4176',
             NUXT_API_ORIGIN: 'http://127.0.0.1:4175',
+            // The two embed tests of interview-call.spec.ts drive a whole interview inside
+            // this server's frame: its own origin for the api, the mock provider, the same
+            // fake measurement ID and support URL as the main server. NUXT_API_ORIGIN
+            // above also makes the CSP middleware find an allowed host for the frame.
+            NUXT_PUBLIC_API_BASE: 'http://127.0.0.1:4176/api',
+            NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK: 'true',
+            NUXT_PUBLIC_GA_MEASUREMENT_ID: 'G-E2ETEST',
+            NUXT_PUBLIC_SUPPORT_URL: 'https://support.example.test/help',
           },
           reuseExistingServer: !process.env['CI'],
           timeout: 60_000,

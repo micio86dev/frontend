@@ -54,7 +54,7 @@ const LOCALES = [
 
 let wrapper: VueWrapper | null = null
 
-async function mountShell(messages: Messages) {
+async function mountShell(messages: Messages, position?: 'top-right' | 'top-left') {
   const t = translatorFor(messages)
   vi.stubGlobal(
     'useI18n',
@@ -65,7 +65,7 @@ async function mountShell(messages: Messages) {
     setup: () => () =>
       h('div', [
         h('button', { id: 'focused-control', type: 'button' }, 'control'),
-        h(IntegrityToaster),
+        h(IntegrityToaster, position ? { position } : undefined),
         h(IntegrityToast, { events: events.value }),
       ]),
   })
@@ -197,6 +197,47 @@ describe('integrity toast behaviour', () => {
     expect(shell.toasts().filter((el) => el.getAttribute('data-removed') !== 'true')).toHaveLength(
       0
     )
+  })
+})
+
+describe('integrity toast position (candidate-interview-call-ui D11)', () => {
+  /** What vue-sonner stamps on the list a toast sits in. */
+  async function positionOf(position?: 'top-right' | 'top-left') {
+    const shell = await mountShell(enMessages as Messages, position)
+    await shell.emit('face_absent')
+    const list = document.querySelector('[data-sonner-toaster]')!
+    return {
+      x: list.getAttribute('data-x-position'),
+      y: list.getAttribute('data-y-position'),
+      style: list.getAttribute('style') ?? '',
+    }
+  }
+
+  it('is top right by default, exactly as before', async () => {
+    const placed = await positionOf()
+
+    expect(placed.x).toBe('right')
+    expect(placed.y).toBe('top')
+  })
+
+  it('stays top right when asked for top right', async () => {
+    const placed = await positionOf('top-right')
+
+    expect(placed.x).toBe('right')
+    expect(placed.y).toBe('top')
+  })
+
+  it('honours top left, which the call screen uses so the toast never covers the side panel', async () => {
+    const placed = await positionOf('top-left')
+
+    expect(placed.x).toBe('left')
+    expect(placed.y).toBe('top')
+  })
+
+  it('anchors the top-left toast to the wide header column, not the default one', async () => {
+    const wide = await positionOf('top-left')
+
+    expect(wide.style).toContain('96rem')
   })
 })
 
