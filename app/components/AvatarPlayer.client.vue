@@ -24,7 +24,7 @@
       requires content that exists before playback.
 
       The requirement itself is met by a different mechanism. The avatar's
-      speech is rendered as live text by <InterviewCaption>, driven by the
+      speech is rendered as live text by <CallQuestion>, driven by the
       provider's transcript events — see the `transcript` handler in
       pages/interview/[token].vue. That is a caption in the sense WCAG 1.2.4
       (Captions, Live) actually asks for; <track> is one way to deliver it and

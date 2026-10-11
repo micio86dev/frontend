@@ -65,7 +65,6 @@ const REQUIRED_KEYS = [
   // visually hidden new-tab note.
   'interview.call.help.label',
   'interview.call.help.new_tab',
-  'interview.live.pause',
   'interview.scheduled_pause.title',
   'interview.scheduled_pause.body',
   'interview.scheduled_pause.resume',

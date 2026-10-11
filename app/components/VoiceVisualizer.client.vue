@@ -4,7 +4,7 @@
       `role="img"` with a STATIC label, never a live region.
 
       What the interviewer is saying is already delivered as text by
-      <InterviewCaption>, driven by the provider's transcript events — that is
+      <CallQuestion>, driven by the provider's transcript events — that is
       the WCAG 1.2.4 answer and it is live. This canvas carries one further
       fact, "the voice is speaking right now", and announcing that on every
       amplitude change would bury the caption under noise. So it is labelled

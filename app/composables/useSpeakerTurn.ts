@@ -29,7 +29,7 @@
  * COST: one `setInterval` reading two analysers, started when the session becomes
  * `live` and cleared otherwise. Nothing runs while paused.
  *
- * Armed by `InterviewSession` only with the `candidateCallUi` flag on.
+ * Armed by `InterviewSession` for the call stage.
  */
 
 import { getCurrentScope, onScopeDispose, ref, watch, type Ref } from 'vue'

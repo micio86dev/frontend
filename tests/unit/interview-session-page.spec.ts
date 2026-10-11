@@ -196,7 +196,6 @@ function globalConfig() {
       DeviceCheck: true,
       ProctorOverlay: true,
       InterviewTimer: InterviewTimerStub,
-      InterviewCaption: true,
       InterviewProgressBar: true,
     },
   }
@@ -251,11 +250,10 @@ beforeEach(() => {
     'useI18n',
     vi.fn(() => ({ t: (key: string) => key, locale: ref('it') }))
   )
-  // Same reason: InterviewSession reads the call-screen flag through
-  // useRuntimeConfig(), and an empty public config means the legacy screen.
+  // Same reason: InterviewSession reads the support URL through useRuntimeConfig().
   vi.stubGlobal(
     'useRuntimeConfig',
-    vi.fn(() => ({ public: { candidateCallUi: 'true' } }))
+    vi.fn(() => ({ public: {} }))
   )
 })
 
@@ -263,19 +261,6 @@ afterEach(() => {
   vi.unstubAllGlobals()
   document.body.innerHTML = ''
 })
-
-/**
- * The kill-switch path (candidate-interview-call-ui D1): `NUXT_PUBLIC_CANDIDATE_CALL_UI=false`
- * serves the legacy live screen. The call screen is the default since UI-12, so a
- * spec that names the legacy DOM turns the flag off EXPLICITLY. Deleted with the
- * legacy screen in UI-13.
- */
-function legacyScreen() {
-  vi.stubGlobal(
-    'useRuntimeConfig',
-    vi.fn(() => ({ public: { candidateCallUi: 'false' } }))
-  )
-}
 
 // Flush the microtask queue — the state/errorRedirectUrl watcher body is
 // async (`await session.teardown()` before `redirectToError()`), so a single
@@ -386,20 +371,6 @@ describe('interview/session.vue — timer expiry and skip', () => {
     expect(wrapper.get('[data-testid="call-exit"]').attributes('disabled')).toBeUndefined()
   })
 
-  it('the legacy Pause button still routes to session.pause() (kill switch)', async () => {
-    legacyScreen()
-    const session = makeSession({ state: 'live' })
-    const wrapper = await mountPage(session)
-
-    const pauseButton = wrapper
-      .findAll('button')
-      .find((b) => b.text().includes('interview.live.pause'))
-
-    await pauseButton!.trigger('click')
-
-    expect(session.pause).toHaveBeenCalled()
-  })
-
   // Pausing a LIVE question keeps the provider session up (tearing it down would
   // restart the question from its opening line), so `avatarMounted` stays true —
   // and the standalone `paused` section is ordered AFTER the avatar section in the
@@ -426,8 +397,7 @@ describe('interview/session.vue — timer expiry and skip', () => {
     const wrapper = await mountPage(session)
 
     expect(wrapper.find('[data-testid="call-exit"]').exists()).toBe(false)
-    const labels = wrapper.findAll('button').map((b) => b.text())
-    expect(labels.some((l) => l.includes('interview.live.pause'))).toBe(false)
+    expect(wrapper.findAll('button').map((b) => b.text())).toEqual(['interview.paused.resume'])
   })
 
   // Pausing unmounts the `v-if="live"` block and with it InterviewTimer, whose
@@ -610,9 +580,9 @@ describe('interview/session.vue — timer expiry and skip', () => {
     const session = makeSession({ state: 'end_of_question', provider: null })
     const wrapper = await mountPage(session)
 
-    const labels = wrapper.findAll('button').map((b) => b.text())
-    expect(labels.some((l) => l.includes('interview.live.pause'))).toBe(false)
-    expect(labels.some((l) => l.includes('interview.end_of_question.pause'))).toBe(false)
+    expect(wrapper.findAll('button').map((b) => b.text())).toEqual([
+      'interview.scheduled_pause.resume',
+    ])
   })
 
   it('renders the paused screen with NO avatar mounted — the pause tore the session down', async () => {
@@ -851,105 +821,6 @@ describe('interview/session.vue — expired-session variant (D-D)', () => {
   })
 })
 
-// R3-no-label-tests / R3-turn-reset-ordering (review-538677f49f73b5e6) —
-// `questionLabel`'s reset used to run from a `watch` on `sessionId`, racing
-// its own increment. These tests exercise the counting rules directly and
-// prove the reset-inside-`onProviderState` fix is race-free regardless of
-// which signal a real provider happens to deliver first.
-describe('interview/session.vue — question label', () => {
-  beforeEach(legacyScreen)
-
-  const paramsAwareT = (key: string, params?: Record<string, unknown>) =>
-    params ? `${key}|n=${params.n}` : key
-
-  function findLabel(wrapper: Awaited<ReturnType<typeof mountPage>>) {
-    return wrapper.find('[data-testid="question-label"]').text()
-  }
-
-  it('labels the primary question "N" on the first live speaking turn', async () => {
-    const session = makeSession({ state: 'live' })
-    const wrapper = await mountPage(session, { $t: paramsAwareT })
-
-    const player = wrapper.findComponent(AvatarPlayerStub)
-    player.vm.$emit('state', 'speaking')
-    await nextTick()
-
-    expect(findLabel(wrapper)).toBe('interview.live.question_label|n=1')
-  })
-
-  it('labels a follow-up "N.k" on later live speaking turns in the SAME session', async () => {
-    const session = makeSession({ state: 'live' })
-    const wrapper = await mountPage(session, { $t: paramsAwareT })
-
-    const player = wrapper.findComponent(AvatarPlayerStub)
-    player.vm.$emit('state', 'speaking')
-    player.vm.$emit('state', 'speaking')
-    player.vm.$emit('state', 'speaking')
-    await nextTick()
-
-    expect(findLabel(wrapper)).toBe('interview.live.question_label|n=1.2')
-  })
-
-  it("does NOT count a non-live role speaking — a hidden handover player is not this competency's question", async () => {
-    const incomingProvider = makeProvider()
-    const session = makeSession({
-      state: 'live',
-      incoming: { dbSessionId: 99, provider: incomingProvider, config: CONFIG },
-    })
-    const wrapper = await mountPage(session, { $t: paramsAwareT })
-
-    const players = wrapper.findAllComponents(AvatarPlayerStub)
-    const incoming = players[1]!
-    expect(incoming.props('overlay')).toBe(true) // the hidden incoming player
-
-    incoming.vm.$emit('state', 'speaking')
-    await nextTick()
-
-    // No live turn was ever counted, so the label still reads the primary question.
-    expect(findLabel(wrapper)).toBe('interview.live.question_label|n=1')
-  })
-
-  it('resets the count for a NEW session id even when the first speaking event for it arrives before any watcher would flush', async () => {
-    const session = makeSession({ state: 'live' })
-    const wrapper = await mountPage(session, { $t: paramsAwareT })
-
-    const player = wrapper.findComponent(AvatarPlayerStub)
-    player.vm.$emit('state', 'speaking')
-    player.vm.$emit('state', 'speaking')
-    await nextTick()
-    expect(findLabel(wrapper)).toBe('interview.live.question_label|n=1.1')
-
-    // A new competency issues a new DB session id AND its first 'speaking'
-    // event lands in the same synchronous tick, with no intervening
-    // `nextTick()` — exactly the ordering the fixed reset no longer depends on.
-    session.endedCompetencies.value = 1
-    session.sessionId.value = 99
-    player.vm.$emit('state', 'speaking')
-    await nextTick()
-
-    expect(findLabel(wrapper)).toBe('interview.live.question_label|n=2')
-  })
-
-  it("a trailing speaking event from the OLD session after a session id change is not miscounted as the new session's turn", async () => {
-    const session = makeSession({ state: 'live' })
-    const wrapper = await mountPage(session, { $t: paramsAwareT })
-
-    const player = wrapper.findComponent(AvatarPlayerStub)
-    player.vm.$emit('state', 'speaking')
-    await nextTick()
-
-    session.endedCompetencies.value = 1
-    session.sessionId.value = 99
-    await nextTick()
-
-    // The new session's own first turn.
-    player.vm.$emit('state', 'speaking')
-    await nextTick()
-
-    expect(findLabel(wrapper)).toBe('interview.live.question_label|n=2')
-  })
-})
-
 /**
  * The whole interview sits on the brand canvas (DESIGN.md §7.0.1, §7.2): the
  * client's colour is the page from the landing to the done screen, and the
@@ -1033,15 +904,6 @@ describe('interview session — on the brand canvas in every state', () => {
       expect((await mountPage(makeSession({ state }))).find('footer').exists()).toBe(false)
     }
   )
-
-  it('leaves the avatar panel on its own dark layer, untouched (legacy screen)', async () => {
-    legacyScreen()
-    const wrapper = await mountPage(makeSession({ state: 'live' }))
-    const layer = wrapper.get('[data-slot="avatar-layer"]')
-
-    expect(layer.find('[data-testid="avatar-player"]').exists()).toBe(true)
-    expect(layer.classes()).toContain('shadow-avatar')
-  })
 })
 
 describe('interview session — header chrome', () => {
@@ -1062,62 +924,6 @@ describe('interview session — header chrome', () => {
     const wrapper = await mountPage(makeSession({ state: 'live' }))
 
     expect(wrapper.find('[data-testid="interview-steps"]').exists()).toBe(false)
-  })
-
-  it('moves the question label and the timer into the header while live (legacy screen)', async () => {
-    legacyScreen()
-    const wrapper = await mountPage(makeSession({ state: 'live' }))
-    const status = wrapper.get('header [data-testid="interview-status"]')
-
-    // A white pill: the timer can turn red near the end, which only has a
-    // measured contrast on white, never on an arbitrary client colour.
-    expect(status.classes()).toContain('bg-card')
-    expect(status.find('[data-testid="question-label"]').exists()).toBe(true)
-    expect(status.findComponent(InterviewTimerStub).exists()).toBe(true)
-  })
-
-  it('shows server progress in the header once the server has stated a total (legacy screen)', async () => {
-    legacyScreen()
-    const { default: ProgressBar } = await import('~/app/components/ProgressBar.vue')
-    const session = makeSession({ state: 'live' })
-    const wrapper = await mountPage(session)
-    // Null until the first /end: no bar rather than a bar reading 0 / 0.
-    expect(wrapper.findComponent(ProgressBar).exists()).toBe(false)
-
-    session.endedCompetencies.value = 2
-    session.totalCompetencies.value = 5
-    await nextTick()
-
-    const bar = wrapper.getComponent(ProgressBar)
-    expect(bar.props()).toMatchObject({ current: 2, total: 5, compact: true })
-    expect(
-      wrapper.get('header [data-testid="interview-status"]').element.contains(bar.element)
-    ).toBe(true)
-  })
-})
-
-describe('interview session — the live dock', () => {
-  beforeEach(legacyScreen)
-
-  it('sets the caption and the Pause control on one white surface under the avatar', async () => {
-    const wrapper = await mountPage(makeSession({ state: 'live' }))
-    const dock = wrapper.get('[data-testid="live-dock"]')
-
-    expect(dock.classes()).toContain('bg-card')
-    expect(dock.classes()).toContain('brand-canvas__surface')
-    expect(dock.findComponent({ name: 'InterviewCaption' }).exists()).toBe(true)
-    expect(dock.findAll('button').some((b) => b.text().includes('interview.live.pause'))).toBe(true)
-  })
-
-  it('says what to do while no caption has arrived yet, and steps aside once one has', async () => {
-    const wrapper = await mountPage(makeSession({ state: 'live' }))
-
-    expect(wrapper.get('[data-testid="live-hint"]').text()).toBe('interview.live.listen_hint')
-
-    wrapper.getComponent(AvatarPlayerStub).vm.$emit('transcript', { text: 'Tell me about a time…' })
-    await nextTick()
-
-    expect(wrapper.find('[data-testid="live-hint"]').exists()).toBe(false)
   })
 })
 
