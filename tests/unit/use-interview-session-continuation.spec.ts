@@ -756,6 +756,42 @@ describe('boundary_due on the /utterance 202 (FE-05)', () => {
     expect(callsTo('/candidate/interview/utterance').length).toBe(callsAtTerminal)
   })
 
+  it('a line that fails while a later line is already on its way is still delivered before that later line', async () => {
+    const session = await liveSession()
+    const delivered: string[] = []
+    let failFirstOnce = true
+    let releaseFirst: (() => void) | null = null
+    mockCandidateFetch.mockImplementation(
+      async (path: string, init: { body?: { text?: string } }) => {
+        if (path !== '/candidate/interview/utterance') return queues.get(path)?.shift()
+        const text = init?.body?.text ?? ''
+        if (text === 'first' && failFirstOnce) {
+          await new Promise<void>((resolve) => {
+            releaseFirst = resolve
+          })
+          failFirstOnce = false
+          throw Object.assign(new Error('server error'), { status: 500 })
+        }
+        delivered.push(text)
+
+        return {}
+      }
+    )
+
+    providers[0]!._emit('transcript', { role: 'user', text: 'first', ts: 1 })
+    providers[0]!._emit('transcript', { role: 'user', text: 'second', ts: 2 })
+    await flush()
+    releaseFirst?.()
+    await flush()
+    for (let i = 0; i < 5; i++) {
+      vi.advanceTimersByTime(3_000)
+      await flush()
+    }
+
+    expect(delivered).toEqual(['first', 'second'])
+    expect(session.pendingUtterances.value).toBe(0)
+  })
+
   it('a network outage keeps every line and sends them in order when the connection returns', async () => {
     const session = await liveSession()
     let online = false

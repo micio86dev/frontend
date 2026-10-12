@@ -24,6 +24,11 @@ export class UtteranceOutbox {
     this.items.push(item)
   }
 
+  /** Puts a line back at the head: used for a line that failed after later lines were already waiting behind it. */
+  prepend(item: PendingUtterance): void {
+    this.items.unshift(item)
+  }
+
   /** Removes and returns the head line, for a line the server keeps refusing: the rest must not wait on it. */
   dropHead(): PendingUtterance | undefined {
     return this.items.shift()

@@ -814,6 +814,8 @@ export function useInterviewSession(
   let outboxStalledAttempts = 0
   /** Whether the last failed send to the outbox had an HTTP status (a server refusal) rather than no response at all. */
   let lastOutboxFailureWasHttp = false
+  /** Direct sends still on their way: lines spoken meanwhile queue behind them. */
+  let directUtterancesInFlight = 0
 
   function clearOutboxRetry(): void {
     if (outboxRetryTimer !== null) clearTimeout(outboxRetryTimer)
@@ -946,14 +948,17 @@ export function useInterviewSession(
       text,
       ts: new Date().toISOString(),
     }
-    if (utteranceOutbox.size > 0) {
+    // Behind anything still waiting, or behind a direct send already on its way: the server must see lines in spoken order.
+    if (utteranceOutbox.size > 0 || directUtterancesInFlight > 0) {
       utteranceOutbox.enqueue(item)
       pendingUtterances.value = utteranceOutbox.size
-      await flushUtterances()
+      if (directUtterancesInFlight === 0) await flushUtterances()
 
       return false
     }
 
+    directUtterancesInFlight += 1
+    let retryLater = false
     try {
       const body = await candidateFetch<UtteranceResponse>('/candidate/interview/utterance', {
         method: 'POST',
@@ -971,8 +976,14 @@ export function useInterviewSession(
       }
 
       if (isRetryableUtteranceError(err)) {
-        utteranceOutbox.enqueue(item)
+        // This line is older than anything queued behind it, so it goes back to the head. It waits for
+        // the retry timer rather than being sent again straight away.
+        retryLater = true
+        utteranceOutbox.prepend(item)
         pendingUtterances.value = utteranceOutbox.size
+        const status =
+          (err as Record<string, unknown>)?.status ?? (err as Record<string, unknown>)?.statusCode
+        lastOutboxFailureWasHttp = typeof status === 'number'
         scheduleOutboxFlush()
 
         return false
@@ -987,6 +998,11 @@ export function useInterviewSession(
       }
 
       return false
+    } finally {
+      directUtterancesInFlight -= 1
+      // Whatever queued up behind a delivered send goes out now, in order. After a failure the retry timer handles it.
+      if (!retryLater && directUtterancesInFlight === 0 && utteranceOutbox.size > 0)
+        void flushUtterances()
     }
   }
 
