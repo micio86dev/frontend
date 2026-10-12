@@ -7506,6 +7506,11 @@ export interface operations {
                     session_id: number;
                     /** @enum {string} */
                     ended_reason: "completed" | "timeout" | "skipped";
+                    /**
+                     * @description The whole interview's time is spent: this question ends on its closing phrase, and
+                     *     no further competency starts. Absent means false, so existing clients are unchanged.
+                     */
+                    budget_spent?: boolean;
                 };
             };
         };

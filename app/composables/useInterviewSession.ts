@@ -102,7 +102,6 @@ import { ref, shallowRef, computed, type ComputedRef } from 'vue'
 import { createProvider } from '~/app/providers/factory'
 import { effectiveViewportWidth } from '~/app/utils/browser-gate'
 import { interviewMaxSecondsFrom } from '~/app/utils/interview-max-seconds'
-import { directiveWithinBudget } from '~/app/utils/interview-budget'
 import {
   canSteerContext,
   type InterviewProvider,
@@ -289,6 +288,10 @@ export interface UseInterviewSessionReturn {
   endedCompetencies: ReturnType<typeof ref<number | null>>
   /** Total competencies in the project, from the /end directive. */
   totalCompetencies: ReturnType<typeof ref<number | null>>
+  /** The interview's total time limit from the active template, once a start response has named it. */
+  interviewMaxSeconds: ReturnType<typeof ref<number | null>>
+  /** Set once the whole interview's time is spent: the question in progress finishes, and the server settles the interview. */
+  interviewBudgetSpent: ReturnType<typeof ref<boolean>>
   /**
    * Provider awaiting mount by AvatarPlayer; null whenever no question is in flight.
    *
@@ -873,6 +876,8 @@ export function useInterviewSession(
         body: {
           session_id: dbSessionId,
           ended_reason: endedReason,
+          // The server settles the interview and answers `done`, so no competency starts.
+          budget_spent: interviewBudgetSpent.value,
         },
       })
 
@@ -886,9 +891,7 @@ export function useInterviewSession(
 
       const action = response?.next_action
       // An unrecognised value is treated exactly like an absent one.
-      const directive =
-        action === 'continue' || action === 'pause' || action === 'done' ? action : null
-      return directiveWithinBudget(directive, interviewBudgetSpent.value)
+      return action === 'continue' || action === 'pause' || action === 'done' ? action : null
     } catch (err) {
       // 401 → distinct, non-retryable terminal — checked BEFORE 403 so a
       // cleared/expired session is never mistaken for a gate refusal.
@@ -1521,7 +1524,7 @@ export function useInterviewSession(
         return
       }
 
-      const continuation = parseContinuation(response as unknown as Record<string, unknown>)
+      const continuation = parseContinuation(response)
       if (continuation !== null && continuation !== 'malformed') {
         // No handle was issued: the joined one keeps playing. Released before
         // the steering is applied because a failed steering re-enters
