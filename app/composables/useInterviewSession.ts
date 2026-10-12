@@ -161,6 +161,8 @@ type StartResponse = operations['interview.start']['responses'][200]['content'][
  * types, never to a hand-written generic. The API now publishes the shape.
  */
 type EndResponse = operations['interview.end']['responses'][200]['content']['application/json']
+type UtteranceResponse =
+  operations['utterance.store']['responses'][202]['content']['application/json']
 
 // ---------------------------------------------------------------------------
 // Types
@@ -437,6 +439,8 @@ type ParsedContinuation = { conversationId: string; competencyCode: CompetencyCo
  * provider handle (token or URL). A continuation names a conversation the
  * browser is already in; a handle would be a second one.
  */
+// Runtime boundary: the input is whatever the server actually sent, so every field is checked here.
+// The generated StartResponse type describes the contract, not what arrives, so it is not used as the input type.
 function parseContinuation(r: Record<string, unknown>): ParsedContinuation | null | 'malformed' {
   const raw = r['continuation']
   if (raw === undefined || raw === null) return null
@@ -560,7 +564,11 @@ export function useInterviewSession(
   /** The interview's total time limit from the active template, once a start response has named it. */
   const interviewMaxSeconds = ref<number | null>(null)
   /** Set once the whole interview's time is spent: the question in progress finishes, and nothing after it starts. */
+  // Never reset: once the whole time is spent the interview is over, so every later /end (including a retry after a failed one) must say so.
   const interviewBudgetSpent = ref(false)
+  /** A /end that failed before the server confirmed it. Retry re-sends this one, never a new start. */
+  let pendingEnd: { dbSessionId: number; endedReason: 'completed' | EndQuestionReason } | null =
+    null
 
   /** D1: the live slot — what the candidate is looking at right now. */
   const activeSession = shallowRef<ProviderSession | null>(null)
@@ -805,7 +813,7 @@ export function useInterviewSession(
     speaker: 'candidate' | 'avatar'
   ): Promise<boolean> {
     try {
-      const body = await candidateFetch<unknown>('/candidate/interview/utterance', {
+      const body = await candidateFetch<UtteranceResponse>('/candidate/interview/utterance', {
         method: 'POST',
         body: {
           session_id: dbSessionId,
@@ -814,7 +822,7 @@ export function useInterviewSession(
           ts: new Date().toISOString(),
         },
       })
-      return (body as { boundary_due?: unknown } | null | undefined)?.boundary_due === true
+      return body?.boundary_due === true
     } catch (err) {
       // 401 → the stored session has already expired or been cleared
       // (candidateFetch clears it before throwing). Distinct, non-retryable
@@ -916,10 +924,13 @@ export function useInterviewSession(
 
         return null
       }
-      // Other errors on /end — log; the caller degrades to the pause screen
+      // Any other failure (network drop, 5xx): the answer was not confirmed, so the
+      // candidate is told the truth and can retry THIS end. Not a planned pause.
       console.warn('[useInterviewSession] /end unexpected error:', err)
+      pendingEnd = { dbSessionId, endedReason }
+      transitionTo('error')
 
-      return null
+      return 'noop'
     }
   }
 
@@ -1524,7 +1535,7 @@ export function useInterviewSession(
         return
       }
 
-      const continuation = parseContinuation(response)
+      const continuation = parseContinuation(response as unknown as Record<string, unknown>)
       if (continuation !== null && continuation !== 'malformed') {
         // No handle was issued: the joined one keeps playing. Released before
         // the steering is applied because a failed steering re-enters
@@ -1803,6 +1814,13 @@ export function useInterviewSession(
 
   function retry() {
     retryAttemptCount.value = 0
+    if (pendingEnd !== null) {
+      const { dbSessionId, endedReason } = pendingEnd
+      pendingEnd = null
+      void callEnd(dbSessionId, endedReason).then(advanceAfterQuestion)
+
+      return
+    }
     confirmDevices()
   }
 

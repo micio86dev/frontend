@@ -323,6 +323,25 @@ describe('interview/session.vue — live render path', () => {
 })
 
 describe('interview/session.vue — timer expiry and skip', () => {
+  it('a grace timer armed at expiry never closes a session that has already moved on', async () => {
+    vi.useFakeTimers()
+    try {
+      const session = makeSession({ state: 'live' })
+      const wrapper = await mountPage(session)
+
+      await wrapper.find('[data-testid="fire-expired"]').trigger('click')
+      // The closing phrase completes the question before the grace period ends.
+      session.state.value = 'end_of_question'
+      await nextTick()
+
+      vi.advanceTimersByTime(INTERVIEW_CLOSING_GRACE_MS)
+
+      expect(session.endQuestion).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('timer expiry spends the whole budget and lets the question finish, closing only after the grace period', async () => {
     vi.useFakeTimers()
     try {

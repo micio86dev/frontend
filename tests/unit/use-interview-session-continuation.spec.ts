@@ -369,7 +369,7 @@ describe('single-session continuation flow', () => {
     ['a network error', () => new Thrown(new TypeError('Failed to fetch'))],
     ['a 5xx', () => new Thrown(Object.assign(new Error('boom'), { status: 503 }))],
   ])(
-    'a non-409 /end failure (%s) restores the mic, frees the guard and advances nothing',
+    'a non-409 /end failure (%s) restores the mic, frees the guard, shows the retryable error and advances nothing',
     async (_label, failure) => {
       vi.spyOn(console, 'warn').mockImplementation(() => {})
       const session = await liveSession()
@@ -386,7 +386,7 @@ describe('single-session continuation flow', () => {
       expect(providers[0]!.sendBoundary).not.toHaveBeenCalled()
       expect(mockCreateProvider).toHaveBeenCalledTimes(1)
       expect(session.sessionId.value).toBe(A)
-      expect(session.state.value).toBe('end_of_question')
+      expect(session.state.value).toBe('error')
 
       // The in-flight guard was reset, so a later boundary is not locked out.
       expect(session.handoverInFlight.value).toBe(false)

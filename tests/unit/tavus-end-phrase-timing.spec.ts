@@ -139,6 +139,28 @@ describe('TavusProvider — the end phrase waits for the avatar to finish speaki
     expect(states).not.toContain('complete')
   })
 
+  it('a repeated end phrase while the avatar speaks completes the question exactly once', async () => {
+    await startProvider()
+
+    frame._emit('app-message', replicaStarted)
+    frame._emit('app-message', endUtterance())
+    frame._emit('app-message', endUtterance())
+    frame._emit('app-message', replicaStopped)
+
+    expect(states.filter((state) => state === 'complete')).toHaveLength(1)
+  })
+
+  it('a repeated end phrase keeps the fallback armed, so a lost stopped_speaking still closes the question', async () => {
+    await startProvider()
+
+    frame._emit('app-message', replicaStarted)
+    frame._emit('app-message', endUtterance())
+    frame._emit('app-message', endUtterance())
+    vi.advanceTimersByTime(COMPLETION_FALLBACK_MS)
+
+    expect(states.filter((state) => state === 'complete')).toHaveLength(1)
+  })
+
   it('a deferred completion never fires after stop()', async () => {
     const provider = await startProvider()
 

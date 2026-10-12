@@ -263,7 +263,7 @@
           id="paused-heading"
           ref="suspendedHeading"
           tabindex="-1"
-          class="text-lg font-semibold text-foreground outline-none"
+          class="text-lg font-semibold text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           {{ $t('interview.call.suspended.title') }}
         </h2>
@@ -816,6 +816,7 @@ const interviewRemaining = ref(FALLBACK_INTERVIEW_SECONDS)
 
 // The start response names the template's limit. It seeds the clock ONCE, even when it
 // arrives after some live time has already run; later competencies keep counting down.
+// One interview per page mount: the page is not reused for a second interview, so the seed is one-shot.
 let interviewLimitSeeded = false
 watch(
   () => session.interviewMaxSeconds.value,
@@ -902,9 +903,21 @@ async function onTimerExpired(): Promise<void> {
   }, INTERVIEW_CLOSING_GRACE_MS)
 }
 
-onBeforeUnmount(() => {
+function clearClosingGrace(): void {
   if (closingGraceTimer !== null) clearTimeout(closingGraceTimer)
-})
+  closingGraceTimer = null
+}
+
+// The closing phrase may complete the question before the grace period ends. A session
+// that has left `live` must not be closed again by a timer armed for the question before.
+watch(
+  () => session.state.value,
+  (state) => {
+    if (state !== 'live') clearClosingGrace()
+  }
+)
+
+onBeforeUnmount(clearClosingGrace)
 
 // ---------------------------------------------------------------------------
 // End of Question / next competency
