@@ -45,7 +45,9 @@
       "camera_picker_label": "Camera",
       "mic_picker_label": "Microphone",
       "camera_fallback": "Camera {n}",
-      "mic_fallback": "Microphone {n}"
+      "mic_fallback": "Microphone {n}",
+      "connection_slow": "The connection is slow: the interview may stutter. If you can, switch to a more stable network before starting.",
+      "connection_unreachable": "We cannot reach the service. Check your connection before you start."
     },
     "live": {
       "timer_label": "Time remaining",

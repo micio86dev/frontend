@@ -327,7 +327,7 @@ export interface UseInterviewSessionReturn {
   resume: () => void
   retry: () => void
   nextCompetency: () => void
-  /** End the current question early (5-minute timer expiry, or the candidate skipping). */
+  /** End the current question early (the whole interview's time is spent). */
 
   endQuestion: (reason: EndQuestionReason) => Promise<void>
   teardown: () => Promise<void>
@@ -377,6 +377,9 @@ const RETRY_DELAY_MS = 3000
 const UTTERANCE_DRAIN_CEILING_MS = 3_000
 /** How often the outbox tries again while transcript lines are waiting for the network. */
 const UTTERANCE_OUTBOX_RETRY_MS = 3_000
+
+/** A dropped avatar connection is re-established by itself this many times in a row, waiting longer each time. */
+const AUTO_RECONNECT_DELAYS_MS = [2_000, 4_000, 8_000] as const
 /** After this many attempts in a row with no line settled, the outbox stops retrying on a timer. The notice stays, and the next line or /end tries once more. */
 const UTTERANCE_OUTBOX_MAX_STALLED_ATTEMPTS = 20
 
@@ -436,6 +439,11 @@ const CONNECTING_CEILING_MS = 20_000
  * meant `absent_phrase` was never matched against a real provider, and the state
  * fallback below silently absorbed every other failure under the same reason.
  */
+/** An established connection to the avatar was lost. An SDK start failure is not a drop and is not retried here. */
+function isConnectionDrop(code: string | null): boolean {
+  return code === 'disconnected'
+}
+
 function providerErrorCode(payload: unknown): string | null {
   if (typeof payload === 'string') return payload
   if (payload && typeof payload === 'object') {
@@ -687,7 +695,10 @@ export function useInterviewSession(
 
   function transitionTo(next: SessionState) {
     state.value = next
-    if (next === 'done' || next === 'terminal' || next === 'error') clearOutboxRetry()
+    if (next === 'done' || next === 'terminal' || next === 'error') {
+      clearOutboxRetry()
+      clearAutoReconnect()
+    }
 
     // Remove resize listener on terminal states
     if (next === 'done' || next === 'terminal' || next === 'error') {
@@ -816,6 +827,13 @@ export function useInterviewSession(
   let lastOutboxFailureWasHttp = false
   /** Direct sends still on their way: lines spoken meanwhile queue behind them. */
   let directUtterancesInFlight = 0
+  let autoReconnectAttempts = 0
+  let autoReconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+  function clearAutoReconnect(): void {
+    if (autoReconnectTimer !== null) clearTimeout(autoReconnectTimer)
+    autoReconnectTimer = null
+  }
 
   function clearOutboxRetry(): void {
     if (outboxRetryTimer !== null) clearTimeout(outboxRetryTimer)
@@ -1288,6 +1306,7 @@ export function useInterviewSession(
         // post-bound reconnect) and ONLY for the live handle — an incoming
         // handle's (or a stale, already-released handle's) `ready` is inert.
         if (isLive && state.value === 'connecting') {
+          autoReconnectAttempts = 0
           transitionTo('live')
           attachResizeListener()
         }
@@ -1399,6 +1418,25 @@ export function useInterviewSession(
         // the incoming; the bound timer and the connecting-ceiling keep
         // bounding it. The mic is already muted (`beginHandover`).
         logHandoverEvent('outgoing-died-before-incoming')
+        return
+      }
+
+      // A dropped connection is re-established by itself, a few times, before the candidate is asked to retry.
+      if (
+        (state.value === 'live' || state.value === 'connecting') &&
+        isConnectionDrop(code) &&
+        autoReconnectAttempts < AUTO_RECONNECT_DELAYS_MS.length
+      ) {
+        const delay = AUTO_RECONNECT_DELAYS_MS[autoReconnectAttempts]!
+        autoReconnectAttempts += 1
+        handle.provider.stop().catch(() => {})
+        transitionTo('connecting')
+        clearAutoReconnect()
+        autoReconnectTimer = setTimeout(() => {
+          autoReconnectTimer = null
+          void startSession(0, 'active')
+        }, delay)
+
         return
       }
 

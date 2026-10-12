@@ -1749,13 +1749,14 @@ describe('useInterviewSession', () => {
       expect(session.activeProvider.value).toBe(mockProviderRegistry[1])
     })
 
-    it('the same error with NO handover in progress still goes to error', async () => {
+    it('the same drop with NO handover in progress reconnects first, and only then reaches the error screen', async () => {
       const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
 
       mockProviderRegistry[0]!._emit('error', { code: 'disconnected', message: 'lost' })
       await flushPromises()
 
-      expect(session.state.value).toBe('error')
+      // A drop is re-established by itself (bounded); the error screen comes only once that gives up.
+      expect(session.state.value).toBe('connecting')
     })
   })
 

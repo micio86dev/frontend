@@ -792,6 +792,39 @@ describe('boundary_due on the /utterance 202 (FE-05)', () => {
     expect(session.pendingUtterances.value).toBe(0)
   })
 
+  it('an avatar connection that drops mid-question reconnects by itself, with a bounded wait, instead of showing the error at once', async () => {
+    const session = await liveSession()
+    queue('/candidate/interview/start', fresh(A))
+
+    providers[0]!._emit('error', { code: 'disconnected' })
+    await flush()
+    expect(session.state.value).toBe('connecting')
+
+    vi.advanceTimersByTime(2_000)
+    await flush()
+
+    expect(starts()).toHaveLength(2)
+  })
+
+  it('gives up after a few automatic reconnects and shows the error with retry', async () => {
+    const session = await liveSession()
+    mockCandidateFetch.mockImplementation(async (path: string) => {
+      if (path === '/candidate/interview/start')
+        throw Object.assign(new Error('down'), { status: 503 })
+
+      return queues.get(path)?.shift()
+    })
+
+    for (let i = 0; i < 6; i++) {
+      providers[providers.length - 1]!._emit('error', { code: 'disconnected' })
+      await flush()
+      vi.advanceTimersByTime(60_000)
+      await flush()
+    }
+
+    expect(session.state.value).toBe('error')
+  })
+
   it('a network outage keeps every line and sends them in order when the connection returns', async () => {
     const session = await liveSession()
     let online = false
