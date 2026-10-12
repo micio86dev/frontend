@@ -236,8 +236,10 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
     }
 
     // Path 1 — the tool call. Precise, and never observed to fire.
+    // Same rule as the spoken phrase: the closing sentence has to finish first.
     if (data.type === 'conversation.tool_call' && data.name === 'end_interview') {
-      this.emitState('complete')
+      if (this.replicaSpeaking) this.deferCompletion()
+      else this.emitState('complete')
 
       return
     }
@@ -320,12 +322,17 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
     // Completing now would hand the question over and cut the last sentence.
     if (isAvatar && this.phrases !== null && matchesEndPhrase(speech, this.phrases)) {
       if (this.replicaSpeaking) {
-        this.endPhrasePending = true
-        this.completionTimer ??= setTimeout(() => this.finishCompletion(), COMPLETION_FALLBACK_MS)
+        this.deferCompletion()
       } else {
         this.emitState('complete')
       }
     }
+  }
+
+  /** Completes once the avatar stops speaking, or after the fallback window. */
+  private deferCompletion(): void {
+    this.endPhrasePending = true
+    this.completionTimer ??= setTimeout(() => this.finishCompletion(), COMPLETION_FALLBACK_MS)
   }
 
   private finishCompletion(): void {

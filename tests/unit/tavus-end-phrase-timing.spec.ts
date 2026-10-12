@@ -139,10 +139,23 @@ describe('TavusProvider — the end phrase waits for the avatar to finish speaki
     expect(states).not.toContain('complete')
   })
 
-  it('keeps the tool-call completion immediate (unchanged path)', async () => {
+  it('completes the tool call immediately when the avatar is not speaking', async () => {
     await startProvider()
 
     frame._emit('app-message', { data: { type: 'conversation.tool_call', name: 'end_interview' } })
+
+    expect(states).toContain('complete')
+  })
+
+  it('does not complete the tool call while the avatar is still speaking its closing sentence', async () => {
+    await startProvider()
+
+    frame._emit('app-message', replicaStarted)
+    frame._emit('app-message', { data: { type: 'conversation.tool_call', name: 'end_interview' } })
+
+    expect(states).not.toContain('complete')
+
+    frame._emit('app-message', replicaStopped)
 
     expect(states).toContain('complete')
   })
