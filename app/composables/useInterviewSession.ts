@@ -812,6 +812,8 @@ export function useInterviewSession(
   const pendingUtterances = ref(0)
   let outboxRetryTimer: ReturnType<typeof setTimeout> | null = null
   let outboxStalledAttempts = 0
+  /** Whether the last failed send to the outbox had an HTTP status (a server refusal) rather than no response at all. */
+  let lastOutboxFailureWasHttp = false
 
   function clearOutboxRetry(): void {
     if (outboxRetryTimer !== null) clearTimeout(outboxRetryTimer)
@@ -876,7 +878,14 @@ export function useInterviewSession(
 
         return true
       }
-      if (isRetryableUtteranceError(err)) return false
+      if (isRetryableUtteranceError(err)) {
+        // A network outage is not a refusal: it never counts towards dropping a line.
+        const status =
+          (err as Record<string, unknown>)?.status ?? (err as Record<string, unknown>)?.statusCode
+        lastOutboxFailureWasHttp = typeof status === 'number'
+
+        return false
+      }
 
       // 409 = the row is no longer in_corso, a 4xx is refused for good: both settle the line.
       const status =
@@ -896,9 +905,12 @@ export function useInterviewSession(
     if (terminalReason.value !== null) return
 
     const before = utteranceOutbox.size
+    lastOutboxFailureWasHttp = false
     await utteranceOutbox.flush(deliverUtterance)
     const settled = before - utteranceOutbox.size
-    outboxStalledAttempts = settled > 0 ? 0 : outboxStalledAttempts + 1
+    // Only a server refusal (HTTP 5xx or 429) counts as stalled. A network outage waits and never drops a line.
+    if (settled > 0) outboxStalledAttempts = 0
+    else if (lastOutboxFailureWasHttp) outboxStalledAttempts += 1
 
     // A head line the server keeps refusing is dropped, so it cannot hold back every line after it.
     if (

@@ -706,10 +706,11 @@ describe('boundary_due on the /utterance 202 (FE-05)', () => {
     expect(session.pendingUtterances.value).toBe(0)
   })
 
-  it('a line the network never accepts is retried a bounded number of times, then dropped', async () => {
+  it('a line the server keeps refusing with a 5xx is retried a bounded number of times, then dropped', async () => {
     const session = await liveSession()
     mockCandidateFetch.mockImplementation(async (path: string) => {
-      if (path === '/candidate/interview/utterance') throw new TypeError('Failed to fetch')
+      if (path === '/candidate/interview/utterance')
+        throw Object.assign(new Error('server error'), { status: 500 })
 
       return queues.get(path)?.shift()
     })
@@ -753,6 +754,41 @@ describe('boundary_due on the /utterance 202 (FE-05)', () => {
     }
 
     expect(callsTo('/candidate/interview/utterance').length).toBe(callsAtTerminal)
+  })
+
+  it('a network outage keeps every line and sends them in order when the connection returns', async () => {
+    const session = await liveSession()
+    let online = false
+    mockCandidateFetch.mockImplementation(
+      async (path: string, init: { body?: { text?: string } }) => {
+        if (path === '/candidate/interview/utterance') {
+          if (!online) throw new TypeError('Failed to fetch')
+          sent.push(init?.body?.text ?? '')
+
+          return {}
+        }
+
+        return queues.get(path)?.shift()
+      }
+    )
+    const sent: string[] = []
+    providers[0]!._emit('transcript', { role: 'user', text: 'first', ts: 1 })
+    providers[0]!._emit('transcript', { role: 'user', text: 'second', ts: 2 })
+    await flush()
+
+    // A minute and a half of outage: far longer than the bounded server-refusal attempts.
+    for (let i = 0; i < 30; i++) {
+      vi.advanceTimersByTime(3_000)
+      await flush()
+    }
+    expect(session.pendingUtterances.value).toBe(2)
+
+    online = true
+    vi.advanceTimersByTime(3_000)
+    await flush()
+
+    expect(sent).toEqual(['first', 'second'])
+    expect(session.pendingUtterances.value).toBe(0)
   })
 
   it('a line the server keeps refusing with a 5xx does not hold back the lines after it', async () => {
