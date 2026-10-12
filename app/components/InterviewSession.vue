@@ -522,6 +522,7 @@ import { Alert, AlertTitle } from '~/components/ui/alert'
 import CallQuestion from '~/components/molecules/CallQuestion.vue'
 import CallExitDialog from '~/components/molecules/CallExitDialog.vue'
 import CallHelpLink from '~/components/molecules/CallHelpLink.vue'
+import { interviewRemainingSeconds } from '~/app/utils/interview-max-seconds'
 import CallSelfView from '~/components/molecules/CallSelfView.client.vue'
 import CallTile from '~/components/molecules/CallTile.vue'
 import CallPanel from '~/components/organisms/CallPanel.vue'
@@ -803,12 +804,15 @@ const FALLBACK_INTERVIEW_SECONDS = 300
  */
 const interviewRemaining = ref(FALLBACK_INTERVIEW_SECONDS)
 
-// The start response names the template's limit. It is set once, before the candidate
-// has used any of it; later competencies keep counting down from where the clock stands.
+// The start response names the template's limit. It seeds the clock ONCE, even when it
+// arrives after some live time has already run; later competencies keep counting down.
+let interviewLimitSeeded = false
 watch(
   () => session.interviewMaxSeconds.value,
   (maxSeconds) => {
-    if (maxSeconds !== null && elapsedSeconds.value === 0) interviewRemaining.value = maxSeconds
+    if (maxSeconds === null || interviewLimitSeeded) return
+    interviewLimitSeeded = true
+    interviewRemaining.value = interviewRemainingSeconds(maxSeconds, elapsedSeconds.value)
   },
   { immediate: true }
 )

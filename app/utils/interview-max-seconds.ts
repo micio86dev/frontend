@@ -8,3 +8,11 @@
 export function interviewMaxSecondsFrom(value: unknown): number | null {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null
 }
+
+/**
+ * The seconds left in the interview: the template limit less the live time already
+ * used, never below zero. Used when the limit arrives after some time has run.
+ */
+export function interviewRemainingSeconds(maxSeconds: number, elapsedSeconds: number): number {
+  return Math.max(0, maxSeconds - elapsedSeconds)
+}
