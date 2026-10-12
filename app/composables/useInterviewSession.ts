@@ -373,6 +373,8 @@ const RETRY_DELAY_MS = 3000
 const UTTERANCE_DRAIN_CEILING_MS = 3_000
 /** How often the outbox tries again while transcript lines are waiting for the network. */
 const UTTERANCE_OUTBOX_RETRY_MS = 3_000
+/** After this many attempts in a row with no line settled, the outbox stops retrying on a timer. The notice stays, and the next line or /end tries once more. */
+const UTTERANCE_OUTBOX_MAX_STALLED_ATTEMPTS = 20
 
 /** Resolves with `work`, or after `ms` with nothing: the caller is never held longer than the ceiling. */
 function withCeiling(work: Promise<void>, ms: number): Promise<void> {
@@ -454,22 +456,25 @@ type ParsedContinuation = { conversationId: string; competencyCode: CompetencyCo
  * provider handle (token or URL). A continuation names a conversation the
  * browser is already in; a handle would be a second one.
  */
-// Runtime boundary: the input is whatever the server actually sent, so every field is checked here.
-// The generated StartResponse type describes the contract, not what arrives, so it is not used as the input type.
-function parseContinuation(r: Record<string, unknown>): ParsedContinuation | null | 'malformed' {
-  const raw = r['continuation']
-  if (raw === undefined || raw === null) return null
-  if (typeof raw !== 'object') return 'malformed'
+type Continuation = NonNullable<StartResponse['continuation']>
 
-  const c = raw as Record<string, unknown>
-  if (typeof c['conversation_id'] !== 'string' || c['conversation_id'] === '') return 'malformed'
-  if (typeof c['competency_code'] !== 'string') return 'malformed'
-  const competencyCode = asCompetencyCode(c['competency_code'])
+/**
+ * Reads a start response's continuation. The field names and types come from the generated
+ * contract; the checks below are the runtime guard, because a type describes what the server
+ * promises, not what arrives on the wire.
+ */
+function parseContinuation(response: StartResponse): ParsedContinuation | null | 'malformed' {
+  const continuation: Continuation | null | undefined = response.continuation
+  if (continuation === undefined || continuation === null) return null
+  if (typeof continuation !== 'object') return 'malformed'
+  if (typeof continuation.conversation_id !== 'string' || continuation.conversation_id === '')
+    return 'malformed'
+  const competencyCode = asCompetencyCode(continuation.competency_code)
   if (competencyCode === null) return 'malformed'
 
-  if (r['provider_token'] != null || r['conversation_url'] != null) return 'malformed'
+  if (response.provider_token != null || response.conversation_url != null) return 'malformed'
 
-  return { conversationId: c['conversation_id'], competencyCode }
+  return { conversationId: continuation.conversation_id, competencyCode }
 }
 
 /** Everything `isValidStartResponse` checks except the continuation. */
@@ -526,7 +531,8 @@ function isBaseValidStartResponse(response: unknown): boolean {
 export function isValidStartResponse(response: unknown): response is StartResponse {
   if (!isBaseValidStartResponse(response)) return false
 
-  return parseContinuation(response as Record<string, unknown>) !== 'malformed'
+  // The shape was checked above; the continuation check reads it through the generated contract.
+  return parseContinuation(response as StartResponse) !== 'malformed'
 }
 
 // ---------------------------------------------------------------------------
@@ -677,6 +683,7 @@ export function useInterviewSession(
 
   function transitionTo(next: SessionState) {
     state.value = next
+    if (next === 'done' || next === 'terminal' || next === 'error') clearOutboxRetry()
 
     // Remove resize listener on terminal states
     if (next === 'done' || next === 'terminal' || next === 'error') {
@@ -800,6 +807,12 @@ export function useInterviewSession(
   /** How many transcript lines are still waiting for the network: drives the candidate-facing notice. */
   const pendingUtterances = ref(0)
   let outboxRetryTimer: ReturnType<typeof setTimeout> | null = null
+  let outboxStalledAttempts = 0
+
+  function clearOutboxRetry(): void {
+    if (outboxRetryTimer !== null) clearTimeout(outboxRetryTimer)
+    outboxRetryTimer = null
+  }
 
   /**
    * Wait for the utterance tail, bounded.
@@ -874,11 +887,14 @@ export function useInterviewSession(
 
   /** Sends what is waiting, in order. Schedules another attempt while anything is still queued. */
   async function flushUtterances(): Promise<void> {
-    if (outboxRetryTimer !== null) {
-      clearTimeout(outboxRetryTimer)
-      outboxRetryTimer = null
-    }
+    clearOutboxRetry()
+    // A finished or failed interview sends nothing more: the lines it could not deliver are dropped with it.
+    if (terminalReason.value !== null) return
+
+    const before = utteranceOutbox.size
     await utteranceOutbox.flush(deliverUtterance)
+    const settled = before - utteranceOutbox.size
+    outboxStalledAttempts = settled > 0 ? 0 : outboxStalledAttempts + 1
     pendingUtterances.value = utteranceOutbox.size
     if (utteranceOutbox.size > 0 && terminalReason.value === null) scheduleOutboxFlush()
   }
@@ -946,6 +962,7 @@ export function useInterviewSession(
 
   function scheduleOutboxFlush(): void {
     if (outboxRetryTimer !== null) return
+    if (outboxStalledAttempts >= UTTERANCE_OUTBOX_MAX_STALLED_ATTEMPTS) return
     outboxRetryTimer = setTimeout(() => void flushUtterances(), UTTERANCE_OUTBOX_RETRY_MS)
   }
 
@@ -1633,7 +1650,7 @@ export function useInterviewSession(
         return
       }
 
-      const continuation = parseContinuation(response as unknown as Record<string, unknown>)
+      const continuation = parseContinuation(response)
       if (continuation !== null && continuation !== 'malformed') {
         // No handle was issued: the joined one keeps playing. Released before
         // the steering is applied because a failed steering re-enters

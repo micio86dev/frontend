@@ -706,6 +706,54 @@ describe('boundary_due on the /utterance 202 (FE-05)', () => {
     expect(session.pendingUtterances.value).toBe(0)
   })
 
+  it('a line the network never accepts is retried a bounded number of times, not forever', async () => {
+    const session = await liveSession()
+    mockCandidateFetch.mockImplementation(async (path: string) => {
+      if (path === '/candidate/interview/utterance') throw new TypeError('Failed to fetch')
+
+      return queues.get(path)?.shift()
+    })
+    say()
+    await flush()
+
+    for (let i = 0; i < 200; i++) {
+      vi.advanceTimersByTime(3_000)
+      await flush()
+    }
+
+    expect(callsTo('/candidate/interview/utterance').length).toBeLessThanOrEqual(25)
+    expect(session.pendingUtterances.value).toBe(1)
+  })
+
+  it('once the interview is over, a line still waiting is never sent again', async () => {
+    const session = await liveSession()
+    let networkDown = true
+    mockCandidateFetch.mockImplementation(async (path: string) => {
+      if (path === '/candidate/interview/utterance') {
+        if (networkDown) throw new TypeError('Failed to fetch')
+        throw new CandidateUnauthorizedError()
+      }
+
+      return queues.get(path)?.shift()
+    })
+    say()
+    await flush()
+    expect(session.pendingUtterances.value).toBe(1)
+
+    networkDown = false
+    vi.advanceTimersByTime(3_000)
+    await flush()
+    expect(session.state.value).toBe('terminal')
+    const callsAtTerminal = callsTo('/candidate/interview/utterance').length
+
+    for (let i = 0; i < 10; i++) {
+      vi.advanceTimersByTime(3_000)
+      await flush()
+    }
+
+    expect(callsTo('/candidate/interview/utterance').length).toBe(callsAtTerminal)
+  })
+
   it('a send that REJECTS (even its error handler throws) resolves false: no boundary, no unhandled rejection', async () => {
     // sendUtterance swallows fetch errors itself; the `.catch(() => false)` wrapper
     // is the last line of defence for anything that escapes it, e.g. a throwing logger.
