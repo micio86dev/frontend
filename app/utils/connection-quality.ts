@@ -6,6 +6,9 @@
 /** A median round trip above this means the avatar call will likely stutter. */
 export const SLOW_ROUND_TRIP_MS = 800
 
+/** A probe that has not answered by now counts as unanswered. */
+export const PROBE_TIMEOUT_MS = 2_000
+
 export type ConnectionQuality = 'good' | 'slow' | 'unreachable'
 
 /** `null` marks a probe that got no answer. */
@@ -31,7 +34,7 @@ export async function probeConnection(
   for (let i = 0; i < samples; i++) {
     const started = performance.now()
     try {
-      await fetcher(url)
+      await withTimeout(fetcher(url), PROBE_TIMEOUT_MS)
       results.push(performance.now() - started)
     } catch {
       results.push(null)
@@ -39,4 +42,14 @@ export async function probeConnection(
   }
 
   return results
+}
+
+/** Rejects if `work` has not settled within `ms`, so a request that hangs cannot stall the verdict. */
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expired = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error('probe timed out')), ms)
+  })
+
+  return Promise.race([work, expired]).finally(() => clearTimeout(timer))
 }

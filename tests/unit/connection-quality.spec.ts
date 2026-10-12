@@ -3,11 +3,12 @@
  * judged, so a weak link is named before the call rather than discovered during it.
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   evaluateConnection,
   probeConnection,
   SLOW_ROUND_TRIP_MS,
+  PROBE_TIMEOUT_MS,
 } from '~/app/utils/connection-quality'
 
 describe('evaluateConnection', () => {
@@ -54,5 +55,18 @@ describe('probeConnection', () => {
     }, 1)
 
     expect(seen).toEqual(['/api/health'])
+  })
+})
+
+describe('probeConnection timeout', () => {
+  it('a probe that never answers counts as unanswered, not as a hang', async () => {
+    vi.useFakeTimers()
+    try {
+      const pending = probeConnection(() => new Promise<void>(() => {}), 1)
+      vi.advanceTimersByTime(PROBE_TIMEOUT_MS)
+      expect(await pending).toEqual([null])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
