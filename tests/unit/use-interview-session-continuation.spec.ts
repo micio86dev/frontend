@@ -369,7 +369,7 @@ describe('single-session continuation flow', () => {
     ['a network error', () => new Thrown(new TypeError('Failed to fetch'))],
     ['a 5xx', () => new Thrown(Object.assign(new Error('boom'), { status: 503 }))],
   ])(
-    'a non-409 /end failure (%s) restores the mic, frees the guard and advances nothing',
+    'a non-409 /end failure (%s) restores the mic, frees the guard, shows the retryable error and advances nothing',
     async (_label, failure) => {
       vi.spyOn(console, 'warn').mockImplementation(() => {})
       const session = await liveSession()
@@ -386,7 +386,7 @@ describe('single-session continuation flow', () => {
       expect(providers[0]!.sendBoundary).not.toHaveBeenCalled()
       expect(mockCreateProvider).toHaveBeenCalledTimes(1)
       expect(session.sessionId.value).toBe(A)
-      expect(session.state.value).toBe('end_of_question')
+      expect(session.state.value).toBe('error')
 
       // The in-flight guard was reset, so a later boundary is not locked out.
       expect(session.handoverInFlight.value).toBe(false)
@@ -674,7 +674,7 @@ describe('boundary_due on the /utterance 202 (FE-05)', () => {
     expect(session.sessionId.value).toBe(A)
   })
 
-  it('a network error on /utterance is non-fatal: no boundary, state unchanged', async () => {
+  it('a network error on /utterance keeps the line for retry: no boundary, state unchanged', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const session = await liveSession()
     queue('/candidate/interview/utterance', new Thrown(new TypeError('Failed to fetch')))
@@ -686,7 +686,220 @@ describe('boundary_due on the /utterance 202 (FE-05)', () => {
     expect(providers[0]!.sendBoundary).not.toHaveBeenCalled()
     expect(session.state.value).toBe('live')
     expect(session.sessionId.value).toBe(A)
-    expect(warn).toHaveBeenCalled()
+    // Not refused: the line waits in the outbox and is sent again, so it is not reported as a refusal.
+    expect(session.pendingUtterances.value).toBe(1)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('a line that failed on the network is sent again, once, when the connection returns', async () => {
+    const session = await liveSession()
+    queue('/candidate/interview/utterance', new Thrown(new TypeError('Failed to fetch')))
+    say()
+    await flush()
+    expect(session.pendingUtterances.value).toBe(1)
+
+    queue('/candidate/interview/utterance', {})
+    vi.advanceTimersByTime(3_000)
+    await flush()
+
+    expect(callsTo('/candidate/interview/utterance')).toHaveLength(2)
+    expect(session.pendingUtterances.value).toBe(0)
+  })
+
+  it('a line the server keeps refusing with a 5xx is retried a bounded number of times, then dropped', async () => {
+    const session = await liveSession()
+    mockCandidateFetch.mockImplementation(async (path: string) => {
+      if (path === '/candidate/interview/utterance')
+        throw Object.assign(new Error('server error'), { status: 500 })
+
+      return queues.get(path)?.shift()
+    })
+    say()
+    await flush()
+
+    for (let i = 0; i < 200; i++) {
+      vi.advanceTimersByTime(3_000)
+      await flush()
+    }
+
+    expect(callsTo('/candidate/interview/utterance').length).toBeLessThanOrEqual(25)
+    // After the bounded attempts the line is dropped, so nothing waits forever.
+    expect(session.pendingUtterances.value).toBe(0)
+  })
+
+  it('once the interview is over, a line still waiting is never sent again', async () => {
+    const session = await liveSession()
+    let networkDown = true
+    mockCandidateFetch.mockImplementation(async (path: string) => {
+      if (path === '/candidate/interview/utterance') {
+        if (networkDown) throw new TypeError('Failed to fetch')
+        throw new CandidateUnauthorizedError()
+      }
+
+      return queues.get(path)?.shift()
+    })
+    say()
+    await flush()
+    expect(session.pendingUtterances.value).toBe(1)
+
+    networkDown = false
+    vi.advanceTimersByTime(3_000)
+    await flush()
+    expect(session.state.value).toBe('terminal')
+    const callsAtTerminal = callsTo('/candidate/interview/utterance').length
+
+    for (let i = 0; i < 10; i++) {
+      vi.advanceTimersByTime(3_000)
+      await flush()
+    }
+
+    expect(callsTo('/candidate/interview/utterance').length).toBe(callsAtTerminal)
+  })
+
+  it('a line that fails while a later line is already on its way is still delivered before that later line', async () => {
+    const session = await liveSession()
+    const delivered: string[] = []
+    let failFirstOnce = true
+    let releaseFirst: (() => void) | null = null
+    mockCandidateFetch.mockImplementation(
+      async (path: string, init: { body?: { text?: string } }) => {
+        if (path !== '/candidate/interview/utterance') return queues.get(path)?.shift()
+        const text = init?.body?.text ?? ''
+        if (text === 'first' && failFirstOnce) {
+          await new Promise<void>((resolve) => {
+            releaseFirst = resolve
+          })
+          failFirstOnce = false
+          throw Object.assign(new Error('server error'), { status: 500 })
+        }
+        delivered.push(text)
+
+        return {}
+      }
+    )
+
+    providers[0]!._emit('transcript', { role: 'user', text: 'first', ts: 1 })
+    providers[0]!._emit('transcript', { role: 'user', text: 'second', ts: 2 })
+    await flush()
+    releaseFirst?.()
+    await flush()
+    for (let i = 0; i < 5; i++) {
+      vi.advanceTimersByTime(3_000)
+      await flush()
+    }
+
+    expect(delivered).toEqual(['first', 'second'])
+    expect(session.pendingUtterances.value).toBe(0)
+  })
+
+  it('an avatar connection that drops mid-question reconnects by itself, with a bounded wait, instead of showing the error at once', async () => {
+    const session = await liveSession()
+    queue('/candidate/interview/start', fresh(A))
+
+    providers[0]!._emit('error', { code: 'disconnected' })
+    await flush()
+    expect(session.state.value).toBe('connecting')
+
+    vi.advanceTimersByTime(2_000)
+    await flush()
+
+    expect(starts()).toHaveLength(2)
+  })
+
+  it('a pause during the reconnect wait is not overridden by the reconnect', async () => {
+    const session = await liveSession()
+    queue('/candidate/interview/start', fresh(A))
+    providers[0]!._emit('error', { code: 'disconnected' })
+    await flush()
+
+    // The candidate moved on (paused, or left the call) while the reconnect was waiting.
+    session.state.value = 'paused'
+    await flush()
+    vi.advanceTimersByTime(8_000)
+    await flush()
+
+    expect(starts()).toHaveLength(1)
+  })
+
+  it('gives up after a few automatic reconnects and shows the error with retry', async () => {
+    const session = await liveSession()
+    mockCandidateFetch.mockImplementation(async (path: string) => {
+      if (path === '/candidate/interview/start')
+        throw Object.assign(new Error('down'), { status: 503 })
+
+      return queues.get(path)?.shift()
+    })
+
+    for (let i = 0; i < 6; i++) {
+      providers[providers.length - 1]!._emit('error', { code: 'disconnected' })
+      await flush()
+      vi.advanceTimersByTime(60_000)
+      await flush()
+    }
+
+    expect(session.state.value).toBe('error')
+  })
+
+  it('a network outage keeps every line and sends them in order when the connection returns', async () => {
+    const session = await liveSession()
+    let online = false
+    mockCandidateFetch.mockImplementation(
+      async (path: string, init: { body?: { text?: string } }) => {
+        if (path === '/candidate/interview/utterance') {
+          if (!online) throw new TypeError('Failed to fetch')
+          sent.push(init?.body?.text ?? '')
+
+          return {}
+        }
+
+        return queues.get(path)?.shift()
+      }
+    )
+    const sent: string[] = []
+    providers[0]!._emit('transcript', { role: 'user', text: 'first', ts: 1 })
+    providers[0]!._emit('transcript', { role: 'user', text: 'second', ts: 2 })
+    await flush()
+
+    // A minute and a half of outage: far longer than the bounded server-refusal attempts.
+    for (let i = 0; i < 30; i++) {
+      vi.advanceTimersByTime(3_000)
+      await flush()
+    }
+    expect(session.pendingUtterances.value).toBe(2)
+
+    online = true
+    vi.advanceTimersByTime(3_000)
+    await flush()
+
+    expect(sent).toEqual(['first', 'second'])
+    expect(session.pendingUtterances.value).toBe(0)
+  })
+
+  it('a line the server keeps refusing with a 5xx does not hold back the lines after it', async () => {
+    const session = await liveSession()
+    mockCandidateFetch.mockImplementation(
+      async (path: string, init: { body?: { text?: string } }) => {
+        if (path === '/candidate/interview/utterance' && init?.body?.text === 'stuck') {
+          throw Object.assign(new Error('server error'), { status: 500 })
+        }
+
+        return queues.get(path)?.shift() ?? {}
+      }
+    )
+    providers[0]!._emit('transcript', { role: 'user', text: 'stuck', ts: 1 })
+    providers[0]!._emit('transcript', { role: 'user', text: 'after', ts: 2 })
+    await flush()
+
+    for (let i = 0; i < 40; i++) {
+      vi.advanceTimersByTime(3_000)
+      await flush()
+    }
+
+    const delivered = callsTo('/candidate/interview/utterance').filter(
+      (c) => c[1]?.body?.text === 'after'
+    )
+    expect(delivered.length).toBeGreaterThanOrEqual(1)
+    expect(session.pendingUtterances.value).toBe(0)
   })
 
   it('a send that REJECTS (even its error handler throws) resolves false: no boundary, no unhandled rejection', async () => {

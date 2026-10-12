@@ -6,6 +6,19 @@
   >
     <h2 class="text-xl font-semibold text-foreground">{{ $t('interview.device_check.title') }}</h2>
 
+    <p
+      v-if="connectionQuality !== 'good'"
+      data-testid="connection-quality-notice"
+      role="status"
+      class="rounded-md border border-border bg-card px-3 py-2 text-sm text-card-foreground"
+    >
+      {{
+        connectionQuality === 'slow'
+          ? $t('interview.device_check.connection_slow')
+          : $t('interview.device_check.connection_unreachable')
+      }}
+    </p>
+
     <!-- Camera preview — native aspect ratio (D1), never a hardcoded one, never
          cropped. previewRatio is already clamped to [3/4, 21/9] by the composable;
          null until the first acquisition resolves, so a 16:9 placeholder holds the
@@ -242,6 +255,12 @@
  * .client.vue enforces SSR isolation — this component is never server-rendered.
  */
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import {
+  evaluateConnection,
+  probeConnection,
+  type ConnectionQuality,
+} from '~/app/utils/connection-quality'
+import { apiUrl } from '~/app/utils/api-url'
 import { useDeviceCheck, MIC_SPEAK_THRESHOLD } from '~/composables/useDeviceCheck'
 import { useMediaDeviceList } from '~/composables/useMediaDeviceList'
 import { Alert, AlertTitle, AlertDescription } from '~/components/ui/alert'
@@ -287,6 +306,7 @@ const previewEl = ref<HTMLVideoElement | null>(null)
 const deviceCheck = useDeviceCheck()
 const mediaDeviceList = useMediaDeviceList()
 const checked = ref(false)
+const connectionQuality = ref<ConnectionQuality>('good')
 const confirmed = ref(false)
 
 // Pickers disable while a switch is in flight, and PERMANENTLY once the
@@ -352,6 +372,8 @@ const recoveryMessage = computed(() =>
  * enumerate (labels now populated) -> subscribe to devicechange.
  */
 async function runInitialCheck(): Promise<void> {
+  // Resolved before the first await: the runtime config is only reliably in scope during setup.
+  const healthUrl = apiUrl('/health')
   await mediaDeviceList.refresh()
   const preferred = mediaDeviceList.validatePreferences()
   await deviceCheck.check(preferred)
@@ -362,6 +384,21 @@ async function runInitialCheck(): Promise<void> {
   }
   await mediaDeviceList.refresh()
   mediaDeviceList.start()
+  // Judged after the checks, without holding them up: a weak link is named before the call.
+  void measureConnection(healthUrl)
+}
+
+async function measureConnection(url: string): Promise<void> {
+  connectionQuality.value = evaluateConnection(
+    await probeConnection(
+      (target) =>
+        fetch(target, { cache: 'no-store' }).then((r) => {
+          if (!r.ok) throw new Error(String(r.status))
+        }),
+      3,
+      url
+    )
+  )
 }
 
 onMounted(runInitialCheck)

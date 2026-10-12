@@ -17,6 +17,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { INTERVIEW_CLOSING_GRACE_MS } from '~/app/utils/interview-budget'
 import { mount } from '@vue/test-utils'
 import { ref, shallowRef, computed, nextTick, defineComponent, h } from 'vue'
 import type { InterviewProvider, StartConfig } from '~/app/types/interview-provider'
@@ -135,6 +136,9 @@ function makeSession(
     sessionId: ref<number | null>(42),
     endedCompetencies: ref<number | null>(null),
     totalCompetencies: ref<number | null>(null),
+    interviewMaxSeconds: ref<number | null>(null),
+    interviewBudgetSpent: ref(false),
+    pendingUtterances: ref(0),
     activeProvider,
     activeConfig,
     players,
@@ -320,13 +324,62 @@ describe('interview/session.vue — live render path', () => {
 })
 
 describe('interview/session.vue — timer expiry and skip', () => {
-  it("timer expiry dispatches endQuestion('timeout')", async () => {
-    const session = makeSession({ state: 'live' })
-    const wrapper = await mountPage(session)
+  it('a pause during the closing grace does not lose the safety close: it is armed again on resume', async () => {
+    vi.useFakeTimers()
+    try {
+      const session = makeSession({ state: 'live' })
+      const wrapper = await mountPage(session)
 
-    await wrapper.find('[data-testid="fire-expired"]').trigger('click')
+      await wrapper.find('[data-testid="fire-expired"]').trigger('click')
+      session.state.value = 'paused'
+      await nextTick()
+      session.state.value = 'live'
+      await nextTick()
 
-    expect(session.endQuestion).toHaveBeenCalledWith('timeout')
+      vi.advanceTimersByTime(INTERVIEW_CLOSING_GRACE_MS)
+
+      expect(session.endQuestion).toHaveBeenCalledWith('timeout')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a grace timer armed at expiry never closes a session that has already moved on', async () => {
+    vi.useFakeTimers()
+    try {
+      const session = makeSession({ state: 'live' })
+      const wrapper = await mountPage(session)
+
+      await wrapper.find('[data-testid="fire-expired"]').trigger('click')
+      // The closing phrase completes the question before the grace period ends.
+      session.state.value = 'end_of_question'
+      await nextTick()
+
+      vi.advanceTimersByTime(INTERVIEW_CLOSING_GRACE_MS)
+
+      expect(session.endQuestion).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('timer expiry spends the whole budget and lets the question finish, closing only after the grace period', async () => {
+    vi.useFakeTimers()
+    try {
+      const session = makeSession({ state: 'live' })
+      const wrapper = await mountPage(session)
+
+      await wrapper.find('[data-testid="fire-expired"]').trigger('click')
+
+      expect(session.interviewBudgetSpent.value).toBe(true)
+      expect(session.endQuestion).not.toHaveBeenCalled()
+
+      vi.advanceTimersByTime(INTERVIEW_CLOSING_GRACE_MS)
+
+      expect(session.endQuestion).toHaveBeenCalledWith('timeout')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   // REMOVED: the Skip control is gone. A candidate must not be able to skip a
@@ -429,13 +482,12 @@ describe('interview/session.vue — timer expiry and skip', () => {
     expect(timerAfter.props('seconds')).toBe(fullLimit - 137)
   })
 
-  it('restarts the countdown at the full limit for a new competency', async () => {
+  it('keeps ONE total countdown across competencies: a new competency continues from the remaining time', async () => {
     // Resuming a pause must preserve the clock; starting the NEXT question must not.
     const session = makeSession({ state: 'live' })
     const wrapper = await mountPage(session)
 
     const timer = wrapper.findComponent({ name: 'InterviewTimer' })
-    const fullLimit = timer.props('seconds') as number
     timer.vm.$emit('tick', 42)
     await nextTick()
 
@@ -443,7 +495,8 @@ describe('interview/session.vue — timer expiry and skip', () => {
     session.sessionId.value = 99
     await nextTick()
 
-    expect(wrapper.findComponent({ name: 'InterviewTimer' }).props('seconds')).toBe(fullLimit)
+    // The template limit is the whole interview, so the next competency does not refill it.
+    expect(wrapper.findComponent({ name: 'InterviewTimer' }).props('seconds')).toBe(42)
   })
 
   // D12 — the inter-competency gap.
