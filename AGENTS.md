@@ -66,6 +66,11 @@ codebase, not because it is good practice in the abstract.
 - **A 409 is not a generic error.** It means "not ready yet" — temporal and self-resolving —
   and must render distinctly from 403 (no permission) and 404 (does not exist). Collapsing
   them into one toast discards the only reason the status was chosen.
+  **Documented exception — `session_not_live` on the interview endpoints.** On `/candidate/interview/end`
+  and `/candidate/interview/utterance` the server answers 409 when the session is no longer `in_corso`.
+  That is a final state (already ended, or a race already lost), not a temporary one, and the candidate
+  cannot act on it, so no retry is offered. Those 409s are settled silently by design. `/start` declares
+  no 409 in the contract and keeps the generic retryable error.
 
 ## Tests
 
