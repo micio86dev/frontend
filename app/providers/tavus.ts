@@ -55,6 +55,14 @@ interface DailyCallObject {
 /** How long the avatar has to answer a boundary steering (N5). */
 export const STEERING_ACK_TIMEOUT_MS = 10_000
 
+/**
+ * How long a heard end phrase waits for the avatar's `stopped_speaking` before
+ * the question completes anyway. The safety net against a missing event: it
+ * must outlast the longest closing sentence, and no longer, so a lost event
+ * costs the candidate this much silence and never a hung interview.
+ */
+export const COMPLETION_FALLBACK_MS = 12_000
+
 /** One armed steering: settles once, and may hold the respond's user-role echo (N15). */
 interface Steering {
   settle: (result: SteeringResult) => void
@@ -76,6 +84,11 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
   private phrases: { endPhrase: string; finalPhrase: string } | null = null
   private emittedReady = false
   private steering: Steering | null = null
+  /** Whether the avatar is between `started_speaking` and `stopped_speaking`. */
+  private replicaSpeaking = false
+  /** An end phrase was heard while the avatar was still speaking it. */
+  private endPhrasePending = false
+  private completionTimer: ReturnType<typeof setTimeout> | null = null
   /** Set by `stop()`: a `left-meeting` after it is ours, not an unannounced end. */
   private stopping = false
 
@@ -229,6 +242,23 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
       return
     }
 
+    // Speaking state: the avatar's audio edges. They release a deferred completion.
+    if (data.event_type === 'conversation.replica.started_speaking') {
+      this.replicaSpeaking = true
+
+      return
+    }
+
+    if (data.event_type === 'conversation.replica.stopped_speaking') {
+      this.replicaSpeaking = false
+
+      if (this.endPhrasePending) {
+        this.finishCompletion()
+      }
+
+      return
+    }
+
     // Path 2 — the spoken phrase, which is what actually happens.
     if (data.event_type !== 'conversation.utterance') {
       return
@@ -286,9 +316,25 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
     // Only the AVATAR's speech ends the interview. A candidate who reads the
     // closing line aloud — or is simply polite — must not be able to end their
     // own assessment early.
+    // The closing sentence is still playing: complete only when it has finished.
+    // Completing now would hand the question over and cut the last sentence.
     if (isAvatar && this.phrases !== null && matchesEndPhrase(speech, this.phrases)) {
-      this.emitState('complete')
+      if (this.replicaSpeaking) {
+        this.endPhrasePending = true
+        this.completionTimer ??= setTimeout(() => this.finishCompletion(), COMPLETION_FALLBACK_MS)
+      } else {
+        this.emitState('complete')
+      }
     }
+  }
+
+  private finishCompletion(): void {
+    if (this.completionTimer !== null) {
+      clearTimeout(this.completionTimer)
+      this.completionTimer = null
+    }
+    this.endPhrasePending = false
+    this.emitState('complete')
   }
 
   private emitUser(speech: string): void {
@@ -423,6 +469,11 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
     this.stream = null
     this.settleSteering({ ok: false, reason: 'left' })
     this.seenAvatar.clear()
+    if (this.completionTimer !== null) {
+      clearTimeout(this.completionTimer)
+      this.completionTimer = null
+    }
+    this.endPhrasePending = false
 
     if (!alreadyReported) {
       this.emitState('stopped')
