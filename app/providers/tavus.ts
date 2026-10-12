@@ -57,9 +57,10 @@ export const STEERING_ACK_TIMEOUT_MS = 10_000
 
 /**
  * How long a heard end phrase waits for the avatar's `stopped_speaking` before
- * the question completes anyway. The safety net against a missing event: it
- * must outlast the longest closing sentence, and no longer, so a lost event
- * costs the candidate this much silence and never a hung interview.
+ * the question completes anyway. The safety net against a missing event, so a
+ * lost event costs the candidate this much silence and never a hung interview.
+ * UNMEASURED: the window is an estimate, not a bound on closing-sentence length.
+ * Confirm it on a live Tavus run before relying on it.
  */
 export const COMPLETION_FALLBACK_MS = 12_000
 
@@ -169,6 +170,7 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
   async start(mountEl: HTMLElement, cfg: StartConfig): Promise<{ providerSessionId?: string }> {
     this.emitState('connecting')
     this.phrases = { endPhrase: cfg.endPhrase, finalPhrase: cfg.finalPhrase }
+    this.clearCompletion()
     this.videoEl = this.resolveVideo(mountEl)
 
     try {
@@ -336,12 +338,18 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
   }
 
   private finishCompletion(): void {
+    this.clearCompletion()
+    this.emitState('complete')
+  }
+
+  /** Drops any deferred completion and the speaking state it depended on. */
+  private clearCompletion(): void {
     if (this.completionTimer !== null) {
       clearTimeout(this.completionTimer)
       this.completionTimer = null
     }
     this.endPhrasePending = false
-    this.emitState('complete')
+    this.replicaSpeaking = false
   }
 
   private emitUser(speech: string): void {
@@ -476,11 +484,7 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
     this.stream = null
     this.settleSteering({ ok: false, reason: 'left' })
     this.seenAvatar.clear()
-    if (this.completionTimer !== null) {
-      clearTimeout(this.completionTimer)
-      this.completionTimer = null
-    }
-    this.endPhrasePending = false
+    this.clearCompletion()
 
     if (!alreadyReported) {
       this.emitState('stopped')

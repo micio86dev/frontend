@@ -98,7 +98,7 @@ describe('TavusProvider — the end phrase waits for the avatar to finish speaki
     expect(states).toContain('complete')
   })
 
-  it('completes on stopped_speaking even when the end phrase arrived after the speech ended', async () => {
+  it('completes immediately when the end phrase arrives after the speech already ended', async () => {
     await startProvider()
 
     frame._emit('app-message', replicaStarted)
@@ -137,6 +137,33 @@ describe('TavusProvider — the end phrase waits for the avatar to finish speaki
     vi.advanceTimersByTime(COMPLETION_FALLBACK_MS)
 
     expect(states).not.toContain('complete')
+  })
+
+  it('a deferred completion never fires after stop()', async () => {
+    const provider = await startProvider()
+
+    frame._emit('app-message', replicaStarted)
+    frame._emit('app-message', endUtterance())
+    await provider.stop()
+    frame._emit('app-message', replicaStopped)
+    vi.advanceTimersByTime(COMPLETION_FALLBACK_MS)
+
+    expect(states).not.toContain('complete')
+  })
+
+  it('a lost stopped_speaking does not leak into the next session on the same provider', async () => {
+    const provider = await startProvider()
+
+    frame._emit('app-message', replicaStarted)
+    await provider.stop()
+    await provider.start(document.createElement('div'), {
+      dbSessionId: 2,
+      conversationUrl: CONVERSATION_URL,
+      ...PHRASES,
+    })
+    frame._emit('app-message', endUtterance())
+
+    expect(states).toContain('complete')
   })
 
   it('completes the tool call immediately when the avatar is not speaking', async () => {
