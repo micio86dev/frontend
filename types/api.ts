@@ -3610,11 +3610,13 @@ export interface components {
             language: string;
             status: string;
             livemode: boolean;
-            metadata: unknown[];
+            metadata: {
+                [key: string]: string;
+            };
             exit_redirect_url: string | null;
             /** @description Always `null` on a read: the hosted interview URL is returned only together with a freshly issued session token. */
             hosted_url: string | null;
-            progress: string | {
+            progress: {
                 competency_code: string;
                 answers: {
                     question_index: number;
