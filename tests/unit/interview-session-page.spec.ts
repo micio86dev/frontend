@@ -324,6 +324,26 @@ describe('interview/session.vue — live render path', () => {
 })
 
 describe('interview/session.vue — timer expiry and skip', () => {
+  it('a pause during the closing grace does not lose the safety close: it is armed again on resume', async () => {
+    vi.useFakeTimers()
+    try {
+      const session = makeSession({ state: 'live' })
+      const wrapper = await mountPage(session)
+
+      await wrapper.find('[data-testid="fire-expired"]').trigger('click')
+      session.state.value = 'paused'
+      await nextTick()
+      session.state.value = 'live'
+      await nextTick()
+
+      vi.advanceTimersByTime(INTERVIEW_CLOSING_GRACE_MS)
+
+      expect(session.endQuestion).toHaveBeenCalledWith('timeout')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('a grace timer armed at expiry never closes a session that has already moved on', async () => {
     vi.useFakeTimers()
     try {

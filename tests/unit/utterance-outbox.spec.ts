@@ -71,6 +71,17 @@ describe('UtteranceOutbox', () => {
     expect(outbox.size).toBe(0)
   })
 
+  it('can drop its head line, so a line that will never be accepted cannot block the rest', async () => {
+    const outbox = new UtteranceOutbox()
+    outbox.enqueue(line('stuck'))
+    outbox.enqueue(line('after'))
+
+    const dropped = outbox.dropHead()
+
+    expect(dropped?.text).toBe('stuck')
+    expect(outbox.size).toBe(1)
+  })
+
   it('does nothing when empty', async () => {
     const send = vi.fn(async () => true)
     expect(await new UtteranceOutbox().flush(send)).toBe(0)

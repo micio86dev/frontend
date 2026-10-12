@@ -24,6 +24,11 @@ export class UtteranceOutbox {
     this.items.push(item)
   }
 
+  /** Removes and returns the head line, for a line the server keeps refusing: the rest must not wait on it. */
+  dropHead(): PendingUtterance | undefined {
+    return this.items.shift()
+  }
+
   /**
    * Sends the queued lines in order. `send` resolves true when a line is settled (delivered,
    * or refused for good) and false when it should be tried again. The first line that is not

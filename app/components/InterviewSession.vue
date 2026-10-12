@@ -904,12 +904,16 @@ let closingGraceTimer: ReturnType<typeof setTimeout> | null = null
  * composable turns any further `continue` into `done`). The grace timer only closes the
  * interview if that closing phrase never arrives.
  */
-async function onTimerExpired(): Promise<void> {
-  session.interviewBudgetSpent.value = true
+function armClosingGrace(): void {
   closingGraceTimer ??= setTimeout(() => {
     closingGraceTimer = null
     void session.endQuestion('timeout')
   }, INTERVIEW_CLOSING_GRACE_MS)
+}
+
+async function onTimerExpired(): Promise<void> {
+  session.interviewBudgetSpent.value = true
+  armClosingGrace()
 }
 
 function clearClosingGrace(): void {
@@ -919,10 +923,12 @@ function clearClosingGrace(): void {
 
 // The closing phrase may complete the question before the grace period ends. A session
 // that has left `live` must not be closed again by a timer armed for the question before.
+// A pause clears the grace; resuming re-arms it, so a budget that ran out is still closed.
 watch(
   () => session.state.value,
   (state) => {
     if (state !== 'live') clearClosingGrace()
+    else if (session.interviewBudgetSpent.value) armClosingGrace()
   }
 )
 

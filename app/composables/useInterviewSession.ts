@@ -187,7 +187,8 @@ export type SessionState =
  * 409, the loser of the avatar-complete/timer race. It has no directive and
  * must not transition.
  */
-export type EndDirective = 'continue' | 'pause' | 'done' | 'noop'
+/** The server's next_action, taken from the generated contract, plus the client-only 'noop' (a lost /end race). */
+export type EndDirective = NonNullable<EndResponse['next_action']> | 'noop'
 
 export type TerminalReason = '403' | 'absent_phrase' | 'session_expired' | 'malformed_response'
 
@@ -199,7 +200,10 @@ export type TerminalReason = '403' | 'absent_phrase' | 'session_expired' | 'malf
  * still accepts `skipped` — removing an enum value from a shipped contract is
  * churn with no benefit — but nothing here can produce it.
  */
-export type EndQuestionReason = 'timeout'
+/** The reasons this client ends a question for, narrowed from the generated ended_reason. */
+type EndRequestReason =
+  operations['interview.end']['requestBody']['content']['application/json']['ended_reason']
+export type EndQuestionReason = Extract<EndRequestReason, 'timeout'>
 
 /**
  * A live (or connecting) provider session, identified by its DB session id.
@@ -895,6 +899,19 @@ export function useInterviewSession(
     await utteranceOutbox.flush(deliverUtterance)
     const settled = before - utteranceOutbox.size
     outboxStalledAttempts = settled > 0 ? 0 : outboxStalledAttempts + 1
+
+    // A head line the server keeps refusing is dropped, so it cannot hold back every line after it.
+    if (
+      outboxStalledAttempts >= UTTERANCE_OUTBOX_MAX_STALLED_ATTEMPTS &&
+      utteranceOutbox.size > 0
+    ) {
+      console.warn('[useInterviewSession] a transcript line was refused repeatedly and is dropped')
+      utteranceOutbox.dropHead()
+      outboxStalledAttempts = 0
+      pendingUtterances.value = utteranceOutbox.size
+      return flushUtterances()
+    }
+
     pendingUtterances.value = utteranceOutbox.size
     if (utteranceOutbox.size > 0 && terminalReason.value === null) scheduleOutboxFlush()
   }
@@ -949,7 +966,8 @@ export function useInterviewSession(
         return false
       }
 
-      // 409 = the row is no longer in_corso; a 4xx is refused for good. Both settle the line.
+      // 409 = the session is no longer in_corso (the server's session_not_live): a final state for this
+      // line, not a temporary one, so it is settled rather than retried. A 4xx is refused for good too.
       const status =
         (err as Record<string, unknown>)?.status ?? (err as Record<string, unknown>)?.statusCode
       if (status !== 409) {

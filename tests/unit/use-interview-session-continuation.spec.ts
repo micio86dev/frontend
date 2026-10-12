@@ -706,7 +706,7 @@ describe('boundary_due on the /utterance 202 (FE-05)', () => {
     expect(session.pendingUtterances.value).toBe(0)
   })
 
-  it('a line the network never accepts is retried a bounded number of times, not forever', async () => {
+  it('a line the network never accepts is retried a bounded number of times, then dropped', async () => {
     const session = await liveSession()
     mockCandidateFetch.mockImplementation(async (path: string) => {
       if (path === '/candidate/interview/utterance') throw new TypeError('Failed to fetch')
@@ -722,7 +722,8 @@ describe('boundary_due on the /utterance 202 (FE-05)', () => {
     }
 
     expect(callsTo('/candidate/interview/utterance').length).toBeLessThanOrEqual(25)
-    expect(session.pendingUtterances.value).toBe(1)
+    // After the bounded attempts the line is dropped, so nothing waits forever.
+    expect(session.pendingUtterances.value).toBe(0)
   })
 
   it('once the interview is over, a line still waiting is never sent again', async () => {
@@ -752,6 +753,33 @@ describe('boundary_due on the /utterance 202 (FE-05)', () => {
     }
 
     expect(callsTo('/candidate/interview/utterance').length).toBe(callsAtTerminal)
+  })
+
+  it('a line the server keeps refusing with a 5xx does not hold back the lines after it', async () => {
+    const session = await liveSession()
+    mockCandidateFetch.mockImplementation(
+      async (path: string, init: { body?: { text?: string } }) => {
+        if (path === '/candidate/interview/utterance' && init?.body?.text === 'stuck') {
+          throw Object.assign(new Error('server error'), { status: 500 })
+        }
+
+        return queues.get(path)?.shift() ?? {}
+      }
+    )
+    providers[0]!._emit('transcript', { role: 'user', text: 'stuck', ts: 1 })
+    providers[0]!._emit('transcript', { role: 'user', text: 'after', ts: 2 })
+    await flush()
+
+    for (let i = 0; i < 40; i++) {
+      vi.advanceTimersByTime(3_000)
+      await flush()
+    }
+
+    const delivered = callsTo('/candidate/interview/utterance').filter(
+      (c) => c[1]?.body?.text === 'after'
+    )
+    expect(delivered.length).toBeGreaterThanOrEqual(1)
+    expect(session.pendingUtterances.value).toBe(0)
   })
 
   it('a send that REJECTS (even its error handler throws) resolves false: no boundary, no unhandled rejection', async () => {
