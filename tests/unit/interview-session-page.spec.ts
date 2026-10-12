@@ -17,6 +17,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { INTERVIEW_CLOSING_GRACE_MS } from '~/app/utils/interview-budget'
 import { mount } from '@vue/test-utils'
 import { ref, shallowRef, computed, nextTick, defineComponent, h } from 'vue'
 import type { InterviewProvider, StartConfig } from '~/app/types/interview-provider'
@@ -136,6 +137,7 @@ function makeSession(
     endedCompetencies: ref<number | null>(null),
     totalCompetencies: ref<number | null>(null),
     interviewMaxSeconds: ref<number | null>(null),
+    interviewBudgetSpent: ref(false),
     activeProvider,
     activeConfig,
     players,
@@ -321,13 +323,23 @@ describe('interview/session.vue — live render path', () => {
 })
 
 describe('interview/session.vue — timer expiry and skip', () => {
-  it("timer expiry dispatches endQuestion('timeout')", async () => {
-    const session = makeSession({ state: 'live' })
-    const wrapper = await mountPage(session)
+  it('timer expiry spends the whole budget and lets the question finish, closing only after the grace period', async () => {
+    vi.useFakeTimers()
+    try {
+      const session = makeSession({ state: 'live' })
+      const wrapper = await mountPage(session)
 
-    await wrapper.find('[data-testid="fire-expired"]').trigger('click')
+      await wrapper.find('[data-testid="fire-expired"]').trigger('click')
 
-    expect(session.endQuestion).toHaveBeenCalledWith('timeout')
+      expect(session.interviewBudgetSpent.value).toBe(true)
+      expect(session.endQuestion).not.toHaveBeenCalled()
+
+      vi.advanceTimersByTime(INTERVIEW_CLOSING_GRACE_MS)
+
+      expect(session.endQuestion).toHaveBeenCalledWith('timeout')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   // REMOVED: the Skip control is gone. A candidate must not be able to skip a

@@ -504,7 +504,16 @@
  *
  * noindex: this UI is session-gated and must never be indexed.
  */
-import { ref, shallowReactive, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import {
+  ref,
+  shallowReactive,
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  onUnmounted,
+  watch,
+} from 'vue'
 import type { Ref } from 'vue'
 import { useInterviewSession } from '~/composables/useInterviewSession'
 import type { HandoverRole, SessionState } from '~/composables/useInterviewSession'
@@ -523,6 +532,7 @@ import CallQuestion from '~/components/molecules/CallQuestion.vue'
 import CallExitDialog from '~/components/molecules/CallExitDialog.vue'
 import CallHelpLink from '~/components/molecules/CallHelpLink.vue'
 import { interviewRemainingSeconds } from '~/app/utils/interview-max-seconds'
+import { INTERVIEW_CLOSING_GRACE_MS } from '~/app/utils/interview-budget'
 import CallSelfView from '~/components/molecules/CallSelfView.client.vue'
 import CallTile from '~/components/molecules/CallTile.vue'
 import CallPanel from '~/components/organisms/CallPanel.vue'
@@ -876,9 +886,25 @@ function onProviderError(): void {}
 
 // Both affordances dispatch POST /end through the session machine. They used to call a
 // local stub with an empty body, so the 5-minute timer and the Skip button did nothing.
+let closingGraceTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * The WHOLE interview's time is spent. The question in progress is not cut off: the avatar
+ * finishes its closing phrase, and that completes it. Nothing after it starts (the session
+ * composable turns any further `continue` into `done`). The grace timer only closes the
+ * interview if that closing phrase never arrives.
+ */
 async function onTimerExpired(): Promise<void> {
-  await session.endQuestion('timeout')
+  session.interviewBudgetSpent.value = true
+  closingGraceTimer ??= setTimeout(() => {
+    closingGraceTimer = null
+    void session.endQuestion('timeout')
+  }, INTERVIEW_CLOSING_GRACE_MS)
 }
+
+onBeforeUnmount(() => {
+  if (closingGraceTimer !== null) clearTimeout(closingGraceTimer)
+})
 
 // ---------------------------------------------------------------------------
 // End of Question / next competency

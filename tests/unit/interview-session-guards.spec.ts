@@ -69,6 +69,7 @@ function makeSession(state: SessionState, withProvider = false) {
     sessionId: ref<number | null>(42),
     endedCompetencies: ref<number | null>(null),
     interviewMaxSeconds: ref<number | null>(null),
+    interviewBudgetSpent: ref(false),
     totalCompetencies: ref<number | null>(null),
     activeProvider,
     activeConfig,

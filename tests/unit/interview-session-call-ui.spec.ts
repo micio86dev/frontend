@@ -14,6 +14,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { INTERVIEW_CLOSING_GRACE_MS } from '~/app/utils/interview-budget'
 import { mount, flushPromises } from '@vue/test-utils'
 import { ref, defineComponent, h, markRaw, onBeforeUnmount, onMounted, onUnmounted } from 'vue'
 import type { InterviewProvider } from '~/app/types/interview-provider'
@@ -883,7 +884,7 @@ describe('InterviewSession — the stage', () => {
     }
   })
 
-  it('counts ONE total clock from the template limit across competencies, and ends the question when it expires', async () => {
+  it('counts ONE total clock from the template limit across competencies, and spends the budget and closes after the grace period when it expires', async () => {
     const { wrapper, session } = await mountLive({
       stubs: { InterviewTimer: InterviewTimerCounterStub },
     })
@@ -906,9 +907,18 @@ describe('InterviewSession — the stage', () => {
       session as unknown as { endQuestion: (reason: string) => Promise<void> },
       'endQuestion'
     )
-    timer().vm.$emit('expired')
-    await flushPromises()
-    expect(endQuestion).toHaveBeenCalledWith('timeout')
+    vi.useFakeTimers()
+    try {
+      timer().vm.$emit('expired')
+      await flushPromises()
+      // The whole interview is spent: the question finishes on its closing phrase, so it is not cut here.
+      expect(session.interviewBudgetSpent.value).toBe(true)
+      expect(endQuestion).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(INTERVIEW_CLOSING_GRACE_MS)
+      expect(endQuestion).toHaveBeenCalledWith('timeout')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('moves the toaster to the top left', async () => {

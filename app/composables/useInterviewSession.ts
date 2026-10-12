@@ -102,6 +102,7 @@ import { ref, shallowRef, computed, type ComputedRef } from 'vue'
 import { createProvider } from '~/app/providers/factory'
 import { effectiveViewportWidth } from '~/app/utils/browser-gate'
 import { interviewMaxSecondsFrom } from '~/app/utils/interview-max-seconds'
+import { directiveWithinBudget } from '~/app/utils/interview-budget'
 import {
   canSteerContext,
   type InterviewProvider,
@@ -555,6 +556,8 @@ export function useInterviewSession(
   const totalCompetencies = ref<number | null>(null)
   /** The interview's total time limit from the active template, once a start response has named it. */
   const interviewMaxSeconds = ref<number | null>(null)
+  /** Set once the whole interview's time is spent: the question in progress finishes, and nothing after it starts. */
+  const interviewBudgetSpent = ref(false)
 
   /** D1: the live slot — what the candidate is looking at right now. */
   const activeSession = shallowRef<ProviderSession | null>(null)
@@ -883,7 +886,9 @@ export function useInterviewSession(
 
       const action = response?.next_action
       // An unrecognised value is treated exactly like an absent one.
-      return action === 'continue' || action === 'pause' || action === 'done' ? action : null
+      const directive =
+        action === 'continue' || action === 'pause' || action === 'done' ? action : null
+      return directiveWithinBudget(directive, interviewBudgetSpent.value)
     } catch (err) {
       // 401 → distinct, non-retryable terminal — checked BEFORE 403 so a
       // cleared/expired session is never mistaken for a gate refusal.
@@ -1906,6 +1911,7 @@ export function useInterviewSession(
     endedCompetencies,
     totalCompetencies,
     interviewMaxSeconds,
+    interviewBudgetSpent,
     activeProvider,
     activeConfig,
     players,
