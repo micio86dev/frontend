@@ -68,6 +68,7 @@
       "candidate_speaking": "You are speaking",
       "self_view": "Your camera",
       "self_view_off": "Camera unavailable",
+      "network_pending": "Connection is unstable. Your answers are sent as soon as it returns.",
       "exit": {
         "label": "Exit, you can resume later",
         "title": "Leave the interview?",

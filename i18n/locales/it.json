@@ -68,6 +68,7 @@
       "candidate_speaking": "Stai parlando",
       "self_view": "La tua fotocamera",
       "self_view_off": "Fotocamera non disponibile",
+      "network_pending": "La connessione è instabile. Le tue risposte vengono inviate appena torna disponibile.",
       "exit": {
         "label": "Esci, riprenderai dopo",
         "title": "Vuoi uscire dal colloquio?",

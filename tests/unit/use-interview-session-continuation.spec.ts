@@ -674,7 +674,7 @@ describe('boundary_due on the /utterance 202 (FE-05)', () => {
     expect(session.sessionId.value).toBe(A)
   })
 
-  it('a network error on /utterance is non-fatal: no boundary, state unchanged', async () => {
+  it('a network error on /utterance keeps the line for retry: no boundary, state unchanged', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const session = await liveSession()
     queue('/candidate/interview/utterance', new Thrown(new TypeError('Failed to fetch')))
@@ -686,7 +686,24 @@ describe('boundary_due on the /utterance 202 (FE-05)', () => {
     expect(providers[0]!.sendBoundary).not.toHaveBeenCalled()
     expect(session.state.value).toBe('live')
     expect(session.sessionId.value).toBe(A)
-    expect(warn).toHaveBeenCalled()
+    // Not refused: the line waits in the outbox and is sent again, so it is not reported as a refusal.
+    expect(session.pendingUtterances.value).toBe(1)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('a line that failed on the network is sent again, once, when the connection returns', async () => {
+    const session = await liveSession()
+    queue('/candidate/interview/utterance', new Thrown(new TypeError('Failed to fetch')))
+    say()
+    await flush()
+    expect(session.pendingUtterances.value).toBe(1)
+
+    queue('/candidate/interview/utterance', {})
+    vi.advanceTimersByTime(3_000)
+    await flush()
+
+    expect(callsTo('/candidate/interview/utterance')).toHaveLength(2)
+    expect(session.pendingUtterances.value).toBe(0)
   })
 
   it('a send that REJECTS (even its error handler throws) resolves false: no boundary, no unhandled rejection', async () => {

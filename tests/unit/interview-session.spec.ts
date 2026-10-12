@@ -397,6 +397,22 @@ afterEach(() => {
 })
 
 describe('InterviewSession — the written question', () => {
+  it('shows the network notice only while transcript lines wait for the connection', async () => {
+    const { wrapper, session } = await mountLive()
+    expect(wrapper.find('[data-testid="network-pending-notice"]').exists()).toBe(false)
+
+    session.pendingUtterances.value = 2
+    await flushPromises()
+
+    const notice = wrapper.find('[data-testid="network-pending-notice"]')
+    expect(notice.exists()).toBe(true)
+    expect(notice.attributes('role')).toBe('status')
+
+    session.pendingUtterances.value = 0
+    await flushPromises()
+    expect(wrapper.find('[data-testid="network-pending-notice"]').exists()).toBe(false)
+  })
+
   it('renders the question band', async () => {
     const { wrapper } = await mountLive()
     providers[0]!._emit('transcript', { role: 'avatar', text: 'First question', ts: 1 })

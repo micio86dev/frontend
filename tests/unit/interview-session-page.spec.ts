@@ -138,6 +138,7 @@ function makeSession(
     totalCompetencies: ref<number | null>(null),
     interviewMaxSeconds: ref<number | null>(null),
     interviewBudgetSpent: ref(false),
+    pendingUtterances: ref(0),
     activeProvider,
     activeConfig,
     players,

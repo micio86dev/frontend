@@ -60,6 +60,15 @@
       handover; only the classes change. The interviewer's tile frame (name chip
       and speaking ring) is inside the layer, around the players.
     -->
+    <p
+      v-if="session.pendingUtterances.value > 0"
+      data-testid="network-pending-notice"
+      role="status"
+      aria-live="polite"
+      class="mx-auto mb-2 max-w-3xl rounded-md border border-border bg-card px-3 py-2 text-sm text-card-foreground"
+    >
+      {{ $t('interview.call.network_pending') }}
+    </p>
     <CallStage :live="callStageLive" :embedded="embedded">
       <template #layer="{ live }">
         <div

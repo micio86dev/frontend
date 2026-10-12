@@ -2263,7 +2263,7 @@ describe('useInterviewSession', () => {
   // ---------------------------------------------------------------------------
 
   describe('/utterance non-409 error → console.warn logged', () => {
-    it('500 from /utterance → console.warn fired; session state unchanged', async () => {
+    it('500 from /utterance keeps the line for retry; session state unchanged', async () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const session = await createLiveSession()
 
@@ -2277,11 +2277,9 @@ describe('useInterviewSession', () => {
       })
       await flushPromises()
 
-      // console.warn should have been called (non-409 branch)
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[useInterviewSession] /utterance error (non-fatal):'),
-        expect.anything()
-      )
+      // A 5xx is retryable: the line waits in the outbox, it is not reported as a refusal.
+      expect(session.pendingUtterances.value).toBe(1)
+      expect(warnSpy).not.toHaveBeenCalled()
 
       // Session stays live — utterance errors are non-fatal
       expect(session.state.value).toBe('live')
