@@ -26,6 +26,10 @@ describe('evaluateConnection', () => {
     expect(evaluateConnection([null, null, null])).toBe('unreachable')
   })
 
+  it('is unreachable when most probes went unanswered, even if one answered quickly', () => {
+    expect(evaluateConnection([null, null, 120])).toBe('unreachable')
+  })
+
   it('ignores a single failed probe when the others answered quickly', () => {
     expect(evaluateConnection([null, 130, 120])).toBe('good')
   })

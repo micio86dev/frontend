@@ -14,7 +14,8 @@ export type ConnectionQuality = 'good' | 'slow' | 'unreachable'
 /** `null` marks a probe that got no answer. */
 export function evaluateConnection(roundTripsMs: ReadonlyArray<number | null>): ConnectionQuality {
   const answered = roundTripsMs.filter((ms): ms is number => ms !== null).sort((a, b) => a - b)
-  if (answered.length === 0) return 'unreachable'
+  // Most probes unanswered means the link is effectively down, whatever the one that answered said.
+  if (answered.length === 0 || answered.length * 2 <= roundTripsMs.length) return 'unreachable'
 
   const median = answered[Math.floor(answered.length / 2)]!
 
