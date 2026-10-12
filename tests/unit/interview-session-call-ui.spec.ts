@@ -133,13 +133,14 @@ let providers: ReturnType<typeof createMockProvider>[] = []
 const FIRST = 42
 const NEXT = 77
 
-function startResponse(sessionId: number, provider = 'tavus') {
+function startResponse(sessionId: number, provider = 'tavus', interviewMaxSeconds = 1200) {
   return {
     session_id: sessionId,
     provider,
     provider_token: 'tok',
     conversation_url: null,
     audio_only: false,
+    interview_max_seconds: interviewMaxSeconds,
     question_context: {
       competency_code: 'PRS',
       question_index: 0,
@@ -882,13 +883,13 @@ describe('InterviewSession — the stage', () => {
     }
   })
 
-  it('starts the question counter again for every competency session, and ends the question when it expires', async () => {
+  it('counts ONE total clock from the template limit across competencies, and ends the question when it expires', async () => {
     const { wrapper, session } = await mountLive({
       stubs: { InterviewTimer: InterviewTimerCounterStub },
     })
     const timer = () => wrapper.getComponent(InterviewTimerCounterStub)
     expect(timerLifecycle.mounted).toBe(1)
-    expect(timer().props('seconds')).toBe(300)
+    expect(timer().props('seconds')).toBe(1200)
 
     timer().vm.$emit('tick', 120)
     await flushPromises()
@@ -898,7 +899,8 @@ describe('InterviewSession — the stage', () => {
     session.advanceAttribution(NEXT)
     await flushPromises()
     expect(timerLifecycle.mounted).toBe(2)
-    expect(timer().props('seconds')).toBe(300)
+    // The template limit is the whole interview: the next competency continues the same clock.
+    expect(timer().props('seconds')).toBe(120)
 
     const endQuestion = vi.spyOn(
       session as unknown as { endQuestion: (reason: string) => Promise<void> },

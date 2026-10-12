@@ -135,6 +135,7 @@ function makeSession(
     sessionId: ref<number | null>(42),
     endedCompetencies: ref<number | null>(null),
     totalCompetencies: ref<number | null>(null),
+    interviewMaxSeconds: ref<number | null>(null),
     activeProvider,
     activeConfig,
     players,
@@ -429,13 +430,12 @@ describe('interview/session.vue — timer expiry and skip', () => {
     expect(timerAfter.props('seconds')).toBe(fullLimit - 137)
   })
 
-  it('restarts the countdown at the full limit for a new competency', async () => {
+  it('keeps ONE total countdown across competencies: a new competency continues from the remaining time', async () => {
     // Resuming a pause must preserve the clock; starting the NEXT question must not.
     const session = makeSession({ state: 'live' })
     const wrapper = await mountPage(session)
 
     const timer = wrapper.findComponent({ name: 'InterviewTimer' })
-    const fullLimit = timer.props('seconds') as number
     timer.vm.$emit('tick', 42)
     await nextTick()
 
@@ -443,7 +443,8 @@ describe('interview/session.vue — timer expiry and skip', () => {
     session.sessionId.value = 99
     await nextTick()
 
-    expect(wrapper.findComponent({ name: 'InterviewTimer' }).props('seconds')).toBe(fullLimit)
+    // The template limit is the whole interview, so the next competency does not refill it.
+    expect(wrapper.findComponent({ name: 'InterviewTimer' }).props('seconds')).toBe(42)
   })
 
   // D12 — the inter-competency gap.

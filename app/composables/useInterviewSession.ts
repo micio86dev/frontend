@@ -101,6 +101,7 @@
 import { ref, shallowRef, computed, type ComputedRef } from 'vue'
 import { createProvider } from '~/app/providers/factory'
 import { effectiveViewportWidth } from '~/app/utils/browser-gate'
+import { interviewMaxSecondsFrom } from '~/app/utils/interview-max-seconds'
 import {
   canSteerContext,
   type InterviewProvider,
@@ -552,6 +553,8 @@ export function useInterviewSession(
   /** Server-fed progress (D6/D7). Never derived here — deriving it is the defect. */
   const endedCompetencies = ref<number | null>(null)
   const totalCompetencies = ref<number | null>(null)
+  /** The interview's total time limit from the active template, once a start response has named it. */
+  const interviewMaxSeconds = ref<number | null>(null)
 
   /** D1: the live slot — what the candidate is looking at right now. */
   const activeSession = shallowRef<ProviderSession | null>(null)
@@ -1562,6 +1565,9 @@ export function useInterviewSession(
         ...(confirmedAudioDeviceId ? { audioDeviceId: confirmedAudioDeviceId } : {}),
       }
 
+      const maxSeconds = interviewMaxSecondsFrom(response.interview_max_seconds)
+      if (maxSeconds !== null) interviewMaxSeconds.value = maxSeconds
+
       const handle: ProviderSession = {
         // C2: idempotent-wrapped at creation — the ONE place every
         // `ProviderSession` handle's `stop()` becomes safe to call more than
@@ -1899,6 +1905,7 @@ export function useInterviewSession(
     sessionId,
     endedCompetencies,
     totalCompetencies,
+    interviewMaxSeconds,
     activeProvider,
     activeConfig,
     players,

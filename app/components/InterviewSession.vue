@@ -107,9 +107,9 @@
           :ended="session.endedCompetencies.value ?? null"
           :total="session.totalCompetencies.value ?? null"
           :elapsed-seconds="elapsedSeconds"
-          :question-seconds="questionRemaining"
+          :question-seconds="interviewRemaining"
           :timer-key="session.sessionId.value ?? null"
-          @tick="questionRemaining = $event"
+          @tick="interviewRemaining = $event"
           @expired="onTimerExpired"
         >
           <template #exit>
@@ -784,30 +784,33 @@ const speaker = speakerTurn.speaker
 const interviewClock = useInterviewClock({ isRunning: () => session.state.value === 'live' })
 const elapsedSeconds = interviewClock.elapsed
 
-const QUESTION_TIME_LIMIT = 300 // 5 minutes default
+/**
+ * Used only when the server sent no template limit (an older API). Once a start
+ * response names the template's total, that number is the clock.
+ */
+const FALLBACK_INTERVIEW_SECONDS = 300
 
 /**
- * Seconds left on the current question — owned HERE, not by InterviewTimer.
+ * Seconds left in the WHOLE interview, owned HERE, not by InterviewTimer.
  *
  * The timer renders inside the `v-if="state === 'live'"` block, so pausing
- * unmounts it and takes its internal countdown with it. While it owned the
- * value, every resume mounted a fresh instance starting from the full limit:
- * pause, resume, and the candidate had five more minutes, as often as they
- * liked. On an assessment that is a fairness hole, not a cosmetic bug.
+ * unmounts it and takes its internal countdown with it. Keeping the value on the
+ * page outlives the unmount, so a pause suspends the clock and a resume continues
+ * from the same second.
  *
- * Keeping it on the page outlives the unmount, so a pause suspends the clock
- * and a resume continues from the same second.
+ * The limit is the template's total (`maxCallDurationSec`), not a per-question
+ * allowance: it is NOT reset when the next competency starts.
  */
-const questionRemaining = ref(QUESTION_TIME_LIMIT)
+const interviewRemaining = ref(FALLBACK_INTERVIEW_SECONDS)
 
-// A new competency gets a full clock — the pause exemption above must not leak
-// across questions. Keyed on the DB session id, which /start reissues per
-// competency, rather than on the `live` transition, which a resume also makes.
+// The start response names the template's limit. It is set once, before the candidate
+// has used any of it; later competencies keep counting down from where the clock stands.
 watch(
-  () => session.sessionId.value,
-  () => {
-    questionRemaining.value = QUESTION_TIME_LIMIT
-  }
+  () => session.interviewMaxSeconds.value,
+  (maxSeconds) => {
+    if (maxSeconds !== null && elapsedSeconds.value === 0) interviewRemaining.value = maxSeconds
+  },
+  { immediate: true }
 )
 
 function onTranscript(entry: { text: string }): void {

@@ -7450,6 +7450,7 @@ export interface operations {
                             competency_ordinal: number | null;
                             total_competencies: number | null;
                         };
+                        interview_max_seconds: number;
                         conversation_id?: string;
                         conversation_ttl_seconds?: number;
                         continuation?: {
