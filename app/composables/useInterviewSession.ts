@@ -1091,6 +1091,9 @@ export function useInterviewSession(
 
       const status =
         (err as Record<string, unknown>)?.status ?? (err as Record<string, unknown>)?.statusCode
+      // Documented exception to the "409 means not ready yet" rule. On /end the server answers 409 when the
+      // session is no longer in_corso: a final state (already ended, or the race was lost), not a temporary
+      // one, and the candidate cannot act on it, so it is shown no retry. See the /utterance 409 below.
       if (status === 409) {
         // 409 = the loser of the avatar-complete/timer race. Distinct from
         // "no directive": the winner is already advancing, so this caller must
@@ -1434,7 +1437,8 @@ export function useInterviewSession(
         clearAutoReconnect()
         autoReconnectTimer = setTimeout(() => {
           autoReconnectTimer = null
-          void startSession(0, 'active')
+          // Only if nothing took over meanwhile: a pause or an exit must not be undone by a restart.
+          if (state.value === 'connecting') void startSession(0, 'active')
         }, delay)
 
         return

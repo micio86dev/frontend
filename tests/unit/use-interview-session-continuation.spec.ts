@@ -806,6 +806,21 @@ describe('boundary_due on the /utterance 202 (FE-05)', () => {
     expect(starts()).toHaveLength(2)
   })
 
+  it('a pause during the reconnect wait is not overridden by the reconnect', async () => {
+    const session = await liveSession()
+    queue('/candidate/interview/start', fresh(A))
+    providers[0]!._emit('error', { code: 'disconnected' })
+    await flush()
+
+    // The candidate moved on (paused, or left the call) while the reconnect was waiting.
+    session.state.value = 'paused'
+    await flush()
+    vi.advanceTimersByTime(8_000)
+    await flush()
+
+    expect(starts()).toHaveLength(1)
+  })
+
   it('gives up after a few automatic reconnects and shows the error with retry', async () => {
     const session = await liveSession()
     mockCandidateFetch.mockImplementation(async (path: string) => {
