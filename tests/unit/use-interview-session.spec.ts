@@ -1749,13 +1749,14 @@ describe('useInterviewSession', () => {
       expect(session.activeProvider.value).toBe(mockProviderRegistry[1])
     })
 
-    it('the same error with NO handover in progress still goes to error', async () => {
+    it('the same drop with NO handover in progress reconnects first, and only then reaches the error screen', async () => {
       const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
 
       mockProviderRegistry[0]!._emit('error', { code: 'disconnected', message: 'lost' })
       await flushPromises()
 
-      expect(session.state.value).toBe('error')
+      // A drop is re-established by itself (bounded); the error screen comes only once that gives up.
+      expect(session.state.value).toBe('connecting')
     })
   })
 
@@ -2263,7 +2264,7 @@ describe('useInterviewSession', () => {
   // ---------------------------------------------------------------------------
 
   describe('/utterance non-409 error → console.warn logged', () => {
-    it('500 from /utterance → console.warn fired; session state unchanged', async () => {
+    it('500 from /utterance keeps the line for retry; session state unchanged', async () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const session = await createLiveSession()
 
@@ -2277,11 +2278,9 @@ describe('useInterviewSession', () => {
       })
       await flushPromises()
 
-      // console.warn should have been called (non-409 branch)
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[useInterviewSession] /utterance error (non-fatal):'),
-        expect.anything()
-      )
+      // A 5xx is retryable: the line waits in the outbox, it is not reported as a refusal.
+      expect(session.pendingUtterances.value).toBe(1)
+      expect(warnSpy).not.toHaveBeenCalled()
 
       // Session stays live — utterance errors are non-fatal
       expect(session.state.value).toBe('live')
@@ -2295,7 +2294,7 @@ describe('useInterviewSession', () => {
   // ---------------------------------------------------------------------------
 
   describe('/end unexpected error → console.warn; state transitions normally', () => {
-    it('502 from /end → console.warn fired; state transitions to end_of_question', async () => {
+    it('502 from /end → console.warn fired; the candidate sees the retryable error, not a pause', async () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const session = await createLiveSession(0, DEFAULT_COMPETENCIES)
 
@@ -2316,7 +2315,7 @@ describe('useInterviewSession', () => {
       // resolves (catch branch returns), then the .then() checks for terminal.
       // State was NOT set to terminal (502 ≠ 403), so the .then() branch runs.
       // The session transitions to end_of_question (competencies remain).
-      expect(session.state.value).toBe('end_of_question')
+      expect(session.state.value).toBe('error')
 
       warnSpy.mockRestore()
     })

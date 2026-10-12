@@ -101,6 +101,8 @@
 import { ref, shallowRef, computed, type ComputedRef } from 'vue'
 import { createProvider } from '~/app/providers/factory'
 import { effectiveViewportWidth } from '~/app/utils/browser-gate'
+import { interviewMaxSecondsFrom } from '~/app/utils/interview-max-seconds'
+import { UtteranceOutbox, type PendingUtterance } from '~/app/utils/utterance-outbox'
 import {
   canSteerContext,
   type InterviewProvider,
@@ -160,6 +162,8 @@ type StartResponse = operations['interview.start']['responses'][200]['content'][
  * types, never to a hand-written generic. The API now publishes the shape.
  */
 type EndResponse = operations['interview.end']['responses'][200]['content']['application/json']
+type UtteranceResponse =
+  operations['utterance.store']['responses'][202]['content']['application/json']
 
 // ---------------------------------------------------------------------------
 // Types
@@ -183,7 +187,8 @@ export type SessionState =
  * 409, the loser of the avatar-complete/timer race. It has no directive and
  * must not transition.
  */
-export type EndDirective = 'continue' | 'pause' | 'done' | 'noop'
+/** The server's next_action, taken from the generated contract, plus the client-only 'noop' (a lost /end race). */
+export type EndDirective = NonNullable<EndResponse['next_action']> | 'noop'
 
 export type TerminalReason = '403' | 'absent_phrase' | 'session_expired' | 'malformed_response'
 
@@ -195,7 +200,10 @@ export type TerminalReason = '403' | 'absent_phrase' | 'session_expired' | 'malf
  * still accepts `skipped` — removing an enum value from a shipped contract is
  * churn with no benefit — but nothing here can produce it.
  */
-export type EndQuestionReason = 'timeout'
+/** The reasons this client ends a question for, narrowed from the generated ended_reason. */
+type EndRequestReason =
+  operations['interview.end']['requestBody']['content']['application/json']['ended_reason']
+export type EndQuestionReason = Extract<EndRequestReason, 'timeout'>
 
 /**
  * A live (or connecting) provider session, identified by its DB session id.
@@ -287,6 +295,12 @@ export interface UseInterviewSessionReturn {
   endedCompetencies: ReturnType<typeof ref<number | null>>
   /** Total competencies in the project, from the /end directive. */
   totalCompetencies: ReturnType<typeof ref<number | null>>
+  /** The interview's total time limit from the active template, once a start response has named it. */
+  interviewMaxSeconds: ReturnType<typeof ref<number | null>>
+  /** Set once the whole interview's time is spent: the question in progress finishes, and the server settles the interview. */
+  interviewBudgetSpent: ReturnType<typeof ref<boolean>>
+  /** Transcript lines waiting for the network to come back. */
+  pendingUtterances: ReturnType<typeof ref<number>>
   /**
    * Provider awaiting mount by AvatarPlayer; null whenever no question is in flight.
    *
@@ -313,7 +327,7 @@ export interface UseInterviewSessionReturn {
   resume: () => void
   retry: () => void
   nextCompetency: () => void
-  /** End the current question early (5-minute timer expiry, or the candidate skipping). */
+  /** End the current question early (the whole interview's time is spent). */
 
   endQuestion: (reason: EndQuestionReason) => Promise<void>
   teardown: () => Promise<void>
@@ -361,6 +375,23 @@ const RETRY_DELAY_MS = 3000
  * route through. Not configurable: the spec fixes the number.
  */
 const UTTERANCE_DRAIN_CEILING_MS = 3_000
+/** How often the outbox tries again while transcript lines are waiting for the network. */
+const UTTERANCE_OUTBOX_RETRY_MS = 3_000
+
+/** A dropped avatar connection is re-established by itself this many times in a row, waiting longer each time. */
+const AUTO_RECONNECT_DELAYS_MS = [2_000, 4_000, 8_000] as const
+/** After this many attempts in a row with no line settled, the outbox stops retrying on a timer. The notice stays, and the next line or /end tries once more. */
+const UTTERANCE_OUTBOX_MAX_STALLED_ATTEMPTS = 20
+
+/** Resolves with `work`, or after `ms` with nothing: the caller is never held longer than the ceiling. */
+function withCeiling(work: Promise<void>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const ceiling = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms)
+  })
+
+  return Promise.race([work, ceiling]).finally(() => clearTimeout(timer))
+}
 
 const HANDOVER_BOUND_MS = 10_000
 
@@ -408,6 +439,11 @@ const CONNECTING_CEILING_MS = 20_000
  * meant `absent_phrase` was never matched against a real provider, and the state
  * fallback below silently absorbed every other failure under the same reason.
  */
+/** An established connection to the avatar was lost. An SDK start failure is not a drop and is not retried here. */
+function isConnectionDrop(code: string | null): boolean {
+  return code === 'disconnected'
+}
+
 function providerErrorCode(payload: unknown): string | null {
   if (typeof payload === 'string') return payload
   if (payload && typeof payload === 'object') {
@@ -432,20 +468,25 @@ type ParsedContinuation = { conversationId: string; competencyCode: CompetencyCo
  * provider handle (token or URL). A continuation names a conversation the
  * browser is already in; a handle would be a second one.
  */
-function parseContinuation(r: Record<string, unknown>): ParsedContinuation | null | 'malformed' {
-  const raw = r['continuation']
-  if (raw === undefined || raw === null) return null
-  if (typeof raw !== 'object') return 'malformed'
+type Continuation = NonNullable<StartResponse['continuation']>
 
-  const c = raw as Record<string, unknown>
-  if (typeof c['conversation_id'] !== 'string' || c['conversation_id'] === '') return 'malformed'
-  if (typeof c['competency_code'] !== 'string') return 'malformed'
-  const competencyCode = asCompetencyCode(c['competency_code'])
+/**
+ * Reads a start response's continuation. The field names and types come from the generated
+ * contract; the checks below are the runtime guard, because a type describes what the server
+ * promises, not what arrives on the wire.
+ */
+function parseContinuation(response: StartResponse): ParsedContinuation | null | 'malformed' {
+  const continuation: Continuation | null | undefined = response.continuation
+  if (continuation === undefined || continuation === null) return null
+  if (typeof continuation !== 'object') return 'malformed'
+  if (typeof continuation.conversation_id !== 'string' || continuation.conversation_id === '')
+    return 'malformed'
+  const competencyCode = asCompetencyCode(continuation.competency_code)
   if (competencyCode === null) return 'malformed'
 
-  if (r['provider_token'] != null || r['conversation_url'] != null) return 'malformed'
+  if (response.provider_token != null || response.conversation_url != null) return 'malformed'
 
-  return { conversationId: c['conversation_id'], competencyCode }
+  return { conversationId: continuation.conversation_id, competencyCode }
 }
 
 /** Everything `isValidStartResponse` checks except the continuation. */
@@ -502,7 +543,8 @@ function isBaseValidStartResponse(response: unknown): boolean {
 export function isValidStartResponse(response: unknown): response is StartResponse {
   if (!isBaseValidStartResponse(response)) return false
 
-  return parseContinuation(response as Record<string, unknown>) !== 'malformed'
+  // The shape was checked above; the continuation check reads it through the generated contract.
+  return parseContinuation(response as StartResponse) !== 'malformed'
 }
 
 // ---------------------------------------------------------------------------
@@ -552,6 +594,14 @@ export function useInterviewSession(
   /** Server-fed progress (D6/D7). Never derived here — deriving it is the defect. */
   const endedCompetencies = ref<number | null>(null)
   const totalCompetencies = ref<number | null>(null)
+  /** The interview's total time limit from the active template, once a start response has named it. */
+  const interviewMaxSeconds = ref<number | null>(null)
+  /** Set once the whole interview's time is spent: the question in progress finishes, and nothing after it starts. */
+  // Never reset: once the whole time is spent the interview is over, so every later /end (including a retry after a failed one) must say so.
+  const interviewBudgetSpent = ref(false)
+  /** A /end that failed before the server confirmed it. Retry re-sends this one, never a new start. */
+  let pendingEnd: { dbSessionId: number; endedReason: 'completed' | EndQuestionReason } | null =
+    null
 
   /** D1: the live slot — what the candidate is looking at right now. */
   const activeSession = shallowRef<ProviderSession | null>(null)
@@ -645,6 +695,10 @@ export function useInterviewSession(
 
   function transitionTo(next: SessionState) {
     state.value = next
+    if (next === 'done' || next === 'terminal' || next === 'error') {
+      clearOutboxRetry()
+      clearAutoReconnect()
+    }
 
     // Remove resize listener on terminal states
     if (next === 'done' || next === 'terminal' || next === 'error') {
@@ -763,6 +817,28 @@ export function useInterviewSession(
    * always raced.
    */
   const inFlightUtterances = new Set<Promise<void>>()
+  /** Transcript lines not yet delivered, in order. Re-sent as the network returns. */
+  const utteranceOutbox = new UtteranceOutbox()
+  /** How many transcript lines are still waiting for the network: drives the candidate-facing notice. */
+  const pendingUtterances = ref(0)
+  let outboxRetryTimer: ReturnType<typeof setTimeout> | null = null
+  let outboxStalledAttempts = 0
+  /** Whether the last failed send to the outbox had an HTTP status (a server refusal) rather than no response at all. */
+  let lastOutboxFailureWasHttp = false
+  /** Direct sends still on their way: lines spoken meanwhile queue behind them. */
+  let directUtterancesInFlight = 0
+  let autoReconnectAttempts = 0
+  let autoReconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+  function clearAutoReconnect(): void {
+    if (autoReconnectTimer !== null) clearTimeout(autoReconnectTimer)
+    autoReconnectTimer = null
+  }
+
+  function clearOutboxRetry(): void {
+    if (outboxRetryTimer !== null) clearTimeout(outboxRetryTimer)
+    outboxRetryTimer = null
+  }
 
   /**
    * Wait for the utterance tail, bounded.
@@ -789,53 +865,171 @@ export function useInterviewSession(
     }
   }
 
-  /** Resolves true only when the 202 body carries a literal `boundary_due: true`. */
+  /** A send that failed for a reason worth trying again: no response at all, a 5xx, or a 429. */
+  function isRetryableUtteranceError(err: unknown): boolean {
+    const status =
+      (err as Record<string, unknown>)?.status ?? (err as Record<string, unknown>)?.statusCode
+    return typeof status !== 'number' || status >= 500 || status === 429
+  }
+
+  /**
+   * Posts one transcript line. Resolves `true` when the line is settled (delivered, or
+   * refused for good) and `false` when it must be tried again. A 401 ends the interview.
+   */
+  async function deliverUtterance(item: PendingUtterance): Promise<boolean> {
+    const { session: dbSessionId, speaker, text, ts } = item
+    try {
+      const body = await candidateFetch<UtteranceResponse>('/candidate/interview/utterance', {
+        method: 'POST',
+        body: { session_id: dbSessionId, speaker, text, ts },
+      })
+      // The server says the competency's turn budget is met: close it, but only for the live session.
+      if (body?.boundary_due === true && activeSession.value?.attribution.current === dbSessionId) {
+        void assertBoundary('completed')
+      }
+
+      return true
+    } catch (err) {
+      // 401 → the stored session has already expired or been cleared (candidateFetch clears it
+      // before throwing). Distinct, non-retryable terminal.
+      if (err instanceof CandidateUnauthorizedError) {
+        terminalReason.value = 'session_expired'
+        transitionTo('terminal')
+
+        return true
+      }
+      if (isRetryableUtteranceError(err)) {
+        // A network outage is not a refusal: it never counts towards dropping a line.
+        const status =
+          (err as Record<string, unknown>)?.status ?? (err as Record<string, unknown>)?.statusCode
+        lastOutboxFailureWasHttp = typeof status === 'number'
+
+        return false
+      }
+
+      // 409 = the row is no longer in_corso, a 4xx is refused for good: both settle the line.
+      const status =
+        (err as Record<string, unknown>)?.status ?? (err as Record<string, unknown>)?.statusCode
+      if (status !== 409) {
+        console.warn('[useInterviewSession] /utterance refused (not retried):', err)
+      }
+
+      return true
+    }
+  }
+
+  /** Sends what is waiting, in order. Schedules another attempt while anything is still queued. */
+  async function flushUtterances(): Promise<void> {
+    clearOutboxRetry()
+    // A finished or failed interview sends nothing more: the lines it could not deliver are dropped with it.
+    if (terminalReason.value !== null) return
+
+    const before = utteranceOutbox.size
+    lastOutboxFailureWasHttp = false
+    await utteranceOutbox.flush(deliverUtterance)
+    const settled = before - utteranceOutbox.size
+    // Only a server refusal (HTTP 5xx or 429) counts as stalled. A network outage waits and never drops a line.
+    if (settled > 0) outboxStalledAttempts = 0
+    else if (lastOutboxFailureWasHttp) outboxStalledAttempts += 1
+
+    // A head line the server keeps refusing is dropped, so it cannot hold back every line after it.
+    if (
+      outboxStalledAttempts >= UTTERANCE_OUTBOX_MAX_STALLED_ATTEMPTS &&
+      utteranceOutbox.size > 0
+    ) {
+      console.warn('[useInterviewSession] a transcript line was refused repeatedly and is dropped')
+      utteranceOutbox.dropHead()
+      outboxStalledAttempts = 0
+      pendingUtterances.value = utteranceOutbox.size
+      return flushUtterances()
+    }
+
+    pendingUtterances.value = utteranceOutbox.size
+    if (utteranceOutbox.size > 0 && terminalReason.value === null) scheduleOutboxFlush()
+  }
+
+  /**
+   * Sends one transcript line. The normal path is unchanged: a delivered line answers its
+   * `boundary_due` right here. A line that fails for the network (or a 5xx) is kept in the outbox
+   * and re-sent in order as the connection returns; so is any line that arrives while older lines
+   * still wait, so nothing overtakes them. Resolves true only for a line delivered right now that
+   * asks for the boundary.
+   */
   async function sendUtterance(
     dbSessionId: number,
     text: string,
     speaker: 'candidate' | 'avatar'
   ): Promise<boolean> {
+    const item: PendingUtterance = {
+      session: dbSessionId,
+      speaker,
+      text,
+      ts: new Date().toISOString(),
+    }
+    // Behind anything still waiting, or behind a direct send already on its way: the server must see lines in spoken order.
+    if (utteranceOutbox.size > 0 || directUtterancesInFlight > 0) {
+      utteranceOutbox.enqueue(item)
+      pendingUtterances.value = utteranceOutbox.size
+      if (directUtterancesInFlight === 0) await flushUtterances()
+
+      return false
+    }
+
+    directUtterancesInFlight += 1
+    let retryLater = false
     try {
-      const body = await candidateFetch<unknown>('/candidate/interview/utterance', {
+      const body = await candidateFetch<UtteranceResponse>('/candidate/interview/utterance', {
         method: 'POST',
-        body: {
-          session_id: dbSessionId,
-          speaker,
-          text,
-          ts: new Date().toISOString(),
-        },
+        body: { session_id: dbSessionId, speaker, text, ts: item.ts },
       })
-      return (body as { boundary_due?: unknown } | null | undefined)?.boundary_due === true
+      return body?.boundary_due === true
     } catch (err) {
-      // 401 → the stored session has already expired or been cleared
-      // (candidateFetch clears it before throwing). Distinct, non-retryable
-      // terminal — never falls into the "non-fatal, keep going" path below.
+      // 401 → the stored session has already expired or been cleared (candidateFetch clears it
+      // before throwing). Distinct, non-retryable terminal.
       if (err instanceof CandidateUnauthorizedError) {
         terminalReason.value = 'session_expired'
         transitionTo('terminal')
+
         return false
       }
 
-      // 409 = silently dropped; any other error is also non-fatal for utterance
+      if (isRetryableUtteranceError(err)) {
+        // This line is older than anything queued behind it, so it goes back to the head. It waits for
+        // the retry timer rather than being sent again straight away.
+        retryLater = true
+        utteranceOutbox.prepend(item)
+        pendingUtterances.value = utteranceOutbox.size
+        const status =
+          (err as Record<string, unknown>)?.status ?? (err as Record<string, unknown>)?.statusCode
+        lastOutboxFailureWasHttp = typeof status === 'number'
+        scheduleOutboxFlush()
+
+        return false
+      }
+
+      // 409 = the session is no longer in_corso (the server's session_not_live): a final state for this
+      // line, not a temporary one, so it is settled rather than retried. A 4xx is refused for good too.
       const status =
         (err as Record<string, unknown>)?.status ?? (err as Record<string, unknown>)?.statusCode
       if (status !== 409) {
-        console.warn('[useInterviewSession] /utterance error (non-fatal):', err)
+        console.warn('[useInterviewSession] /utterance refused (not retried):', err)
       }
+
       return false
+    } finally {
+      directUtterancesInFlight -= 1
+      // Whatever queued up behind a delivered send goes out now, in order. After a failure the retry timer handles it.
+      if (!retryLater && directUtterancesInFlight === 0 && utteranceOutbox.size > 0)
+        void flushUtterances()
     }
   }
 
-  /**
-   * Ask the server to tear the provider conversation down.
-   *
-   * Fire-and-forget on purpose. The candidate has ALREADY been shown the paused
-   * screen and the avatar has ALREADY been stopped locally by the time this
-   * settles; blocking the UI on it would make pausing feel broken, and failing
-   * it visibly would tell a candidate about a billing concern that is not
-   * theirs. A suspend that does not land leaves a provider session running only
-   * until `/start` re-issues, which tears the stale ref down anyway.
-   */
+  function scheduleOutboxFlush(): void {
+    if (outboxRetryTimer !== null) return
+    if (outboxStalledAttempts >= UTTERANCE_OUTBOX_MAX_STALLED_ATTEMPTS) return
+    outboxRetryTimer = setTimeout(() => void flushUtterances(), UTTERANCE_OUTBOX_RETRY_MS)
+  }
+
   async function callSuspend(dbSessionId: number): Promise<void> {
     // Same choke point as `callEnd`: whatever the candidate said before pausing
     // must reach the server before the provider session that produced it stops
@@ -860,6 +1054,8 @@ export function useInterviewSession(
     // remember, and the one most likely to be added next is a new exit path
     // written under time pressure. A choke point cannot be forgotten.
     await drainUtterances()
+    // Best effort, only when lines are waiting, under the drain's ceiling: a stuck network must not hold /end.
+    if (utteranceOutbox.size > 0) await withCeiling(flushUtterances(), UTTERANCE_DRAIN_CEILING_MS)
 
     try {
       const response = await candidateFetch<Partial<EndResponse>>('/candidate/interview/end', {
@@ -867,6 +1063,8 @@ export function useInterviewSession(
         body: {
           session_id: dbSessionId,
           ended_reason: endedReason,
+          // The server settles the interview and answers `done`, so no competency starts.
+          budget_spent: interviewBudgetSpent.value,
         },
       })
 
@@ -893,6 +1091,9 @@ export function useInterviewSession(
 
       const status =
         (err as Record<string, unknown>)?.status ?? (err as Record<string, unknown>)?.statusCode
+      // Documented exception to the "409 means not ready yet" rule. On /end the server answers 409 when the
+      // session is no longer in_corso: a final state (already ended, or the race was lost), not a temporary
+      // one, and the candidate cannot act on it, so it is shown no retry. See the /utterance 409 below.
       if (status === 409) {
         // 409 = the loser of the avatar-complete/timer race. Distinct from
         // "no directive": the winner is already advancing, so this caller must
@@ -905,10 +1106,13 @@ export function useInterviewSession(
 
         return null
       }
-      // Other errors on /end — log; the caller degrades to the pause screen
+      // Any other failure (network drop, 5xx): the answer was not confirmed, so the
+      // candidate is told the truth and can retry THIS end. Not a planned pause.
       console.warn('[useInterviewSession] /end unexpected error:', err)
+      pendingEnd = { dbSessionId, endedReason }
+      transitionTo('error')
 
-      return null
+      return 'noop'
     }
   }
 
@@ -1105,6 +1309,7 @@ export function useInterviewSession(
         // post-bound reconnect) and ONLY for the live handle — an incoming
         // handle's (or a stale, already-released handle's) `ready` is inert.
         if (isLive && state.value === 'connecting') {
+          autoReconnectAttempts = 0
           transitionTo('live')
           attachResizeListener()
         }
@@ -1216,6 +1421,26 @@ export function useInterviewSession(
         // the incoming; the bound timer and the connecting-ceiling keep
         // bounding it. The mic is already muted (`beginHandover`).
         logHandoverEvent('outgoing-died-before-incoming')
+        return
+      }
+
+      // A dropped connection is re-established by itself, a few times, before the candidate is asked to retry.
+      if (
+        (state.value === 'live' || state.value === 'connecting') &&
+        isConnectionDrop(code) &&
+        autoReconnectAttempts < AUTO_RECONNECT_DELAYS_MS.length
+      ) {
+        const delay = AUTO_RECONNECT_DELAYS_MS[autoReconnectAttempts]!
+        autoReconnectAttempts += 1
+        handle.provider.stop().catch(() => {})
+        transitionTo('connecting')
+        clearAutoReconnect()
+        autoReconnectTimer = setTimeout(() => {
+          autoReconnectTimer = null
+          // Only if nothing took over meanwhile: a pause or an exit must not be undone by a restart.
+          if (state.value === 'connecting') void startSession(0, 'active')
+        }, delay)
+
         return
       }
 
@@ -1513,7 +1738,7 @@ export function useInterviewSession(
         return
       }
 
-      const continuation = parseContinuation(response as unknown as Record<string, unknown>)
+      const continuation = parseContinuation(response)
       if (continuation !== null && continuation !== 'malformed') {
         // No handle was issued: the joined one keeps playing. Released before
         // the steering is applied because a failed steering re-enters
@@ -1561,6 +1786,9 @@ export function useInterviewSession(
         // browser withheld one.
         ...(confirmedAudioDeviceId ? { audioDeviceId: confirmedAudioDeviceId } : {}),
       }
+
+      const maxSeconds = interviewMaxSecondsFrom(response.interview_max_seconds)
+      if (maxSeconds !== null) interviewMaxSeconds.value = maxSeconds
 
       const handle: ProviderSession = {
         // C2: idempotent-wrapped at creation — the ONE place every
@@ -1789,6 +2017,13 @@ export function useInterviewSession(
 
   function retry() {
     retryAttemptCount.value = 0
+    if (pendingEnd !== null) {
+      const { dbSessionId, endedReason } = pendingEnd
+      pendingEnd = null
+      void callEnd(dbSessionId, endedReason).then(advanceAfterQuestion)
+
+      return
+    }
     confirmDevices()
   }
 
@@ -1899,6 +2134,9 @@ export function useInterviewSession(
     sessionId,
     endedCompetencies,
     totalCompetencies,
+    interviewMaxSeconds,
+    interviewBudgetSpent,
+    pendingUtterances,
     activeProvider,
     activeConfig,
     players,

@@ -14,6 +14,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { INTERVIEW_CLOSING_GRACE_MS } from '~/app/utils/interview-budget'
 import { mount, flushPromises } from '@vue/test-utils'
 import { ref, defineComponent, h, markRaw, onBeforeUnmount, onMounted, onUnmounted } from 'vue'
 import type { InterviewProvider } from '~/app/types/interview-provider'
@@ -133,13 +134,14 @@ let providers: ReturnType<typeof createMockProvider>[] = []
 const FIRST = 42
 const NEXT = 77
 
-function startResponse(sessionId: number, provider = 'tavus') {
+function startResponse(sessionId: number, provider = 'tavus', interviewMaxSeconds = 1200) {
   return {
     session_id: sessionId,
     provider,
     provider_token: 'tok',
     conversation_url: null,
     audio_only: false,
+    interview_max_seconds: interviewMaxSeconds,
     question_context: {
       competency_code: 'PRS',
       question_index: 0,
@@ -395,6 +397,22 @@ afterEach(() => {
 })
 
 describe('InterviewSession — the written question', () => {
+  it('shows the network notice only while transcript lines wait for the connection', async () => {
+    const { wrapper, session } = await mountLive()
+    expect(wrapper.find('[data-testid="network-pending-notice"]').exists()).toBe(false)
+
+    session.pendingUtterances.value = 2
+    await flushPromises()
+
+    const notice = wrapper.find('[data-testid="network-pending-notice"]')
+    expect(notice.exists()).toBe(true)
+    expect(notice.attributes('role')).toBe('status')
+
+    session.pendingUtterances.value = 0
+    await flushPromises()
+    expect(wrapper.find('[data-testid="network-pending-notice"]').exists()).toBe(false)
+  })
+
   it('renders the question band', async () => {
     const { wrapper } = await mountLive()
     providers[0]!._emit('transcript', { role: 'avatar', text: 'First question', ts: 1 })
@@ -882,13 +900,13 @@ describe('InterviewSession — the stage', () => {
     }
   })
 
-  it('starts the question counter again for every competency session, and ends the question when it expires', async () => {
+  it('counts ONE total clock from the template limit across competencies, and spends the budget and closes after the grace period when it expires', async () => {
     const { wrapper, session } = await mountLive({
       stubs: { InterviewTimer: InterviewTimerCounterStub },
     })
     const timer = () => wrapper.getComponent(InterviewTimerCounterStub)
     expect(timerLifecycle.mounted).toBe(1)
-    expect(timer().props('seconds')).toBe(300)
+    expect(timer().props('seconds')).toBe(1200)
 
     timer().vm.$emit('tick', 120)
     await flushPromises()
@@ -898,15 +916,25 @@ describe('InterviewSession — the stage', () => {
     session.advanceAttribution(NEXT)
     await flushPromises()
     expect(timerLifecycle.mounted).toBe(2)
-    expect(timer().props('seconds')).toBe(300)
+    // The template limit is the whole interview: the next competency continues the same clock.
+    expect(timer().props('seconds')).toBe(120)
 
     const endQuestion = vi.spyOn(
       session as unknown as { endQuestion: (reason: string) => Promise<void> },
       'endQuestion'
     )
-    timer().vm.$emit('expired')
-    await flushPromises()
-    expect(endQuestion).toHaveBeenCalledWith('timeout')
+    vi.useFakeTimers()
+    try {
+      timer().vm.$emit('expired')
+      await flushPromises()
+      // The whole interview is spent: the question finishes on its closing phrase, so it is not cut here.
+      expect(session.interviewBudgetSpent.value).toBe(true)
+      expect(endQuestion).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(INTERVIEW_CLOSING_GRACE_MS)
+      expect(endQuestion).toHaveBeenCalledWith('timeout')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('moves the toaster to the top left', async () => {

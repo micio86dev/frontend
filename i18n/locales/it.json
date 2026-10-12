@@ -45,7 +45,9 @@
       "camera_picker_label": "Fotocamera",
       "mic_picker_label": "Microfono",
       "camera_fallback": "Fotocamera {n}",
-      "mic_fallback": "Microfono {n}"
+      "mic_fallback": "Microfono {n}",
+      "connection_slow": "La connessione è lenta: l'intervista potrebbe scattare. Se puoi, passa a una rete più stabile prima di iniziare.",
+      "connection_unreachable": "Non riusciamo a raggiungere il servizio. Controlla la connessione prima di iniziare."
     },
     "live": {
       "timer_label": "Tempo rimanente",
@@ -68,6 +70,7 @@
       "candidate_speaking": "Stai parlando",
       "self_view": "La tua fotocamera",
       "self_view_off": "Fotocamera non disponibile",
+      "network_pending": "La connessione è instabile. Le tue risposte vengono inviate appena torna disponibile.",
       "exit": {
         "label": "Esci, riprenderai dopo",
         "title": "Vuoi uscire dal colloquio?",
