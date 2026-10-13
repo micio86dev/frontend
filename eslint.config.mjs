@@ -51,6 +51,10 @@ export default createConfigForNuxt({
     files: ['app/components/ui/**/*.vue'],
     rules: {
       'vuejs-accessibility/label-has-for': 'off',
+      // Optional props of the vendored primitives resolve to `undefined` by Vue's own
+      // default; the rule asks for an explicit one, which `shadcn-vue add` would drop
+      // again on the next install.
+      'vue/require-default-prop': 'off',
     },
   })
   // Same false-positive category as above, one file over: FieldLabel wraps
