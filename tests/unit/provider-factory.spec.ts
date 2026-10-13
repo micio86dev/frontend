@@ -10,7 +10,8 @@
  *   - Mock provider implements InterviewProvider interface
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { buildAdvancePayload, createBoundaryTicket } from '~/app/utils/advance-interaction'
 import { createProvider } from '~/app/providers/factory'
 import { HeyGenProvider } from '~/app/providers/heygen'
 import { TavusProvider } from '~/app/providers/tavus'
@@ -155,6 +156,86 @@ describe('createProvider factory', () => {
 
     await provider.stop()
     expect(states).toContain('stopped')
+  })
+
+  // ---- Mock provider: steering recorder and paint hold (E2E support) ----
+
+  describe('mock provider E2E hooks', () => {
+    type Mock = InterviewProvider & {
+      sendBoundary: (t: ReturnType<typeof createBoundaryTicket>) => Promise<{ ok: boolean }>
+      holdPainted: () => void
+      releasePainted: () => void
+    }
+    const win = window as unknown as Record<string, unknown>
+    const startCfg = { endPhrase: 'e', finalPhrase: 'f', dbSessionId: 1 }
+
+    beforeEach(() => {
+      delete win.__mockSteeringLog
+      delete win.__mockInterviewProviders
+      delete win.__mockInterviewProvider
+      delete win.__mockInterviewAutoHoldPaint
+    })
+
+    it('sendBoundary() acknowledges and appends the append-context + respond pair, in order, across calls', async () => {
+      const provider = createProvider('tavus', true) as Mock
+      const ticket = createBoundaryTicket('conv-1', 'PRS')
+
+      await expect(provider.sendBoundary(ticket)).resolves.toEqual({ ok: true })
+      await provider.sendBoundary(ticket)
+
+      const log = win.__mockSteeringLog as unknown[]
+      expect(log).toHaveLength(4)
+      expect(log.slice(0, 2)).toEqual([...buildAdvancePayload(ticket)])
+      expect((log[1] as { event_type: string }).event_type).toBe('conversation.respond')
+    })
+
+    it('dispatches loadeddata on the mount element when started, unless the paint is held', async () => {
+      const provider = createProvider('heygen', true) as Mock
+      const video = document.createElement('video')
+      const painted = vi.fn()
+      video.addEventListener('loadeddata', painted)
+
+      provider.holdPainted()
+      await provider.start(video, startCfg)
+      expect(painted).not.toHaveBeenCalled()
+
+      provider.releasePainted()
+      expect(painted).toHaveBeenCalledTimes(1)
+    })
+
+    it('a provider that was never held paints during start()', async () => {
+      const provider = createProvider('heygen', true)
+      const video = document.createElement('video')
+      const painted = vi.fn()
+      video.addEventListener('loadeddata', painted)
+
+      await provider.start(video, startCfg)
+      expect(painted).toHaveBeenCalledTimes(1)
+    })
+
+    it('releasePainted() before start() has nothing to paint and does not throw', () => {
+      const provider = createProvider('heygen', true) as Mock
+      expect(() => provider.releasePainted()).not.toThrow()
+    })
+
+    it('holds the paint from creation when the E2E auto-hold flag is set', async () => {
+      win.__mockInterviewAutoHoldPaint = true
+      const provider = createProvider('heygen', true)
+      const video = document.createElement('video')
+      const painted = vi.fn()
+      video.addEventListener('loadeddata', painted)
+
+      await provider.start(video, startCfg)
+      expect(painted).not.toHaveBeenCalled()
+    })
+
+    it('registers every mock in order while the latest stays on __mockInterviewProvider', () => {
+      const first = createProvider('heygen', true)
+      const second = createProvider('heygen', true)
+
+      expect(win.__mockInterviewProviders).toEqual([first, second])
+      expect(win.__mockInterviewProvider).toBe(second)
+    })
   })
 
   // ---- Unknown provider defensive guard ----
