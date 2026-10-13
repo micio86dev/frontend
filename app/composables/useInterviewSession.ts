@@ -98,7 +98,7 @@
  * `handle.providerName === 'heygen'`.
  */
 
-import { ref, shallowRef, computed, type ComputedRef } from 'vue'
+import { ref, shallowRef, computed, type ComputedRef, type Ref } from 'vue'
 import { createProvider } from '~/app/providers/factory'
 import { effectiveViewportWidth } from '~/app/utils/browser-gate'
 import { interviewMaxSecondsFrom } from '~/app/utils/interview-max-seconds'
@@ -285,22 +285,22 @@ export interface UseInterviewSessionOptions {
 }
 
 export interface UseInterviewSessionReturn {
-  state: ReturnType<typeof ref<SessionState>>
-  retryAttemptCount: ReturnType<typeof ref<number>>
-  currentCompetencyIndex: ReturnType<typeof ref<number>>
-  terminalReason: ReturnType<typeof ref<TerminalReason | null>>
+  state: Ref<SessionState>
+  retryAttemptCount: Ref<number>
+  currentCompetencyIndex: Ref<number>
+  terminalReason: Ref<TerminalReason | null>
   /** DB session id from the latest /start response — null until the first /start succeeds. */
-  sessionId: ReturnType<typeof ref<number | null>>
+  sessionId: Ref<number | null>
   /** Competencies ended so far, from the /end directive. Null until the first /end. */
-  endedCompetencies: ReturnType<typeof ref<number | null>>
+  endedCompetencies: Ref<number | null>
   /** Total competencies in the project, from the /end directive. */
-  totalCompetencies: ReturnType<typeof ref<number | null>>
+  totalCompetencies: Ref<number | null>
   /** The interview's total time limit from the active template, once a start response has named it. */
-  interviewMaxSeconds: ReturnType<typeof ref<number | null>>
+  interviewMaxSeconds: Ref<number | null>
   /** Set once the whole interview's time is spent: the question in progress finishes, and the server settles the interview. */
-  interviewBudgetSpent: ReturnType<typeof ref<boolean>>
+  interviewBudgetSpent: Ref<boolean>
   /** Transcript lines waiting for the network to come back. */
-  pendingUtterances: ReturnType<typeof ref<number>>
+  pendingUtterances: Ref<number>
   /**
    * Provider awaiting mount by AvatarPlayer; null whenever no question is in flight.
    *

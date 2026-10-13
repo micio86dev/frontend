@@ -3648,7 +3648,11 @@ export interface components {
                     version: string;
                     label: string | null;
                 };
-                competencies: unknown[];
+                competencies: {
+                    code: string;
+                    name: string;
+                    type: string;
+                }[];
                 pause_every_n_competencies: number | null;
                 nudge_min_chars: number | null;
                 exit_redirect_url: string | null;
@@ -3663,7 +3667,7 @@ export interface components {
             name: string;
             /** @description The mode of the API key making the request, not a property of the organization: the same organization answers `live` through a live key and `test` through a test key. */
             mode: string;
-            allowed_domains: unknown[];
+            allowed_domains: string[];
             created_at: string;
         };
         /** PublicProject */
@@ -3680,7 +3684,11 @@ export interface components {
                 version: string;
                 label: string | null;
             };
-            competencies: unknown[];
+            competencies: {
+                code: string;
+                name: string;
+                type: string;
+            }[];
             pause_every_n_competencies: number | null;
             nudge_min_chars: number | null;
             exit_redirect_url: string | null;
@@ -7123,6 +7131,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["ModelNotFoundException"];
+            /** @description The candidate is already enrolled in this project (code=duplicate_enrolment). */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7130,28 +7139,16 @@ export interface operations {
                 content: {
                     "application/json": {
                         type: string;
-                        /** @constant */
-                        title: "Duplicate enrolment";
-                        /** @constant */
-                        status: 409;
-                        /** @constant */
-                        code: "duplicate_enrolment";
+                        title: string;
+                        status: number;
+                        code: string;
                         request_id: string;
-                        /** @constant */
-                        detail: "candidate.email is already enrolled in this project.";
-                        errors: null;
-                    } | {
-                        type: string;
-                        /** @constant */
-                        title: "Duplicate enrolment";
-                        /** @constant */
-                        status: 409;
-                        /** @constant */
-                        code: "duplicate_enrolment";
-                        request_id: string;
-                        /** @constant */
-                        detail: "candidate.candidate_ref is already enrolled in this project.";
-                        errors: null;
+                        detail?: string;
+                        errors?: {
+                            field: string;
+                            code: string;
+                            message?: string;
+                        }[];
                     };
                 };
             };
@@ -10502,6 +10499,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["ModelNotFoundException"];
+            /** @description The interview is not in a state that allows a new session token (code=invalid_state). */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10509,16 +10507,16 @@ export interface operations {
                 content: {
                     "application/json": {
                         type: string;
-                        /** @constant */
-                        title: "Invalid state";
-                        /** @constant */
-                        status: 409;
-                        /** @constant */
-                        code: "invalid_state";
+                        title: string;
+                        status: number;
+                        code: string;
                         request_id: string;
-                        /** @constant */
-                        detail: "Session tokens can only be minted while the interview is pending.";
-                        errors: null;
+                        detail?: string;
+                        errors?: {
+                            field: string;
+                            code: string;
+                            message?: string;
+                        }[];
                     };
                 };
             };
