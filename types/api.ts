@@ -2791,6 +2791,10 @@ export interface paths {
          *     knob could be left in. The ceiling keeps a `standard` interview an
          *     interview: past a handful of predefined questions the adaptivity that is
          *     the product has nothing left to do.
+         *
+         *     The `interview_intro_phrase` map replaces the stored one and `null` clears it; each change writes
+         *     an audit row. The whole PATCH runs in one transaction, so a failed audit row applies nothing. The
+         *     caps stay unaudited, as before.
          */
         patch: operations["superadmin.updateSettings"];
         trace?: never;
@@ -4197,6 +4201,27 @@ export interface components {
             current_password: string;
             password: string;
             password_confirmation: string;
+        };
+        /**
+         * UpdatePlatformSettingsRequest
+         * @description The body of `PATCH /api/admin/settings` (superadmin only).
+         *
+         *     Every knob is optional, but a body naming none of them is refused: it would
+         *     be a no-op the caller believes did something.
+         */
+        UpdatePlatformSettingsRequest: {
+            max_questions_per_competency?: {
+                standard: number;
+                potential: number;
+            };
+            /**
+             * @description The spoken introduction per locale. A map REPLACES the stored one and `null` clears it;
+             *     `en` is required, `it` optional, each at most 600 characters.
+             */
+            interview_intro_phrase?: {
+                en: string;
+                it?: string;
+            } | null;
         };
         /**
          * UpdatePlatformUserRequest
@@ -10786,6 +10811,10 @@ export interface operations {
                                 standard: number;
                                 potential: number;
                             };
+                            interview_intro_phrase: {
+                                it?: string;
+                                en?: string;
+                            } | null;
                         };
                     };
                 };
@@ -10800,14 +10829,9 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
-                "application/json": {
-                    max_questions_per_competency: {
-                        standard: number;
-                        potential: number;
-                    };
-                };
+                "application/json": components["schemas"]["UpdatePlatformSettingsRequest"];
             };
         };
         responses: {
@@ -10822,11 +10846,16 @@ export interface operations {
                                 standard: number;
                                 potential: number;
                             };
+                            interview_intro_phrase: {
+                                it?: string;
+                                en?: string;
+                            } | null;
                         };
                     };
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            403: components["responses"]["AuthorizationException"];
             422: components["responses"]["ValidationException"];
         };
     };
