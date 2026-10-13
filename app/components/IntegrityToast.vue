@@ -9,6 +9,10 @@
  *
  * Props:
  *   events — array of IntegrityEventInternal from useProctor
+ *   silent — when true, no toast is ever shown. Reusable-link interviews are run
+ *            as live demos, where a warning pulls the candidate's eyes off the
+ *            camera. The events are still recorded and flushed by useProctor;
+ *            only the on-screen notice is suppressed.
  *
  * Renders nothing — toasts are fired as side effects and drawn by the single
  * `<Toaster>` InterviewSession mounts. Each toast is a localized instruction
@@ -30,6 +34,7 @@ const TOAST_DURATION_MS = 6000
 
 const props = defineProps<{
   events: IntegrityEventInternal[]
+  silent?: boolean
 }>()
 
 const { t } = useI18n()
@@ -37,6 +42,7 @@ const { t } = useI18n()
 watch(
   () => props.events,
   (newEvents, oldEvents) => {
+    if (props.silent) return
     if (newEvents.length <= (oldEvents ?? []).length) return
 
     const latest = newEvents[newEvents.length - 1]

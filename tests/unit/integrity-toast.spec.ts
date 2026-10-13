@@ -54,7 +54,7 @@ const LOCALES = [
 
 let wrapper: VueWrapper | null = null
 
-async function mountShell(messages: Messages, position?: 'top-right' | 'top-left') {
+async function mountShell(messages: Messages, position?: 'top-right' | 'top-left', silent = false) {
   const t = translatorFor(messages)
   vi.stubGlobal(
     'useI18n',
@@ -66,7 +66,7 @@ async function mountShell(messages: Messages, position?: 'top-right' | 'top-left
       h('div', [
         h('button', { id: 'focused-control', type: 'button' }, 'control'),
         h(IntegrityToaster, position ? { position } : undefined),
-        h(IntegrityToast, { events: events.value }),
+        h(IntegrityToast, { events: events.value, silent }),
       ]),
   })
   wrapper = mount(Shell, { attachTo: document.body, global: { mocks: { $t: t } } })
@@ -268,5 +268,22 @@ describe('integrity toast key mapping', () => {
         copyFor(enMessages as Messages, kind).title
       )
     }
+  })
+})
+
+describe('integrity toast — silent (reusable-link interviews)', () => {
+  it('shows no toast at all when silent, whatever the kind', async () => {
+    const shell = await mountShell(itMessages as Messages, undefined, true)
+    for (const kind of CANDIDATE_FACING_KINDS) await shell.emit(kind)
+    await shell.emit('brand_new_kind')
+
+    expect(shell.toasts()).toHaveLength(0)
+  })
+
+  it('still shows the toast when not silent (default)', async () => {
+    const shell = await mountShell(itMessages as Messages)
+    await shell.emit(CANDIDATE_FACING_KINDS[0]!)
+
+    expect(shell.toasts()).toHaveLength(1)
   })
 })
