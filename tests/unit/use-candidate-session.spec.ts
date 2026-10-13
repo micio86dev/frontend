@@ -13,7 +13,7 @@
  *  - a malformed token passed to store() does not persist a broken session
  */
 
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { useCandidateSession } from '~/app/composables/useCandidateSession'
 
 // ---------------------------------------------------------------------------
@@ -36,6 +36,11 @@ function makeCandidateJwt(claims: Record<string, unknown>): string {
   return `${header}.${payload}.fake-signature`
 }
 
+// STORAGE_KEY is private to the composable, so the literal is pinned by
+// behaviour instead: 'persists under the production storage key' below fails if
+// the implementation's key ever drifts from this one (which would otherwise
+// turn every purge assertion that uses it into a vacuous pass).
+const SESSION_STORAGE_KEY = 'beai_candidate_session'
 const NOW_SECONDS = Math.floor(Date.now() / 1000)
 
 function validClaims(overrides: Record<string, unknown> = {}) {
@@ -57,8 +62,23 @@ beforeEach(() => {
   localStorage.clear()
 })
 
+afterEach(() => {
+  localStorage.clear()
+})
+
 describe('useCandidateSession', () => {
   describe('store() + read() round trip', () => {
+    it('persists under the production storage key', () => {
+      const { store } = useCandidateSession()
+      store(makeCandidateJwt(validClaims()))
+
+      expect(Object.keys(localStorage)).toEqual([SESSION_STORAGE_KEY])
+      expect(JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) ?? 'null')).toMatchObject({
+        candidateRef: 'cand-001',
+        projectId: 42,
+      })
+    })
+
     it('read() returns null when nothing is stored', () => {
       const { read } = useCandidateSession()
       expect(read()).toBeNull()
@@ -243,6 +263,40 @@ describe('useCandidateSession', () => {
       store('aGVhZGVy.not-valid-base64-json.sig')
 
       expect(read()).toBeNull()
+    })
+  })
+  describe('unusable stored or incoming data', () => {
+    const KEY = SESSION_STORAGE_KEY
+
+    it('read() purges a corrupted stored value instead of throwing', () => {
+      localStorage.setItem(KEY, '{not json')
+      const { read } = useCandidateSession()
+
+      expect(read()).toBeNull()
+      expect(localStorage.getItem(KEY)).toBeNull()
+    })
+
+    it('read() purges a stored session that has no numeric exp', () => {
+      localStorage.setItem(KEY, JSON.stringify({ accessToken: 't', exp: '9999999999' }))
+      const { read } = useCandidateSession()
+
+      expect(read()).toBeNull()
+      expect(localStorage.getItem(KEY)).toBeNull()
+    })
+
+    it('store() refuses a token without an exp claim: the session lifecycle would be unbounded', () => {
+      const { store, read } = useCandidateSession()
+      store(makeCandidateJwt({ candidate_ref: 'c', project_id: 1 }))
+
+      expect(read()).toBeNull()
+      expect(localStorage.getItem(KEY)).toBeNull()
+    })
+
+    it('store() defaults candidateRef and projectId when the claims have the wrong types', () => {
+      const { store, read } = useCandidateSession()
+      store(makeCandidateJwt(validClaims({ candidate_ref: 12, project_id: '42' })))
+
+      expect(read()).toMatchObject({ candidateRef: '', projectId: 0 })
     })
   })
 })
