@@ -1,5 +1,6 @@
 import { mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { nextTick } from 'vue'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import ConsentBanner from '../../app/components/ConsentBanner.vue'
@@ -225,5 +226,46 @@ describe('room on the canvas', () => {
     mountBanner({ enabled: false })
 
     expect(clearance()).toBe('')
+  })
+  describe('when the banner re-wraps', () => {
+    afterEach(() => vi.unstubAllGlobals())
+
+    it('republishes the clearance when the observed size changes, and stops observing on unmount', async () => {
+      let notify: () => void = () => {}
+      const disconnect = vi.fn()
+      const observe = vi.fn()
+      vi.stubGlobal(
+        'ResizeObserver',
+        class {
+          constructor(cb: () => void) {
+            notify = cb
+          }
+          observe = observe
+          disconnect = disconnect
+        }
+      )
+      const wrapper = mountBanner()
+      await nextTick()
+      expect(observe).toHaveBeenCalledWith(wrapper.get(banner).element)
+
+      vi.spyOn(wrapper.get(banner).element, 'getBoundingClientRect').mockReturnValue({
+        height: 100.2,
+      } as DOMRect)
+      notify()
+      // ceil(100.2) = 101, plus the 32px gap.
+      expect(clearance()).toBe('calc(133px + env(safe-area-inset-bottom, 0px))')
+
+      wrapper.unmount()
+      expect(disconnect).toHaveBeenCalled()
+      expect(clearance()).toBe('')
+    })
+
+    it('still publishes once where ResizeObserver does not exist', async () => {
+      vi.stubGlobal('ResizeObserver', undefined)
+      const wrapper = mountBanner()
+      await nextTick()
+      expect(clearance()).toMatch(/^calc\(\d+px \+ env/)
+      wrapper.unmount()
+    })
   })
 })
