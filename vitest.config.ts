@@ -47,14 +47,12 @@ export default defineConfig({
         'app/components/ProctorOverlay.client.vue',
       ],
       thresholds: {
-        lines: 85,
-        // branches/functions were previously ungated — nothing stopped either
-        // from regressing silently. Set below the actual run at the time this
-        // was added (branches 90.29%, functions 92.08%) rather than at that
-        // exact value, so ordinary fluctuation from unrelated changes does not
-        // make this flaky.
-        branches: 88,
-        functions: 90,
+        // Floors sit just under the measured run (lines 98.17, branches 93.66,
+        // functions 96.25 after the coverage push), so ordinary fluctuation does
+        // not make this flaky but a real regression fails CI.
+        lines: 98,
+        branches: 93,
+        functions: 96,
       },
     },
   },
