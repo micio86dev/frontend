@@ -1232,6 +1232,7 @@ describe('useProctor', () => {
       FaceLandmarker: { createFromOptions: ReturnType<typeof vi.fn> }
     }
     FLMock.createFromOptions.mockRejectedValueOnce(new Error('model unavailable'))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     const { useProctor } = await import('~/app/composables/useProctor')
     const proctor = useProctor()
@@ -1239,6 +1240,8 @@ describe('useProctor', () => {
 
     const lm = await proctor.triggerEnsureLandmarker()
     expect(lm).toBeNull()
+    expect(warn).toHaveBeenCalledWith('[useProctor] face detection unavailable:', expect.any(Error))
+    warn.mockRestore()
 
     proctor.stop()
   })
@@ -1266,6 +1269,7 @@ describe('useProctor', () => {
       ObjectDetector: { createFromOptions: ReturnType<typeof vi.fn> }
     }
     ODMock.createFromOptions.mockRejectedValueOnce(new Error('tflite unavailable'))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     const { useProctor } = await import('~/app/composables/useProctor')
     const proctor = useProctor()
@@ -1273,6 +1277,11 @@ describe('useProctor', () => {
 
     const od = await proctor.triggerEnsureObjectDetector()
     expect(od).toBeNull()
+    expect(warn).toHaveBeenCalledWith(
+      '[useProctor] phone detection unavailable:',
+      expect.any(Error)
+    )
+    warn.mockRestore()
 
     proctor.stop()
   })

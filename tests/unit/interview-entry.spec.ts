@@ -134,6 +134,9 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // Spies on console.warn are restored even when an assertion above failed.
+
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
@@ -304,9 +307,13 @@ describe('interview/[token].vue — entry route (D-A, D1)', () => {
       err.status = 403
       err.data = { message: 'Access denied.', redirect_url: unsafeUrl }
       mockFetchImpl.mockRejectedValueOnce(err)
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
       await mountEntryPage(ssoToken)
 
+      // The refusal is logged, with the offending url, so an operator can see why.
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('[safe-redirect]'), unsafeUrl)
+      warn.mockRestore()
       expect(mockNavigateTo).not.toHaveBeenCalledWith(unsafeUrl, expect.anything())
       expect(mockNavigateTo).toHaveBeenCalledWith(
         `${LOCALE_MARKER}/interview/terminal?reason=403`,

@@ -7,7 +7,13 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { defineComponent, h, nextTick } from 'vue'
-import { Dialog, DialogContent, DialogFooter } from '../../app/components/ui/dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '../../app/components/ui/dialog'
 
 let wrapper: VueWrapper | undefined
 
@@ -23,6 +29,8 @@ async function mountOpenFooter(showCloseButton?: boolean) {
     setup: () => () =>
       h(Dialog, { defaultOpen: true }, () => [
         h(DialogContent, { showCloseButton: false }, () => [
+          h(DialogTitle, () => 'Title'),
+          h(DialogDescription, () => 'Description'),
           h(DialogFooter, { showCloseButton }, () => 'Actions'),
         ]),
       ]),

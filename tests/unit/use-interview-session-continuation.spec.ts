@@ -708,6 +708,7 @@ describe('boundary_due on the /utterance 202 (FE-05)', () => {
 
   it('a line the server keeps refusing with a 5xx is retried a bounded number of times, then dropped', async () => {
     const session = await liveSession()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     mockCandidateFetch.mockImplementation(async (path: string) => {
       if (path === '/candidate/interview/utterance')
         throw Object.assign(new Error('server error'), { status: 500 })
@@ -725,6 +726,9 @@ describe('boundary_due on the /utterance 202 (FE-05)', () => {
     expect(callsTo('/candidate/interview/utterance').length).toBeLessThanOrEqual(25)
     // After the bounded attempts the line is dropped, so nothing waits forever.
     expect(session.pendingUtterances.value).toBe(0)
+    expect(warn).toHaveBeenCalledWith(
+      '[useInterviewSession] a transcript line was refused repeatedly and is dropped'
+    )
   })
 
   it('once the interview is over, a line still waiting is never sent again', async () => {
@@ -877,6 +881,7 @@ describe('boundary_due on the /utterance 202 (FE-05)', () => {
 
   it('a line the server keeps refusing with a 5xx does not hold back the lines after it', async () => {
     const session = await liveSession()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     mockCandidateFetch.mockImplementation(
       async (path: string, init: { body?: { text?: string } }) => {
         if (path === '/candidate/interview/utterance' && init?.body?.text === 'stuck') {
@@ -900,6 +905,9 @@ describe('boundary_due on the /utterance 202 (FE-05)', () => {
     )
     expect(delivered.length).toBeGreaterThanOrEqual(1)
     expect(session.pendingUtterances.value).toBe(0)
+    expect(warn).toHaveBeenCalledWith(
+      '[useInterviewSession] a transcript line was refused repeatedly and is dropped'
+    )
   })
 
   it('a send that REJECTS (even its error handler throws) resolves false: no boundary, no unhandled rejection', async () => {

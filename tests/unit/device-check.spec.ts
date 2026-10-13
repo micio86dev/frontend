@@ -17,7 +17,7 @@
  * does not yet wire useMediaDeviceList/pickers; that is Slice 6).
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { ref, nextTick, type Ref } from 'vue'
 import { readFileSync } from 'node:fs'
@@ -134,6 +134,15 @@ async function mountComponent(
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // The mounted component probes the health route after its checks; answer it
+  // locally so happy-dom never opens a real request that teardown has to abort.
+  // Left stubbed after each test on purpose: the probe is sequential and
+  // outlives the test that mounted the component.
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }))
+})
+
+afterAll(() => {
+  vi.unstubAllGlobals()
 })
 
 // ---------------------------------------------------------------------------
