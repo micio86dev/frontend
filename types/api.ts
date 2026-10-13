@@ -6373,7 +6373,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: {
-                            by_status: unknown[];
+                            by_status: {
+                                [key: string]: number;
+                            };
                             competencies: {
                                 competency_code: string;
                                 mean_score: number | null;
