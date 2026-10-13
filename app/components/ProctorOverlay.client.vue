@@ -1,6 +1,6 @@
 <template>
   <!-- Invisible overlay: no visual output. Integrity events are shown via IntegrityToast. -->
-  <IntegrityToast :events="observedEvents" />
+  <IntegrityToast :events="observedEvents" :silent="silent" />
 </template>
 
 <script setup lang="ts">
@@ -15,6 +15,7 @@
  * Props:
  *   stream           — shared MediaStream from DeviceCheck (single getUserMedia)
  *   sessionId        — DB session id; POST /snapshot is suppressed while it is null
+ *   silent           — suppress the integrity toasts (events are still recorded and sent)
  *   onEventsUpdated  — called on every integrity event with the events still awaiting
  *                      flush, plus the acknowledge callback the flusher must invoke
  *                      once they have actually been sent
@@ -27,6 +28,7 @@ import type { IntegrityEventInternal } from '~/utils/proctor-config'
 const props = defineProps<{
   stream: MediaStream
   sessionId?: number | null
+  silent?: boolean
   /**
    * Injected by the parent page to let useInterviewSession read and acknowledge
    * pending events on the resize/pagehide beacon flush.

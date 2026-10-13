@@ -196,15 +196,19 @@ const DeviceCheckStub = defineComponent({
 const overlayLifecycle = { mounted: 0, unmounted: 0 }
 const ProctorOverlayStub = defineComponent({
   name: 'ProctorOverlay',
-  props: { stream: { type: Object, required: true }, sessionId: { type: Number, default: null } },
-  setup() {
+  props: {
+    stream: { type: Object, required: true },
+    sessionId: { type: Number, default: null },
+    silent: { type: Boolean, default: false },
+  },
+  setup(props) {
     onMounted(() => {
       overlayLifecycle.mounted += 1
     })
     onUnmounted(() => {
       overlayLifecycle.unmounted += 1
     })
-    return () => h('div', { 'data-testid': 'proctor-overlay' })
+    return () => h('div', { 'data-testid': 'proctor-overlay', 'data-silent': String(props.silent) })
   },
 })
 
@@ -973,6 +977,27 @@ describe('InterviewSession — the stage', () => {
     expect(wrapper.find('[data-testid="proctor-overlay"]').exists()).toBe(false)
     expect(overlayLifecycle.unmounted).toBe(1)
     expect(overlayLifecycle.mounted).toBe(1)
+  })
+
+  it('keeps the integrity toasts on for an ordinary interview', async () => {
+    const { wrapper } = await mountLive({
+      attach: true,
+      stream: fakeStream(),
+      stubs: { ProctorOverlay: ProctorOverlayStub },
+    })
+
+    expect(wrapper.get('[data-testid="proctor-overlay"]').attributes('data-silent')).toBe('false')
+  })
+
+  it('silences the integrity toasts for a reusable-link interview (live demos)', async () => {
+    storedSession.read.mockReturnValue({ exp: EXP, entry: 'reusable' })
+    const { wrapper } = await mountLive({
+      attach: true,
+      stream: fakeStream(),
+      stubs: { ProctorOverlay: ProctorOverlayStub },
+    })
+
+    expect(wrapper.get('[data-testid="proctor-overlay"]').attributes('data-silent')).toBe('true')
   })
 
   it('does not mount the overlay, or widen the canvas, before the interview is live', async () => {
