@@ -29,6 +29,7 @@ describe('App root layout', () => {
         stubs: {
           NuxtRouteAnnouncer: true,
           NuxtPage: true,
+          ConsentBanner: true,
         },
       },
     })
@@ -42,6 +43,7 @@ describe('App root layout', () => {
         stubs: {
           NuxtRouteAnnouncer: true,
           NuxtPage: true,
+          ConsentBanner: true,
         },
       },
     })
@@ -61,6 +63,7 @@ describe('App root layout', () => {
         stubs: {
           NuxtRouteAnnouncer: true,
           NuxtPage: true,
+          ConsentBanner: true,
         },
       },
     })
@@ -80,6 +83,7 @@ describe('App root layout', () => {
         stubs: {
           NuxtRouteAnnouncer: true,
           NuxtPage: true,
+          ConsentBanner: true,
         },
       },
     })

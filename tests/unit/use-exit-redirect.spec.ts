@@ -167,12 +167,18 @@ describe('useExitRedirect', () => {
     })
 
     it('a fetch failure degrades to null — never throws', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
       mockCandidateFetch.mockRejectedValueOnce(new Error('network error'))
 
       const { fetchSession, exitRedirectUrl } = useExitRedirect()
       await expect(fetchSession()).resolves.not.toThrow()
 
       expect(exitRedirectUrl.value).toBeNull()
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('/candidate/session fetch failed'),
+        expect.any(Error)
+      )
+      warn.mockRestore()
     })
 
     it('a null project on the response → cached as null (no crash)', async () => {
@@ -234,21 +240,33 @@ describe('useExitRedirect', () => {
     })
 
     it('a 401 (CandidateUnauthorizedError) → sessionFetchFailed = "unauthenticated", still never throws', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
       mockCandidateFetch.mockRejectedValueOnce(new MockCandidateUnauthorizedError())
 
       const { fetchSession, sessionFetchFailed } = useExitRedirect()
       await expect(fetchSession()).resolves.not.toThrow()
 
       expect(sessionFetchFailed.value).toBe('unauthenticated')
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('/candidate/session fetch failed'),
+        expect.any(Error)
+      )
+      warn.mockRestore()
     })
 
     it('a non-auth failure (network/5xx) → sessionFetchFailed = "unavailable", distinct from unauthenticated', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
       mockCandidateFetch.mockRejectedValueOnce(new Error('network error'))
 
       const { fetchSession, sessionFetchFailed } = useExitRedirect()
       await fetchSession()
 
       expect(sessionFetchFailed.value).toBe('unavailable')
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('/candidate/session fetch failed'),
+        expect.any(Error)
+      )
+      warn.mockRestore()
     })
 
     it('the header IS attached — fetchSession routes through candidateFetch, not a bare fetch', async () => {
@@ -463,6 +481,7 @@ describe('useExitRedirect — error destination', () => {
   })
 
   it('refuses an http error url', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     // A downgrade mid-failure is exactly when a candidate is least likely to
     // notice the address bar.
     mockCandidateFetch.mockResolvedValueOnce(
@@ -476,9 +495,15 @@ describe('useExitRedirect — error destination', () => {
 
     expect(r.redirectToError()).toBe(false)
     expect(mockNavigateTo).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('refusing non-https error_redirect_url'),
+      'http://hr.test/failed'
+    )
+    warn.mockRestore()
   })
 
   it('refuses a malformed error url', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     mockCandidateFetch.mockResolvedValueOnce(
       sessionResponse({
         project: { exit_redirect_url: null, error_redirect_url: 'not a url' },
@@ -490,9 +515,15 @@ describe('useExitRedirect — error destination', () => {
 
     expect(r.redirectToError()).toBe(false)
     expect(mockNavigateTo).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('malformed error_redirect_url'),
+      'not a url'
+    )
+    warn.mockRestore()
   })
 
   it('degrades to unconfigured when the session fetch fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     mockCandidateFetch.mockRejectedValueOnce(new Error('network'))
 
     const r = useExitRedirect()
@@ -502,5 +533,10 @@ describe('useExitRedirect — error destination', () => {
     // falls back to the inline error screen, which still has a retry button.
     expect(r.errorRedirectUrl.value).toBeNull()
     expect(r.redirectToError()).toBe(false)
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('/candidate/session fetch failed'),
+      expect.any(Error)
+    )
+    warn.mockRestore()
   })
 })

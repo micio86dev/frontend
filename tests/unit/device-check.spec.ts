@@ -134,6 +134,11 @@ async function mountComponent(
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // The mounted component probes the health route after its checks; answer it
+  // locally so happy-dom never opens a real request that teardown has to abort.
+  // Left stubbed after each test on purpose: the probe is sequential and
+  // outlives the test that mounted the component.
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }))
 })
 
 // ---------------------------------------------------------------------------
