@@ -867,8 +867,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * List exports
+         * @description Returns the organization's export jobs for the key's mode in cursor-paginated pages, newest first.
+         */
         get: operations["public-api.exports.index"];
         put?: never;
+        /**
+         * Create an export
+         * @description Starts an asynchronous export of the organization's data for the key's mode, optionally limited to a time window. Responds `202` with the export job; poll `GET /exports/{id}` until it is ready. Only one export can be in progress per organization and mode at a time.
+         */
         post: operations["public-api.exports.store"];
         delete?: never;
         options?: never;
@@ -883,6 +891,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * Get an export
+         * @description Returns one export job. When it is ready, the response carries a freshly signed download URL, valid for one hour. A malformed or unknown id answers `404 not_found`.
+         */
         get: operations["public-api.exports.show"];
         put?: never;
         post?: never;
@@ -1131,6 +1143,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * Get an interview
+         * @description Returns one interview with its status and progress. Use `expand=project` to inline the project. A malformed or unknown interview id answers `404 not_found`.
+         */
         get: operations["public-api.interviews.show"];
         put?: never;
         post?: never;
@@ -1383,6 +1399,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * Get the organization
+         * @description Returns the organization the API key belongs to, together with the mode of the key.
+         */
         get: operations["public-api.organization.show"];
         put?: never;
         post?: never;
@@ -2263,6 +2283,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * Get the recording
+         * @description Returns a signed audio URL for the interview's recording, with its format, duration and size. The URL is valid for 10 minutes. When no recording is available yet the request answers `404 recording_not_ready`; a malformed or unknown interview id answers `404 not_found`.
+         */
         get: operations["public-api.interviews.recording"];
         put?: never;
         post?: never;
@@ -2609,6 +2633,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * Create a session token
+         * @description Mints a session token and the hosted interview URL for a pending interview. Minting a new token revokes any previous token that has not been used yet. Any other interview status answers `409 invalid_state`; a malformed or unknown interview id answers `404 not_found`.
+         */
         post: operations["public-api.interviews.session-tokens.store"];
         delete?: never;
         options?: never;
@@ -2774,6 +2802,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * Get usage
+         * @description Returns the organization's usage figures for the key's mode over the reporting window set by `from` and `to`.
+         */
         get: operations["public-api.usage.show"];
         put?: never;
         post?: never;
@@ -3203,6 +3235,7 @@ export interface components {
                 display_name: string;
                 /** @description ISO 639-1 language code: two lowercase letters, for example `it`. */
                 language?: string | null;
+                /** @description The calling system's own integer id for the candidate: an integer from 1 to 9007199254740991. */
                 external_id?: number | null;
                 source?: string | null;
             };
