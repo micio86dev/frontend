@@ -327,6 +327,7 @@
         <ProctorOverlay
           :stream="confirmedStream"
           :session-id="session.sessionId.value"
+          :silent="silentIntegrity"
           :on-events-updated="onIntegrityEventsUpdated"
         />
       </ClientOnly>
@@ -568,6 +569,13 @@ withDefaults(
 
 const { t, locale } = useI18n()
 const candidateSession = useCandidateSession()
+
+/**
+ * Reusable-link interviews are run as live demos: an integrity warning on screen
+ * pulls the candidate's eyes off the camera. Events are still recorded and sent;
+ * only the toast is suppressed. Read once: the entry marker never changes mid-session.
+ */
+const silentIntegrity = candidateSession.read()?.entry === 'reusable'
 
 useHead({
   // WCAG 2.4.2 (Page Titled), Level A. This page had NO title at all — the one
