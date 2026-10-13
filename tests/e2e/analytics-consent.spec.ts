@@ -71,6 +71,8 @@ test.describe('Analytics consent', () => {
 
   test('a refusal is remembered across a reload', async ({ page }) => {
     await page.goto('/')
+    // A click on server-rendered markup before hydration reaches no handler.
+    await waitForHydration(page)
     await page.getByTestId('analytics-consent-reject').click()
     await expect(page.getByTestId('analytics-consent')).toBeHidden()
 
@@ -84,6 +86,8 @@ test.describe('Analytics consent', () => {
 
   test('a grant is remembered across a reload', async ({ page }) => {
     await page.goto('/')
+    // A click on server-rendered markup before hydration reaches no handler.
+    await waitForHydration(page)
     await page.getByTestId('analytics-consent-accept').click()
     await expect(page.getByTestId('analytics-consent')).toBeHidden()
 
@@ -100,6 +104,8 @@ test.describe('Analytics consent', () => {
     })
 
     await page.goto('/')
+    // A click on server-rendered markup before hydration reaches no handler.
+    await waitForHydration(page)
     await page.getByTestId('analytics-consent-accept').click()
 
     // Consenting and then seeing nothing happen reads as a broken button — and

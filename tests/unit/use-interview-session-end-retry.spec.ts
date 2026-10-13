@@ -142,6 +142,7 @@ afterEach(() => {
 
 describe('a failed /end on a live question', () => {
   it('shows the retryable error screen and sends no new start', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const session = await liveSession()
     mockCandidateFetch.mockImplementationOnce(async () => {
       throw Object.assign(new Error('server error'), { status: 500 })
@@ -152,14 +153,23 @@ describe('a failed /end on a live question', () => {
     expect(session.state.value).toBe('error')
     expect(starts()).toHaveLength(1)
     expect(ends()).toHaveLength(1)
+    expect(warn).toHaveBeenCalledWith(
+      '[useInterviewSession] /end unexpected error:',
+      expect.any(Error)
+    )
   })
 
   it('retry re-sends the same /end for the same session, then continues', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const session = await liveSession()
     mockCandidateFetch.mockImplementationOnce(async () => {
       throw Object.assign(new Error('server error'), { status: 500 })
     })
     await session.endQuestion('completed')
+    expect(warn).toHaveBeenCalledWith(
+      '[useInterviewSession] /end unexpected error:',
+      expect.any(Error)
+    )
     queue('/candidate/interview/end', END_CONTINUE)
 
     session.retry()

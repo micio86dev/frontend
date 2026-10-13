@@ -1,5 +1,6 @@
 import { mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { nextTick } from 'vue'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import ConsentBanner from '../../app/components/ConsentBanner.vue'
@@ -30,6 +31,11 @@ const banner = '[data-testid="analytics-consent"]'
 
 beforeEach(() => {
   window.localStorage.clear()
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('when the banner appears', () => {
@@ -201,8 +207,9 @@ describe('room on the canvas', () => {
   it('publishes its clearance while it is open', () => {
     const wrapper = mountBanner()
 
-    // Plus the safe-area inset the banner itself sits above on notched devices.
-    expect(clearance()).toMatch(/^calc\(\d+px \+ env\(safe-area-inset-bottom, 0px\)\)$/)
+    // happy-dom lays nothing out, so the measured height is 0: just the 32px
+    // gap, plus the safe-area inset the banner itself sits above on notched devices.
+    expect(clearance()).toBe('calc(32px + env(safe-area-inset-bottom, 0px))')
     wrapper.unmount()
   })
 
@@ -225,5 +232,48 @@ describe('room on the canvas', () => {
     mountBanner({ enabled: false })
 
     expect(clearance()).toBe('')
+  })
+  describe('when the banner re-wraps', () => {
+    it('republishes the clearance when the observed size changes, and stops observing on unmount', async () => {
+      let notify: () => void = () => {}
+      const disconnect = vi.fn()
+      const observe = vi.fn()
+      vi.stubGlobal(
+        'ResizeObserver',
+        class {
+          constructor(cb: () => void) {
+            notify = cb
+          }
+          observe = observe
+          disconnect = disconnect
+        }
+      )
+      const wrapper = mountBanner()
+      await nextTick()
+      expect(observe).toHaveBeenCalledWith(wrapper.get(banner).element)
+
+      vi.spyOn(wrapper.get(banner).element, 'getBoundingClientRect').mockReturnValue({
+        height: 100.2,
+      } as DOMRect)
+      notify()
+      // ceil(100.2) = 101, plus the 32px gap.
+      expect(clearance()).toBe('calc(133px + env(safe-area-inset-bottom, 0px))')
+
+      wrapper.unmount()
+      expect(disconnect).toHaveBeenCalled()
+      expect(clearance()).toBe('')
+    })
+
+    it('still publishes once where ResizeObserver does not exist', async () => {
+      vi.stubGlobal('ResizeObserver', undefined)
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+        height: 56.4,
+      } as DOMRect)
+      const wrapper = mountBanner()
+      await nextTick()
+      // The one-off measurement: ceil(56.4) = 57, plus the 32px gap.
+      expect(clearance()).toBe('calc(89px + env(safe-area-inset-bottom, 0px))')
+      wrapper.unmount()
+    })
   })
 })

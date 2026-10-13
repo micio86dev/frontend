@@ -9,7 +9,12 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { defineComponent, h, nextTick } from 'vue'
-import { Dialog, DialogContent } from '../../app/components/ui/dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from '../../app/components/ui/dialog'
 
 let wrapper: VueWrapper | undefined
 
@@ -25,7 +30,11 @@ async function mountOpenDialog(showCloseButton?: boolean) {
   const Host = defineComponent({
     setup: () => () =>
       h(Dialog, { defaultOpen: true }, () => [
-        h(DialogContent, { showCloseButton }, () => 'Panel body'),
+        h(DialogContent, { showCloseButton }, () => [
+          h(DialogTitle, () => 'Title'),
+          h(DialogDescription, () => 'Description'),
+          'Panel body',
+        ]),
       ]),
   })
 

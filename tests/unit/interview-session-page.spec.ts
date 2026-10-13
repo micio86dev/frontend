@@ -178,7 +178,7 @@ const AvatarPlayerStub = defineComponent({
 const InterviewTimerStub = defineComponent({
   name: 'InterviewTimer',
   props: { seconds: { type: Number, required: true } },
-  emits: ['expired'],
+  emits: ['expired', 'tick'],
   setup:
     (_props, { emit }) =>
     () =>

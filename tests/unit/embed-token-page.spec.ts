@@ -10,7 +10,10 @@ import { ref } from 'vue'
 const { mockFetch, mockPost, holder } = vi.hoisted(() => ({
   mockFetch: vi.fn(),
   mockPost: vi.fn(),
-  holder: { session: null as unknown },
+  holder: {
+    session: null as unknown,
+    bridgeOptions: null as null | { getAllowedOrigins: () => string[] },
+  },
 }))
 
 vi.mock('ofetch', () => ({ $fetch: mockFetch }))
@@ -27,7 +30,10 @@ vi.mock('~/app/composables/useCandidateBranding', () => ({
 }))
 
 vi.mock('~/app/composables/useEmbedBridge', () => ({
-  useEmbedBridge: () => ({ attach: vi.fn(), detach: vi.fn(), post: mockPost }),
+  useEmbedBridge: (options: { getAllowedOrigins: () => string[] }) => {
+    holder.bridgeOptions = options
+    return { attach: vi.fn(), detach: vi.fn(), post: mockPost }
+  },
 }))
 
 vi.mock('~/components/InterviewSession.vue', async () => {
@@ -379,5 +385,162 @@ describe('embed/[token].vue — resize emission', () => {
     vi.stubGlobal('ResizeObserver', undefined)
 
     await expect(mountPage()).resolves.toBeDefined()
+  })
+})
+
+describe('embed/[token].vue — session reuse and host origin policy', () => {
+  it('reuses a stored session that belongs to this very link, without spending the single-use exchange', async () => {
+    useCandidateSession().store(ACCESS_TOKEN, { interviewId: INTERVIEW_ID })
+
+    const wrapper = await mountPage()
+
+    expect(wrapper.find('[data-testid="interview-session-stub"]').exists()).toBe(true)
+    expect(mockFetch).not.toHaveBeenCalledWith(
+      expect.stringContaining('/embed/exchange'),
+      expect.anything()
+    )
+  })
+
+  it('exchanges the link when the stored session belongs to a different interview', async () => {
+    useCandidateSession().store(ACCESS_TOKEN, { interviewId: 'int_SOMEONE_ELSE' })
+
+    await mountPage()
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/embed/exchange'),
+      expect.anything()
+    )
+    expect(useCandidateSession().read()?.interviewId).toBe(INTERVIEW_ID)
+  })
+
+  it('hands the bridge the origins the frame policy allows', async () => {
+    mockFetch.mockImplementation((url: string) =>
+      url.endsWith('/embed/frame-policy')
+        ? Promise.resolve({ allowed_domains: ['host.example'] })
+        : Promise.resolve({ access_token: ACCESS_TOKEN })
+    )
+
+    await mountPage()
+
+    expect(holder.bridgeOptions!.getAllowedOrigins()).toEqual(['host.example'])
+  })
+
+  it.each([
+    ['rejects', () => Promise.reject(httpError(500))],
+    ['returns a malformed body', () => Promise.resolve({ allowed_domains: 'host.example' })],
+  ])('accepts no host message at all when the frame policy %s', async (_label, policy) => {
+    mockFetch.mockImplementation((url: string) =>
+      url.endsWith('/embed/frame-policy')
+        ? policy()
+        : Promise.resolve({ access_token: ACCESS_TOKEN })
+    )
+
+    await mountPage()
+
+    expect(holder.bridgeOptions!.getAllowedOrigins()).toEqual([])
+  })
+})
+
+describe('embed/[token].vue — progress and permission events', () => {
+  it('posts question:changed with the progress each time a new session id appears', async () => {
+    const session = holder.session as ReturnType<typeof makeSession>
+    await mountPage()
+
+    session.endedCompetencies.value = 2
+    session.totalCompetencies.value = 5
+    session.sessionId.value = 11
+    await flushPromises()
+    expect(mockPost).toHaveBeenCalledWith('question:changed', { index: 2, total: 5 })
+
+    mockPost.mockClear()
+    session.sessionId.value = null
+    await flushPromises()
+    expect(mockPost).not.toHaveBeenCalledWith('question:changed', expect.anything())
+  })
+
+  it('reports zero progress while the counts are still unknown', async () => {
+    const session = holder.session as ReturnType<typeof makeSession>
+    await mountPage()
+
+    session.sessionId.value = 1
+    await flushPromises()
+
+    expect(mockPost).toHaveBeenCalledWith('question:changed', { index: 0, total: 0 })
+  })
+
+  it('reports an unknown terminal reason as "unknown" rather than posting undefined', async () => {
+    const session = holder.session as ReturnType<typeof makeSession>
+    await mountPage()
+
+    session.state.value = 'terminal'
+    await flushPromises()
+
+    expect(mockPost).toHaveBeenCalledWith('error', expect.objectContaining({ code: 'unknown' }))
+  })
+
+  describe('permissions', () => {
+    type Status = { state: string; onchange: null | (() => void) }
+    const original = Object.getOwnPropertyDescriptor(navigator, 'permissions')
+
+    afterEach(() => {
+      if (original) Object.defineProperty(navigator, 'permissions', original)
+      else delete (navigator as unknown as Record<string, unknown>).permissions
+    })
+
+    function stubPermissions(query: (d: { name: string }) => Promise<Status>): void {
+      Object.defineProperty(navigator, 'permissions', {
+        configurable: true,
+        value: { query },
+      })
+    }
+
+    it('posts permissions:denied when a device is already denied, and again when it is revoked later', async () => {
+      const statuses: Record<string, Status> = {
+        camera: { state: 'denied', onchange: null },
+        microphone: { state: 'granted', onchange: null },
+      }
+      stubPermissions(({ name }) => Promise.resolve(statuses[name]!))
+      await mountPage()
+      // The query promises (and their .then handlers) have settled before any
+      // change handler is read or invoked.
+      await flushPromises()
+      expect(mockPost.mock.calls.filter(([e]) => e === 'permissions:denied')).toHaveLength(1)
+      expect(statuses.camera!.onchange).toBeTypeOf('function')
+      expect(statuses.microphone!.onchange).toBeTypeOf('function')
+
+      statuses.microphone!.state = 'denied'
+      statuses.microphone!.onchange!()
+      expect(mockPost.mock.calls.filter(([e]) => e === 'permissions:denied')).toHaveLength(2)
+
+      // A change that is not a denial stays quiet.
+      statuses.microphone!.state = 'granted'
+      statuses.microphone!.onchange!()
+      expect(mockPost.mock.calls.filter(([e]) => e === 'permissions:denied')).toHaveLength(2)
+    })
+
+    it('degrades silently where the permission name is unsupported', async () => {
+      const query = vi.fn(() => Promise.reject(new TypeError('unsupported')))
+      stubPermissions(query)
+
+      await mountPage()
+      await flushPromises()
+
+      // Both devices were actually queried and both queries rejected, so the
+      // swallow path ran; the page neither crashed nor reported a denial.
+      expect(query.mock.calls.map(([d]) => (d as { name: string }).name)).toEqual([
+        'camera',
+        'microphone',
+      ])
+      expect(mockPost).toHaveBeenCalledWith('ready')
+      expect(mockPost).not.toHaveBeenCalledWith('permissions:denied')
+    })
+
+    it('does nothing where the Permissions API does not exist', async () => {
+      Object.defineProperty(navigator, 'permissions', { configurable: true, value: undefined })
+
+      await mountPage()
+
+      expect(mockPost).toHaveBeenCalledWith('ready')
+    })
   })
 })
