@@ -36,6 +36,7 @@ function makeCandidateJwt(claims: Record<string, unknown>): string {
   return `${header}.${payload}.fake-signature`
 }
 
+const STORAGE_KEY_UNDER_TEST = 'beai_candidate_session'
 const NOW_SECONDS = Math.floor(Date.now() / 1000)
 
 function validClaims(overrides: Record<string, unknown> = {}) {
@@ -243,6 +244,40 @@ describe('useCandidateSession', () => {
       store('aGVhZGVy.not-valid-base64-json.sig')
 
       expect(read()).toBeNull()
+    })
+  })
+  describe('unusable stored or incoming data', () => {
+    const KEY = STORAGE_KEY_UNDER_TEST
+
+    it('read() purges a corrupted stored value instead of throwing', () => {
+      localStorage.setItem(KEY, '{not json')
+      const { read } = useCandidateSession()
+
+      expect(read()).toBeNull()
+      expect(localStorage.getItem(KEY)).toBeNull()
+    })
+
+    it('read() purges a stored session that has no numeric exp', () => {
+      localStorage.setItem(KEY, JSON.stringify({ accessToken: 't', exp: '9999999999' }))
+      const { read } = useCandidateSession()
+
+      expect(read()).toBeNull()
+      expect(localStorage.getItem(KEY)).toBeNull()
+    })
+
+    it('store() refuses a token without an exp claim: the session lifecycle would be unbounded', () => {
+      const { store, read } = useCandidateSession()
+      store(makeCandidateJwt({ candidate_ref: 'c', project_id: 1 }))
+
+      expect(read()).toBeNull()
+      expect(localStorage.getItem(KEY)).toBeNull()
+    })
+
+    it('store() defaults candidateRef and projectId when the claims have the wrong types', () => {
+      const { store, read } = useCandidateSession()
+      store(makeCandidateJwt(validClaims({ candidate_ref: 12, project_id: '42' })))
+
+      expect(read()).toMatchObject({ candidateRef: '', projectId: 0 })
     })
   })
 })
