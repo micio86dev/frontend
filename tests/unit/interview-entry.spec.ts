@@ -134,6 +134,9 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // Spies on console.warn are restored even when an assertion above failed.
+
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
