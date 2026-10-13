@@ -3668,7 +3668,7 @@ export interface components {
             external_id: number | null;
             /** @description The calling system the candidate came from, as supplied when the interview was created; `null` when none was given. */
             source: string | null;
-            project: {
+            project?: {
                 id: string;
                 name: string;
                 slug: string;
