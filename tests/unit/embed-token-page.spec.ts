@@ -501,7 +501,12 @@ describe('embed/[token].vue — progress and permission events', () => {
       }
       stubPermissions(({ name }) => Promise.resolve(statuses[name]!))
       await mountPage()
+      // The query promises (and their .then handlers) have settled before any
+      // change handler is read or invoked.
+      await flushPromises()
       expect(mockPost.mock.calls.filter(([e]) => e === 'permissions:denied')).toHaveLength(1)
+      expect(statuses.camera!.onchange).toBeTypeOf('function')
+      expect(statuses.microphone!.onchange).toBeTypeOf('function')
 
       statuses.microphone!.state = 'denied'
       statuses.microphone!.onchange!()
@@ -514,10 +519,18 @@ describe('embed/[token].vue — progress and permission events', () => {
     })
 
     it('degrades silently where the permission name is unsupported', async () => {
-      stubPermissions(() => Promise.reject(new TypeError('unsupported')))
+      const query = vi.fn(() => Promise.reject(new TypeError('unsupported')))
+      stubPermissions(query)
 
       await mountPage()
+      await flushPromises()
 
+      // Both devices were actually queried and both queries rejected, so the
+      // swallow path ran; the page neither crashed nor reported a denial.
+      expect(query.mock.calls.map(([d]) => (d as { name: string }).name)).toEqual([
+        'camera',
+        'microphone',
+      ])
       expect(mockPost).toHaveBeenCalledWith('ready')
       expect(mockPost).not.toHaveBeenCalledWith('permissions:denied')
     })

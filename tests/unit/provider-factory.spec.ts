@@ -10,7 +10,7 @@
  *   - Mock provider implements InterviewProvider interface
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { buildAdvancePayload, createBoundaryTicket } from '~/app/utils/advance-interaction'
 import { createProvider } from '~/app/providers/factory'
 import { HeyGenProvider } from '~/app/providers/heygen'
@@ -169,24 +169,39 @@ describe('createProvider factory', () => {
     const win = window as unknown as Record<string, unknown>
     const startCfg = { endPhrase: 'e', finalPhrase: 'f', dbSessionId: 1 }
 
-    beforeEach(() => {
+    // Hold state lives in each mock's own closure, so every test builds a fresh
+    // provider and starts un-held; only the window globals are shared, and they
+    // are reset here (and again after, so nothing leaks into later specs).
+    const resetGlobals = () => {
       delete win.__mockSteeringLog
       delete win.__mockInterviewProviders
       delete win.__mockInterviewProvider
       delete win.__mockInterviewAutoHoldPaint
-    })
+    }
+    beforeEach(resetGlobals)
+    afterEach(resetGlobals)
 
-    it('sendBoundary() acknowledges and appends the append-context + respond pair, in order, across calls', async () => {
+    it('sendBoundary() acknowledges and appends [append-context, respond] per call, in call order', async () => {
       const provider = createProvider('tavus', true) as Mock
-      const ticket = createBoundaryTicket('conv-1', 'PRS')
+      const first = createBoundaryTicket('conv-1', 'PRS')
+      const second = createBoundaryTicket('conv-2', 'COL')
 
-      await expect(provider.sendBoundary(ticket)).resolves.toEqual({ ok: true })
-      await provider.sendBoundary(ticket)
+      await expect(provider.sendBoundary(first)).resolves.toEqual({ ok: true })
+      await expect(provider.sendBoundary(second)).resolves.toEqual({ ok: true })
 
-      const log = win.__mockSteeringLog as unknown[]
-      expect(log).toHaveLength(4)
-      expect(log.slice(0, 2)).toEqual([...buildAdvancePayload(ticket)])
-      expect((log[1] as { event_type: string }).event_type).toBe('conversation.respond')
+      // The second call's pair lands AFTER the first's, and each pair keeps the
+      // append-context event ahead of the respond event.
+      expect(win.__mockSteeringLog).toEqual([
+        ...buildAdvancePayload(first),
+        ...buildAdvancePayload(second),
+      ])
+      const events = (win.__mockSteeringLog as { event_type: string }[]).map((e) => e.event_type)
+      expect(events).toEqual([
+        'conversation.append_llm_context',
+        'conversation.respond',
+        'conversation.append_llm_context',
+        'conversation.respond',
+      ])
     })
 
     it('dispatches loadeddata on the mount element when started, unless the paint is held', async () => {
@@ -230,10 +245,18 @@ describe('createProvider factory', () => {
     })
 
     it('registers every mock in order while the latest stays on __mockInterviewProvider', () => {
+      // The registry was cleared in beforeEach, so it holds exactly these two.
+      // There is deliberately no de-duplication: each createProvider() call is a
+      // new instance and appends, which is what lets E2E reach an earlier mock.
+      expect(win.__mockInterviewProviders).toBeUndefined()
       const first = createProvider('heygen', true)
       const second = createProvider('heygen', true)
 
+      expect(first).not.toBe(second)
+      expect(win.__mockInterviewProviders).toHaveLength(2)
       expect(win.__mockInterviewProviders).toEqual([first, second])
+      expect((win.__mockInterviewProviders as unknown[])[0]).toBe(first)
+      expect((win.__mockInterviewProviders as unknown[])[1]).toBe(second)
       expect(win.__mockInterviewProvider).toBe(second)
     })
   })

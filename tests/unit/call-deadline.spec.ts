@@ -1,17 +1,36 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { formatDeadline } from '~/app/utils/call-deadline'
 
 describe('formatDeadline', () => {
   afterEach(() => vi.restoreAllMocks())
 
-  it('formats hours and minutes in the given locale', () => {
+  describe('with a pinned timezone', () => {
+    const originalTz = process.env.TZ
+    // 14:30 UTC, as epoch seconds.
     const exp = Date.UTC(2026, 0, 1, 14, 30) / 1000
-    const expected = new Intl.DateTimeFormat('en-GB', {
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date(exp * 1000))
-    expect(formatDeadline(exp, 'en-GB')).toBe(expected)
-    expect(expected).toMatch(/^\d{2}:\d{2}$/)
+
+    beforeEach(() => {
+      process.env.TZ = 'UTC'
+    })
+    afterEach(() => {
+      if (originalTz === undefined) delete process.env.TZ
+      else process.env.TZ = originalTz
+    })
+
+    // Hard-coded expectations, independent of the Intl call the implementation
+    // makes. \s tolerates the narrow no-break space newer ICU puts before PM.
+    it.each([
+      ['en-GB', /^14:30$/],
+      ['de', /^14:30$/],
+      ['en-US', /^02:30\sPM$/],
+    ])('formats hours and minutes for %s', (locale, expected) => {
+      expect(formatDeadline(exp, locale)).toMatch(expected)
+    })
+
+    it('follows the runtime timezone, not UTC', () => {
+      process.env.TZ = 'Asia/Tokyo'
+      expect(formatDeadline(exp, 'en-GB')).toBe('23:30')
+    })
   })
 
   it.each([null, undefined, Number.NaN, Number.POSITIVE_INFINITY])(

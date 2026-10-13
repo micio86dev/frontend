@@ -30,26 +30,32 @@ async function run(): Promise<void> {
 
 const listeners: [string, EventListener][] = []
 
-// happy-dom refuses (and logs) real script loads, so injected tags are captured
-// instead of attached; getElementById sees them so the duplicate guard is real.
-const injected: HTMLScriptElement[] = []
-const scripts = () => injected.map((s) => s.id)
+// What the plugin put in <head>, observed from the DOM itself (any insertion
+// path: appendChild, append, insertBefore...). happy-dom is told not to fetch
+// them, so nothing is loaded or logged but the nodes are really attached.
+const scripts = () => Array.from(document.head.querySelectorAll('script[id]')).map((s) => s.id)
+
+// The router calls every registered afterEach hook; the plugin's hooks are
+// exercised by behaviour, never by their registration order.
+const navigate = (hooks: Hook[], fullPath: string) => hooks.forEach((h) => h({ fullPath }))
+
+const dataLayerCalls = () =>
+  (window.dataLayer ?? []).map((a) => Array.from(a as ArrayLike<unknown>))
 
 describe('analytics.client plugin', () => {
+  let fileLoading: boolean
+  let asSuccess: boolean
   beforeEach(() => {
     const add = window.addEventListener.bind(window)
     vi.spyOn(window, 'addEventListener').mockImplementation(((t: string, f: EventListener) => {
       listeners.push([t, f])
       add(t, f)
     }) as typeof window.addEventListener)
-    injected.length = 0
-    vi.spyOn(document.head, 'appendChild').mockImplementation(((n: HTMLScriptElement) => {
-      injected.push(n)
-      return n
-    }) as typeof document.head.appendChild)
-    vi.spyOn(document, 'getElementById').mockImplementation(
-      (id: string) => injected.find((s) => s.id === id) ?? null
-    )
+    fileLoading = window.happyDOM.settings.disableJavaScriptFileLoading
+    asSuccess = window.happyDOM.settings.handleDisabledFileLoadingAsSuccess
+    window.happyDOM.settings.disableJavaScriptFileLoading = true
+    window.happyDOM.settings.handleDisabledFileLoadingAsSuccess = true
+    document.head.querySelectorAll('script[id]').forEach((n) => n.remove())
     localStorage.clear()
     delete window.gtag
     delete window.clarity
@@ -62,6 +68,9 @@ describe('analytics.client plugin', () => {
     listeners.length = 0
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+    window.happyDOM.settings.disableJavaScriptFileLoading = fileLoading
+    window.happyDOM.settings.handleDisabledFileLoadingAsSuccess = asSuccess
+    document.head.querySelectorAll('script[id]').forEach((n) => n.remove())
   })
 
   it('loads nothing without consent', async () => {
@@ -105,11 +114,12 @@ describe('analytics.client plugin', () => {
     expect(scripts()).toEqual(['beai-clarity'])
     expect(typeof window.clarity).toBe('function')
 
-    injected.length = 0
+    document.head.querySelectorAll('script[id]').forEach((n) => n.remove())
     delete window.clarity
     setup({ clarity: 'c1', path: '/interview/tok' })
     await run()
     expect(scripts()).toEqual([])
+    expect(window.clarity).toBeUndefined()
   })
 
   it('starts loading when consent is granted mid-visit', async () => {
@@ -121,37 +131,49 @@ describe('analytics.client plugin', () => {
     expect(scripts()).toEqual(['beai-ga4'])
   })
 
-  it('sends only the redacted path on navigation, and nothing before gtag exists', async () => {
+  it('sends no page view before gtag exists (no consent, nothing loaded)', async () => {
     const { hooks } = setup({ ga: 'G-1' })
     await run()
-    hooks[0]!({ fullPath: '/interview/tok' })
+    navigate(hooks, '/interview/tok')
     expect(window.gtag).toBeUndefined()
+    expect(window.dataLayer).toBeUndefined()
+  })
 
-    window.gtag = vi.fn()
-    hooks[0]!({ fullPath: '/en/interview/SECRET.jwt.sig?next=1#frag' })
-    expect(window.gtag).toHaveBeenCalledWith('event', 'page_view', {
-      page_path: '/en/interview/:token',
-      page_location: '',
-    })
+  it('sends only the redacted path as a page view on navigation once consent is granted', async () => {
+    localStorage.setItem(ANALYTICS_CONSENT_KEY, 'granted')
+    const { hooks } = setup({ ga: 'G-1' })
+    await run()
+    expect(typeof window.gtag).toBe('function')
+    const before = dataLayerCalls().length
+
+    navigate(hooks, '/en/interview/SECRET.jwt.sig?next=1#frag')
+
+    const sent = dataLayerCalls().slice(before)
+    expect(sent).toEqual([
+      ['event', 'page_view', { page_path: '/en/interview/:token', page_location: '' }],
+    ])
+    expect(JSON.stringify(window.dataLayer)).not.toContain('SECRET')
   })
 
   it('stops a running Clarity when navigating onto an interview route, but not elsewhere', async () => {
     localStorage.setItem(ANALYTICS_CONSENT_KEY, 'granted')
     const { hooks } = setup({ clarity: 'c1' })
     await run()
-    const clarity = vi.fn()
-    window.clarity = clarity
+    const queued = () =>
+      ((window.clarity as unknown as { q: ArrayLike<unknown>[] }).q ?? []).map((a) => Array.from(a))
 
-    hooks[1]!({ fullPath: '/' })
-    expect(clarity).not.toHaveBeenCalled()
+    navigate(hooks, '/')
+    expect(queued()).not.toContainEqual(['stop'])
 
-    hooks[1]!({ fullPath: '/interview/tok' })
-    expect(clarity).toHaveBeenCalledWith('stop')
+    navigate(hooks, '/interview/tok')
+    expect(queued()).toContainEqual(['stop'])
   })
 
   it('does nothing on navigation when Clarity is not running', async () => {
     const { hooks } = setup({ clarity: 'c1' })
     await run()
-    expect(() => hooks[1]!({ fullPath: '/interview/tok' })).not.toThrow()
+    expect(window.clarity).toBeUndefined()
+    expect(() => navigate(hooks, '/interview/tok')).not.toThrow()
+    expect(window.clarity).toBeUndefined()
   })
 })

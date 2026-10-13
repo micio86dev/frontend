@@ -13,6 +13,12 @@ import { nextTick } from 'vue'
 const WIDTH = 300
 const HEIGHT = 100
 const CENTRE = HEIGHT / 2
+// A silent ribbon is never fully closed: it keeps a 1.5px half-height at 1x DPR
+// (happy-dom's devicePixelRatio), so its top edge sits just above the centre.
+const REST_TOP = CENTRE - 1.5
+// DESIGN contract: "four repaints a second" under prefers-reduced-motion.
+const REPAINTS_PER_SECOND = 4
+const REDUCED_MOTION_INTERVAL_MS = 1000 / REPAINTS_PER_SECOND
 
 interface Ctx {
   moveTo: ReturnType<typeof vi.fn>
@@ -28,6 +34,7 @@ interface Ctx {
 let ctx: Ctx
 let sample: number
 let frames: FrameRequestCallback[]
+let raf: ReturnType<typeof vi.fn>
 let observerCallback: () => void
 
 function makeCtx(): Ctx {
@@ -77,8 +84,16 @@ async function mountVisualizer(props: Record<string, unknown>) {
 const ribbonTop = () => ctx.moveTo.mock.calls[1]![1] as number
 
 function runFrame(): void {
-  const cb = frames.shift()!
+  const cb = frames.shift()
+  if (cb === undefined) throw new Error('expected an animation frame to be queued')
   cb(0)
+}
+
+/** Run one frame and return where the ribbon's top edge was drawn in it. */
+function frameTop(): number {
+  ctx.moveTo.mockClear()
+  runFrame()
+  return ribbonTop()
 }
 
 describe('VoiceVisualizer rendering', () => {
@@ -87,14 +102,15 @@ describe('VoiceVisualizer rendering', () => {
     sample = 128
     frames = []
     ctx = makeCtx()
-    HTMLCanvasElement.prototype.getContext = vi.fn(
-      () => ctx
-    ) as unknown as typeof HTMLCanvasElement.prototype.getContext
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+      (() => ctx) as unknown as typeof HTMLCanvasElement.prototype.getContext
+    )
     vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue({
       width: WIDTH,
       height: HEIGHT,
     } as DOMRect)
-    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb))
+    raf = vi.fn((cb: FrameRequestCallback) => frames.push(cb))
+    vi.stubGlobal('requestAnimationFrame', raf)
     vi.stubGlobal('cancelAnimationFrame', vi.fn())
     vi.stubGlobal(
       'ResizeObserver',
@@ -158,12 +174,14 @@ describe('VoiceVisualizer rendering', () => {
     stubAudio()
     const wrapper = await mountVisualizer({ stream: null, active: false })
     await nextTick()
-    ctx.clearRect.mockClear()
 
     await wrapper.setProps({ active: true })
 
+    // No stream, so nothing to animate: not one animation frame is requested.
+    expect(raf).not.toHaveBeenCalled()
     expect(frames).toHaveLength(0)
-    expect(ctx.clearRect).toHaveBeenCalledTimes(1)
+    // ...but the panel is still painted (the resting hairline).
+    expect(ctx.stroke).toHaveBeenCalled()
   })
 
   it('widens the ribbon with a louder signal and keeps animating frame after frame', async () => {
@@ -171,17 +189,19 @@ describe('VoiceVisualizer rendering', () => {
     await mountVisualizer({ stream: {} as MediaStream })
     await nextTick()
 
-    runFrame()
-    const silentTop = ribbonTop()
+    const silentTop = frameTop()
+    expect(silentTop).toBe(REST_TOP)
     expect(frames).toHaveLength(1)
 
-    ctx.moveTo.mockClear()
     sample = 255
-    runFrame()
-    const loudTop = ribbonTop()
+    const tops = [silentTop]
+    for (let i = 0; i < 30; i += 1) tops.push(frameTop())
 
-    expect(loudTop).toBeLessThan(silentTop)
-    expect(loudTop).toBeGreaterThanOrEqual(CENTRE - (HEIGHT / 2) * 0.78)
+    // Eased toward the peak: strictly wider first, then never narrower again...
+    expect(tops[1]).toBeLessThan(silentTop)
+    tops.slice(1).forEach((top, i) => expect(top).toBeLessThanOrEqual(tops[i]!))
+    // ...yet it never reaches the panel edge, even for a full-scale signal.
+    expect(Math.min(...tops)).toBeGreaterThan(0)
     expect(ctx.fill).toHaveBeenCalled()
     expect(frames).toHaveLength(1)
   })
@@ -191,15 +211,19 @@ describe('VoiceVisualizer rendering', () => {
     const wrapper = await mountVisualizer({ stream: {} as MediaStream })
     await nextTick()
     runFrame()
-    const silentTop = ribbonTop()
 
     sample = 255
     for (let i = 0; i < 10; i += 1) runFrame()
     ctx.moveTo.mockClear()
+    runFrame()
+    const loudTop = ribbonTop()
+    expect(loudTop).toBeLessThan(REST_TOP)
+    ctx.moveTo.mockClear()
 
     await wrapper.setProps({ active: false })
 
-    expect(ribbonTop()).toBe(silentTop)
+    // Collapsed all the way back to the resting half-height, not merely eased.
+    expect(ribbonTop()).toBe(REST_TOP)
     expect(globalThis.cancelAnimationFrame).toHaveBeenCalled()
   })
 
@@ -208,14 +232,16 @@ describe('VoiceVisualizer rendering', () => {
     const wrapper = await mountVisualizer({ stream: {} as MediaStream })
     await nextTick()
     runFrame()
-    const silentTop = ribbonTop()
     sample = 255
     for (let i = 0; i < 10; i += 1) runFrame()
+    ctx.moveTo.mockClear()
+    runFrame()
+    expect(ribbonTop()).toBeLessThan(REST_TOP)
     ctx.moveTo.mockClear()
 
     await wrapper.setProps({ stream: null })
 
-    expect(ribbonTop()).toBe(silentTop)
+    expect(ribbonTop()).toBe(REST_TOP)
   })
 
   it('falls back to the prefixed AudioContext, and survives having none at all', async () => {
@@ -234,9 +260,13 @@ describe('VoiceVisualizer rendering', () => {
     frames = []
     const bare = await mountVisualizer({ stream: {} as MediaStream })
     await nextTick()
-    // No analyser can exist, but the panel still starts and rests on the hairline.
-    expect(() => frames.length && runFrame()).not.toThrow()
-    expect(ctx.stroke).toHaveBeenCalled()
+    // No analyser can exist, but the panel still starts and rests on the hairline,
+    // even when the signal would be full scale.
+    expect(Ctor).toHaveBeenCalledTimes(1)
+    sample = 255
+    expect(frames).toHaveLength(1)
+    expect(frameTop()).toBe(REST_TOP)
+    expect(frames).toHaveLength(1)
     bare.unmount()
   })
 
@@ -312,8 +342,13 @@ describe('VoiceVisualizer rendering', () => {
       expect(frames).toHaveLength(0)
 
       ctx.clearRect.mockClear()
-      vi.advanceTimersByTime(1000)
-      expect(ctx.clearRect).toHaveBeenCalledTimes(4)
+      vi.advanceTimersByTime(REDUCED_MOTION_INTERVAL_MS - 1)
+      expect(ctx.clearRect).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(1)
+      expect(ctx.clearRect).toHaveBeenCalledTimes(1)
+      vi.advanceTimersByTime(1000 - REDUCED_MOTION_INTERVAL_MS)
+      expect(ctx.clearRect).toHaveBeenCalledTimes(REPAINTS_PER_SECOND)
+      expect(raf).not.toHaveBeenCalled()
 
       wrapper.unmount()
       ctx.clearRect.mockClear()

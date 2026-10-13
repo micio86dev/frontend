@@ -33,6 +33,11 @@ beforeEach(() => {
   window.localStorage.clear()
 })
 
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
+
 describe('when the banner appears', () => {
   it('appears when analytics is configured and nothing has been decided', () => {
     expect(mountBanner().find(banner).exists()).toBe(true)
@@ -202,8 +207,9 @@ describe('room on the canvas', () => {
   it('publishes its clearance while it is open', () => {
     const wrapper = mountBanner()
 
-    // Plus the safe-area inset the banner itself sits above on notched devices.
-    expect(clearance()).toMatch(/^calc\(\d+px \+ env\(safe-area-inset-bottom, 0px\)\)$/)
+    // happy-dom lays nothing out, so the measured height is 0: just the 32px
+    // gap, plus the safe-area inset the banner itself sits above on notched devices.
+    expect(clearance()).toBe('calc(32px + env(safe-area-inset-bottom, 0px))')
     wrapper.unmount()
   })
 
@@ -228,8 +234,6 @@ describe('room on the canvas', () => {
     expect(clearance()).toBe('')
   })
   describe('when the banner re-wraps', () => {
-    afterEach(() => vi.unstubAllGlobals())
-
     it('republishes the clearance when the observed size changes, and stops observing on unmount', async () => {
       let notify: () => void = () => {}
       const disconnect = vi.fn()
@@ -262,9 +266,13 @@ describe('room on the canvas', () => {
 
     it('still publishes once where ResizeObserver does not exist', async () => {
       vi.stubGlobal('ResizeObserver', undefined)
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+        height: 56.4,
+      } as DOMRect)
       const wrapper = mountBanner()
       await nextTick()
-      expect(clearance()).toMatch(/^calc\(\d+px \+ env/)
+      // The one-off measurement: ceil(56.4) = 57, plus the 32px gap.
+      expect(clearance()).toBe('calc(89px + env(safe-area-inset-bottom, 0px))')
       wrapper.unmount()
     })
   })
