@@ -59,6 +59,14 @@
     "call": {
       "question_region": "Current question",
       "panel_label": "Interview progress",
+      "header": {
+        "title": "Assessment interview",
+        "title_with_subject": "Assessment interview · {subject}",
+        "potential": "Potential",
+        "elapsed_sr": "Elapsed time",
+        "captions": "Captions",
+        "microphone": "Microphone"
+      },
       "progress": "Question {n} of {total}",
       "duration_label": "Duration",
       "duration_value": "{elapsed} / {total}",
@@ -72,6 +80,7 @@
       "self_view_off": "Camera unavailable",
       "network_pending": "Connection is unstable. Your answers are sent as soon as it returns.",
       "exit": {
+        "short": "Exit",
         "label": "Exit, you can resume later",
         "title": "Leave the interview?",
         "body": "The interview will be suspended and nothing is recorded. You can resume at the same question by reopening your invitation link in this browser, until {time}.",

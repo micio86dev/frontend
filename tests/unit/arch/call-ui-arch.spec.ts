@@ -58,6 +58,7 @@ describe('the call screen: the components under guard', () => {
         'components/molecules/CallQuestion.vue',
         'components/molecules/CallSelfView.client.vue',
         'components/molecules/CallTile.vue',
+        'components/organisms/CallHeader.vue',
         'components/organisms/CallPanel.vue',
         'components/organisms/CallStage.vue',
       ].sort()
