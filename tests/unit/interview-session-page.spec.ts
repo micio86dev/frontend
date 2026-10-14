@@ -144,6 +144,7 @@ function makeSession(
     players,
     incomingSession,
     handoverInFlight: computed(() => incomingSession.value !== null),
+    boundaryInFlight: ref(false),
     acceptConsent: vi.fn(),
     confirmDevices: vi.fn(),
     pause: vi.fn(),

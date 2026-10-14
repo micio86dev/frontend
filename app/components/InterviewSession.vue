@@ -85,7 +85,7 @@
           <CallTile
             :name="$t('interview.call.interviewer_name')"
             :speaking-label="$t('interview.call.avatar_speaking')"
-            :speaking="speaker === 'avatar'"
+            :speaking="speaker === 'avatar' || session.boundaryInFlight.value"
           >
             <template v-for="p in session.players.value" :key="p.key">
               <ClientOnly>

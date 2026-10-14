@@ -1007,3 +1007,70 @@ describe('boundary_due on the /utterance 202 (FE-05)', () => {
     expect(session.sessionId.value).toBe(B)
   })
 })
+
+describe('boundaryInFlight (interviewer ring held across the boundary)', () => {
+  it('is true from the silence wait until the steering ack, then false', async () => {
+    const session = await liveSession()
+    queue('/candidate/interview/end', END_CONTINUE)
+    queue('/candidate/interview/start', continuation(B))
+    let release!: () => void
+    providers[0]!.whenAvatarSilent = vi.fn(
+      () => new Promise<void>((resolve) => (release = resolve))
+    )
+    let ack!: (r: SteeringResult) => void
+    providers[0]!.sendBoundary.mockImplementationOnce(
+      () => new Promise<SteeringResult>((resolve) => (ack = resolve))
+    )
+    expect(session.boundaryInFlight.value).toBe(false)
+
+    providers[0]!._emit('state', 'complete')
+    await flush()
+    expect(session.boundaryInFlight.value).toBe(true) // still waiting for silence
+
+    release()
+    await flush()
+    expect(providers[0]!.sendBoundary).toHaveBeenCalledTimes(1)
+    expect(session.boundaryInFlight.value).toBe(true) // steering not acknowledged yet
+
+    ack({ ok: true })
+    await flush()
+    expect(session.boundaryInFlight.value).toBe(false)
+  })
+
+  it('is false again after a losing 409', async () => {
+    const session = await liveSession()
+    queue('/candidate/interview/end', new Thrown({ status: 409 }))
+
+    providers[0]!._emit('state', 'complete')
+    await flush()
+
+    expect(session.boundaryInFlight.value).toBe(false)
+  })
+
+  it('is false again after a failed /end', async () => {
+    const session = await liveSession()
+    queue('/candidate/interview/end', new Thrown({ status: 500 }))
+
+    providers[0]!._emit('state', 'complete')
+    await flush()
+
+    expect(session.boundaryInFlight.value).toBe(false)
+  })
+
+  it('is false again after a teardown while waiting for silence', async () => {
+    const session = await liveSession()
+    let release!: () => void
+    providers[0]!.whenAvatarSilent = vi.fn(
+      () => new Promise<void>((resolve) => (release = resolve))
+    )
+
+    providers[0]!._emit('state', 'complete')
+    await flush()
+    expect(session.boundaryInFlight.value).toBe(true)
+    await session.teardown()
+    release()
+    await flush()
+
+    expect(session.boundaryInFlight.value).toBe(false)
+  })
+})
