@@ -126,6 +126,7 @@ describe('call screen: the side panel never receives or reads a competency', () 
         'elapsed-seconds',
         'ended',
         'expired',
+        'max-seconds',
         'question-seconds',
         'tick',
         'timer-key',
