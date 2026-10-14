@@ -165,6 +165,34 @@ describe('CallSelfView when the stream is replaced', () => {
     expect(wrapper.find('video').exists()).toBe(true)
   })
 
+  it('assigns srcObject once per stream, however often the tile re-renders', async () => {
+    const stream = fakeStream([fakeTrack()])
+    const wrapper = mountView(stream)
+    const el = wrapper.get('video').element as HTMLVideoElement
+    // Count writes from here on: each one restarts media load (visible blink).
+    let current: MediaProvider | null = el.srcObject
+    const writes: Array<MediaProvider | null> = []
+    Object.defineProperty(el, 'srcObject', {
+      configurable: true,
+      get: () => current,
+      set: (value) => {
+        writes.push(value)
+        current = value
+      },
+    })
+
+    for (const speaking of [true, false, true, false]) {
+      await wrapper.setProps({ speaking })
+    }
+    expect(writes).toHaveLength(0)
+
+    const next = fakeStream([fakeTrack()])
+    await wrapper.setProps({ stream: next })
+    await wrapper.setProps({ speaking: true })
+
+    expect(writes).toEqual([next])
+  })
+
   it('detaches the stream, without stopping it, on unmount', () => {
     const stream = fakeStream([fakeTrack()])
     const wrapper = mountView(stream)
