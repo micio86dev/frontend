@@ -160,4 +160,12 @@ export interface InterviewProvider {
    * sending an empty string to the SDK was a silent no-op dressed up as a feature.
    */
   nudgeWrapUp?(message: string): void
+
+  /**
+   * Optional: resolves once the avatar has stopped speaking (and stayed quiet for a
+   * short settle window), or after `maxMs` at the latest. Never rejects. Callers
+   * use it to avoid cutting the avatar's last sentence at a question boundary.
+   * Providers without a speaking signal omit it; call it with optional chaining.
+   */
+  whenAvatarSilent?(maxMs?: number): Promise<void>
 }

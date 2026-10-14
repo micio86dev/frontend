@@ -1551,6 +1551,11 @@ export function useInterviewSession(
     // or a throw, restores it here.
     let micHandedOff = false
     try {
+      // Let the avatar finish its sentence before anything is muted or ended.
+      // `boundaryInFlight` stays set across the wait so a second trigger is a no-op.
+      await handle.provider.whenAvatarSilent?.()
+      if (handle !== activeSession.value) return // torn down while the avatar finished
+
       await handle.provider.setMicMuted(true).catch(() => {})
 
       const directive = await callEnd(handle.attribution.current, endedReason)

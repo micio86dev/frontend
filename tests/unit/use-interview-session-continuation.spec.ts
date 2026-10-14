@@ -56,6 +56,7 @@ function createMockProvider(steerable: boolean) {
       log.push(muted ? 'mute' : 'unmute')
     }),
     nudgeWrapUp: vi.fn(),
+    whenAvatarSilent: undefined as undefined | (() => Promise<void>),
     sendBoundary: vi.fn(async (): Promise<SteeringResult> => {
       log.push('send')
       return { ok: true }
@@ -456,6 +457,48 @@ describe('live_conversation_id is never sent without a joined handle', () => {
 })
 
 describe('assertBoundary', () => {
+  it('does not mute the mic or call /end until the avatar is silent, and double triggers wait too', async () => {
+    const session = await liveSession()
+    queue('/candidate/interview/end', END_CONTINUE)
+    queue('/candidate/interview/start', continuation(B))
+    let release!: () => void
+    providers[0]!.whenAvatarSilent = vi.fn(
+      () => new Promise<void>((resolve) => (release = resolve))
+    )
+    log.length = 0
+
+    providers[0]!._emit('state', 'complete')
+    providers[0]!._emit('state', 'complete')
+    await flush()
+
+    expect(providers[0]!.whenAvatarSilent).toHaveBeenCalledTimes(1)
+    expect(ends()).toHaveLength(0)
+    expect(log).toEqual([])
+
+    release()
+    await flush()
+
+    expect(log.slice(0, 2)).toEqual(['mute', 'end'])
+    expect(ends()).toHaveLength(1)
+    expect(session.sessionId.value).toBe(B)
+  })
+
+  it('drops the boundary when the session is torn down while waiting for silence', async () => {
+    const session = await liveSession()
+    let release!: () => void
+    providers[0]!.whenAvatarSilent = vi.fn(
+      () => new Promise<void>((resolve) => (release = resolve))
+    )
+
+    providers[0]!._emit('state', 'complete')
+    await flush()
+    await session.teardown()
+    release()
+    await flush()
+
+    expect(ends()).toHaveLength(0)
+  })
+
   it('racing inputs mint one ticket and one /end', async () => {
     const session = await liveSession()
     queue('/candidate/interview/end', END_CONTINUE)

@@ -64,6 +64,21 @@ export const STEERING_ACK_TIMEOUT_MS = 10_000
  */
 export const COMPLETION_FALLBACK_MS = 12_000
 
+/**
+ * Continuous avatar silence required before `whenAvatarSilent` resolves. Rides out
+ * the short mid-sentence pauses of the avatar's TTS, which emit a
+ * `stopped_speaking` that is not the end of the speech.
+ * UNMEASURED: an estimate; confirm on a live Tavus run.
+ */
+export const AVATAR_SETTLE_MS = 500
+
+/**
+ * How long an avatar utterance counts as speaking-pending while waiting for the
+ * audio's `started_speaking`. The utterance event can precede it; this bound
+ * keeps a missing audio event from ever holding the gate.
+ */
+export const AVATAR_UTTERANCE_PENDING_MS = 2_000
+
 /** One armed steering: settles once, and may hold the respond's user-role echo (N15). */
 interface Steering {
   settle: (result: SteeringResult) => void
@@ -90,6 +105,12 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
   /** An end phrase was heard while the avatar was still speaking it. */
   private endPhrasePending = false
   private completionTimer: ReturnType<typeof setTimeout> | null = null
+  /** An avatar utterance arrived and its audio has not started yet. */
+  private utterancePending = false
+  private utteranceTimer: ReturnType<typeof setTimeout> | null = null
+  /** Callers of `whenAvatarSilent`, each resolved by its own `done`. */
+  private readonly silenceWaiters = new Set<() => void>()
+  private settleTimer: ReturnType<typeof setTimeout> | null = null
   /** Set by `stop()`: a `left-meeting` after it is ours, not an unannounced end. */
   private stopping = false
 
@@ -249,12 +270,16 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
     // Speaking state: the avatar's audio edges. They release a deferred completion.
     if (data.event_type === 'conversation.replica.started_speaking') {
       this.replicaSpeaking = true
+      this.clearUtterancePending()
+      this.reevaluateSilence()
 
       return
     }
 
     if (data.event_type === 'conversation.replica.stopped_speaking') {
       this.replicaSpeaking = false
+      this.clearUtterancePending()
+      this.reevaluateSilence()
 
       if (this.endPhrasePending) {
         this.finishCompletion()
@@ -294,6 +319,10 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
     if (isAvatar && this.isDuplicateAvatar(data, speech)) {
       return
     }
+
+    // The utterance can arrive before its audio's `started_speaking`: from now the
+    // avatar counts as speaking for `whenAvatarSilent`, bounded by a timeout.
+    if (isAvatar) this.markUtterancePending()
 
     // The first de-duplicated avatar utterance acknowledges the steering. A held
     // echo is the platform's own text when the reply shares its inference_id;
@@ -342,8 +371,66 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
     this.emitState('complete')
   }
 
+  private markUtterancePending(): void {
+    this.utterancePending = true
+    if (this.utteranceTimer !== null) clearTimeout(this.utteranceTimer)
+    this.utteranceTimer = setTimeout(() => {
+      this.clearUtterancePending()
+      this.reevaluateSilence()
+    }, AVATAR_UTTERANCE_PENDING_MS)
+    this.reevaluateSilence()
+  }
+
+  private clearUtterancePending(): void {
+    this.utterancePending = false
+    if (this.utteranceTimer !== null) {
+      clearTimeout(this.utteranceTimer)
+      this.utteranceTimer = null
+    }
+  }
+
+  /** (Re)starts the settle window when the avatar is quiet; cancels it otherwise. */
+  private reevaluateSilence(): void {
+    if (this.settleTimer !== null) {
+      clearTimeout(this.settleTimer)
+      this.settleTimer = null
+    }
+    if (this.silenceWaiters.size === 0 || this.replicaSpeaking || this.utterancePending) return
+
+    this.settleTimer = setTimeout(() => {
+      this.settleTimer = null
+      this.releaseSilenceWaiters()
+    }, AVATAR_SETTLE_MS)
+  }
+
+  private releaseSilenceWaiters(): void {
+    for (const done of [...this.silenceWaiters]) done()
+  }
+
+  /**
+   * Resolves once the avatar has been continuously silent for `AVATAR_SETTLE_MS`,
+   * or after `maxMs` at the latest. Never rejects, so a lost event cannot hang the
+   * caller.
+   */
+  whenAvatarSilent(maxMs: number = COMPLETION_FALLBACK_MS): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const done = (): void => {
+        clearTimeout(maxTimer)
+        this.silenceWaiters.delete(done)
+        resolve()
+      }
+      const maxTimer = setTimeout(done, maxMs)
+
+      this.silenceWaiters.add(done)
+      this.reevaluateSilence()
+    })
+  }
+
   /** Drops any deferred completion and the speaking state it depended on. */
   private clearCompletion(): void {
+    this.clearUtterancePending()
+    this.releaseSilenceWaiters()
+    this.reevaluateSilence()
     if (this.completionTimer !== null) {
       clearTimeout(this.completionTimer)
       this.completionTimer = null
