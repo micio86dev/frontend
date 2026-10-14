@@ -299,8 +299,10 @@ export interface UseInterviewSessionReturn {
   primaryIndex: Readonly<Ref<number | null>>
   /** Competencies ended so far, from the /end directive. Null until the first /end. */
   endedCompetencies: Ref<number | null>
-  /** Total competencies in the project, from the /end directive. */
+  /** Total competencies in the project: seeded by /start, then confirmed by every /end directive. */
   totalCompetencies: Ref<number | null>
+  /** 1-based position of the competency now being interviewed, from /start. Null until one names it. */
+  competencyOrdinal: Readonly<Ref<number | null>>
   /** The interview's total time limit from the active template, once a start response has named it. */
   interviewMaxSeconds: Ref<number | null>
   /** Set once the whole interview's time is spent: the question in progress finishes, and the server settles the interview. */
@@ -610,6 +612,7 @@ export function useInterviewSession(
   /** Server-fed progress (D6/D7). Never derived here — deriving it is the defect. */
   const endedCompetencies = ref<number | null>(null)
   const totalCompetencies = ref<number | null>(null)
+  const competencyOrdinal = ref<number | null>(null)
   /** The interview's total time limit from the active template, once a start response has named it. */
   const interviewMaxSeconds = ref<number | null>(null)
   /** Set once the whole interview's time is spent: the question in progress finishes, and nothing after it starts. */
@@ -884,12 +887,17 @@ export function useInterviewSession(
   /**
    * Keeps the 202's `primary_index` only for a line that belongs to the session now current: a
    * late answer for the outgoing row must not overwrite the incoming one's count. A response
-   * without the field (an older API) leaves the value alone.
+   * missing the field leaves the value alone.
    */
   function recordPrimaryIndex(dbSessionId: number, body: UtteranceResponse | undefined) {
     if (dbSessionId === sessionId.value && typeof body?.primary_index === 'number') {
       primaryIndex.value = body.primary_index
     }
+  }
+
+  /** A count the server stated: a finite number above zero. Anything else is treated as not stated. */
+  function isPositiveNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0
   }
 
   /** A send that failed for a reason worth trying again: no response at all, a 5xx, or a 429. */
@@ -1809,7 +1817,13 @@ export function useInterviewSession(
       // carries a pre-existing off-by-one (-1 on the first competency of every
       // project, because `position` is written 0-based while the query subtracts
       // one), so keeping it around invites someone to compute progress from it.
-      // `competency_ordinal` is the field to trust.
+      // `competency_ordinal` is the field to trust, and it is stored now (with the
+      // total) so the panel can read "competency n of N" from the first competency.
+      // `endedCompetencies` is NOT touched here: it stays /end-only, because it also
+      // decides whether a competency has run.
+      const { competency_ordinal, total_competencies } = response.question_context
+      if (isPositiveNumber(total_competencies)) totalCompetencies.value = total_competencies
+      if (isPositiveNumber(competency_ordinal)) competencyOrdinal.value = competency_ordinal
 
       const startConfig: StartConfig = {
         dbSessionId,
@@ -2171,6 +2185,7 @@ export function useInterviewSession(
     primaryIndex: readonly(primaryIndex),
     endedCompetencies,
     totalCompetencies,
+    competencyOrdinal: readonly(competencyOrdinal),
     interviewMaxSeconds,
     interviewBudgetSpent,
     pendingUtterances,
