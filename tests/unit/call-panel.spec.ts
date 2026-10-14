@@ -192,6 +192,17 @@ describe('CallPanel — template-driven maximum', () => {
   })
 })
 
+describe('CallPanel — invalid server maximum', () => {
+  it.each([0, -5, Number.NaN, Number.POSITIVE_INFINITY])(
+    'ignores maxSeconds = %s and keeps the per-question derivation',
+    (maxSeconds) => {
+      const wrapper = mountPanel({ ended: 0, total: 2, elapsedSeconds: 0, maxSeconds })
+
+      expect(wrapper.get('[data-testid="call-panel-duration-value"]').text()).toBe('00:00 / 10:00')
+    }
+  )
+})
+
 describe('CallPanel — until the server states a total', () => {
   it.each([null, 0, -1])('hides the progress and the duration for total = %s', (total) => {
     const wrapper = mountPanel({ ended: null, total, elapsedSeconds: 12 })

@@ -131,6 +131,10 @@ const progress = computed(() => ({ n: position.value, total: totalCount.value })
 /** The `{elapsed}` / `{total}` the duration texts are built from; `total` is a stated maximum. */
 const duration = computed(() => ({
   elapsed: formatClock(props.elapsedSeconds),
-  total: formatClock(props.maxSeconds ?? totalCount.value * props.secondsPerQuestion),
+  total: formatClock(
+    props.maxSeconds !== null && Number.isFinite(props.maxSeconds) && props.maxSeconds > 0
+      ? props.maxSeconds
+      : totalCount.value * props.secondsPerQuestion
+  ),
 }))
 </script>
