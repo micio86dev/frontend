@@ -56,6 +56,7 @@ describe('the call screen: the components under guard', () => {
   it('finds every call component, so no rule below passes by checking nothing', () => {
     expect(CALL_COMPONENTS.map(name).sort()).toEqual(
       [
+        'components/molecules/CallAnswerTimer.vue',
         'components/molecules/CallExitDialog.vue',
         'components/molecules/CallHelpLink.vue',
         'components/molecules/CallQuestion.vue',
