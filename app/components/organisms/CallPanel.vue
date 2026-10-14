@@ -84,8 +84,10 @@
  *                      counter only reads `questionSeconds` when it is created, so a new
  *                      session (which can keep the screen live: a handover never leaves
  *                      it) needs a new counter to start from the full limit. Not shown.
- *   secondsPerQuestion — the per-question limit the maximum is derived from. Default 300,
- *                      the same limit the session page arms the counter with.
+ *   maxSeconds       — the interview's real limit (the avatar template's, `interview_max_seconds`).
+ *                      It is the stated maximum whenever the server sent one.
+ *   secondsPerQuestion — only when `maxSeconds` is absent (an older API): the maximum is then
+ *                      derived as total x this limit. Default 300.
  *
  * Emits: tick / expired — forwarded unchanged from the counter.
  *
@@ -103,9 +105,10 @@ const props = withDefaults(
     elapsedSeconds: number
     questionSeconds?: number
     timerKey?: number | null
+    maxSeconds?: number | null
     secondsPerQuestion?: number
   }>(),
-  { questionSeconds: undefined, timerKey: null, secondsPerQuestion: 300 }
+  { questionSeconds: undefined, timerKey: null, maxSeconds: null, secondsPerQuestion: 300 }
 )
 
 const emit = defineEmits<{
@@ -128,6 +131,6 @@ const progress = computed(() => ({ n: position.value, total: totalCount.value })
 /** The `{elapsed}` / `{total}` the duration texts are built from; `total` is a stated maximum. */
 const duration = computed(() => ({
   elapsed: formatClock(props.elapsedSeconds),
-  total: formatClock(totalCount.value * props.secondsPerQuestion),
+  total: formatClock(props.maxSeconds ?? totalCount.value * props.secondsPerQuestion),
 }))
 </script>

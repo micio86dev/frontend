@@ -883,7 +883,7 @@ describe('InterviewSession — the stage', () => {
       await flushPromises()
       const duration = () => wrapper.get('[data-testid="call-panel-duration-value"]').text()
       const shown = (elapsed: string) =>
-        `interview.call.duration_value|${JSON.stringify({ elapsed, total: '15:00' })}`
+        `interview.call.duration_value|${JSON.stringify({ elapsed, total: '20:00' })}`
       expect(duration()).toBe(shown('00:00'))
 
       await vi.advanceTimersByTimeAsync(65_000)

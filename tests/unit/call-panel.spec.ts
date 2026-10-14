@@ -178,6 +178,20 @@ describe('CallPanel — duration', () => {
   })
 })
 
+describe('CallPanel — template-driven maximum', () => {
+  it('states the server interview limit, not a per-question multiple (2400 s -> 40:00)', () => {
+    const wrapper = mountPanel({ ended: 0, total: 2, elapsedSeconds: 0, maxSeconds: 2400 })
+
+    expect(wrapper.get('[data-testid="call-panel-duration-value"]').text()).toBe('00:00 / 40:00')
+  })
+
+  it('falls back to the per-question derivation when the API sent no limit', () => {
+    const wrapper = mountPanel({ ended: 0, total: 2, elapsedSeconds: 0, maxSeconds: null })
+
+    expect(wrapper.get('[data-testid="call-panel-duration-value"]').text()).toBe('00:00 / 10:00')
+  })
+})
+
 describe('CallPanel — until the server states a total', () => {
   it.each([null, 0, -1])('hides the progress and the duration for total = %s', (total) => {
     const wrapper = mountPanel({ ended: null, total, elapsedSeconds: 12 })
