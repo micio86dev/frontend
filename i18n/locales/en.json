@@ -79,10 +79,13 @@
         "label": "Path",
         "progress": "Competency {n} of {total}"
       },
-      "duration_label": "Duration",
-      "duration_value": "{elapsed} / {total}",
-      "duration_sr": "{elapsed} elapsed out of a maximum of {total}",
-      "question_timer_label": "Time left for this question",
+      "duration": {
+        "label": "Interview duration",
+        "value": "{elapsed} / {total}",
+        "sr": "{elapsed} elapsed out of a maximum of {total}",
+        "remaining": "About {n} minute left | About {n} minutes left"
+      },
+      "remaining_label": "Time remaining",
       "interviewer_name": "AI interviewer",
       "you": "You",
       "avatar_speaking": "The interviewer is speaking",

@@ -79,10 +79,13 @@
         "label": "Percorso",
         "progress": "Competenza {n} di {total}"
       },
-      "duration_label": "Durata",
-      "duration_value": "{elapsed} / {total}",
-      "duration_sr": "{elapsed} trascorsi su un massimo di {total}",
-      "question_timer_label": "Tempo rimanente per questa domanda",
+      "duration": {
+        "label": "Durata dell'intervista",
+        "value": "{elapsed} / {total}",
+        "sr": "{elapsed} trascorsi su un massimo di {total}",
+        "remaining": "Restano circa {n} minuto | Restano circa {n} minuti"
+      },
+      "remaining_label": "Tempo rimanente",
       "interviewer_name": "Intervistatore AI",
       "you": "Tu",
       "avatar_speaking": "L'intervistatore sta parlando",
