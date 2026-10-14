@@ -172,7 +172,7 @@ exports[`brand theme token source (regression guard) > @theme literal block matc
   --spacing-nav: 4rem;
   --spacing-sidebar: 16rem;
   /* Width of the call screen's side panel at xl and up (DESIGN.md §3.3, §7.3). */
-  --spacing-call-panel: 18rem;
+  --spacing-call-panel: 22rem;
 
   /* D12 — control sizing. 44px is WCAG 2.2 SC 2.5.5 (Enhanced, AAA); a
      deliberate step above the 24px AA floor the previous 32px already

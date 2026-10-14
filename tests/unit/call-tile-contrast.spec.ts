@@ -45,8 +45,8 @@ describe('the ring tokens are literals in the stylesheet', () => {
     expect(PANEL?.toLowerCase()).toBe('#0f172a')
   })
 
-  it('declares --spacing-call-panel as 18rem', () => {
-    expect(CSS).toMatch(/^\s*--spacing-call-panel:\s*18rem;/m)
+  it('declares --spacing-call-panel as 22rem (352 px)', () => {
+    expect(CSS).toMatch(/^\s*--spacing-call-panel:\s*22rem;/m)
   })
 })
 
