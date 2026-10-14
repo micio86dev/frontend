@@ -33,6 +33,9 @@ const START_RESPONSE = {
   provider: 'heygen',
   provider_token: 'heygen-token-xyz',
   audio_only: false,
+  // The real API always states the interview limit; the countdown and the duration section
+  // stay hidden until it does (live-interview-call-chrome M3).
+  interview_max_seconds: 1200,
   question_context: {
     question_index: 0,
     total_questions: 3,
