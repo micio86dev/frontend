@@ -571,6 +571,87 @@ describe('CallPanel — names appear, a code never does', () => {
   })
 })
 
+describe('CallPanel — answer time (Tempo di risposta)', () => {
+  const BUDGET = { min: 50, idealFrom: 75, idealTo: 150, max: 200 }
+  const section = (wrapper: VueWrapper) => wrapper.get('[data-testid="call-panel-answer"]')
+
+  it('is the first section, labelled "Tempo di risposta", before Percorso, Durata and help', () => {
+    const wrapper = mountPanel({ ...TWENTY, storyboard: [item(1, 'A', 'current')] })
+    const html = wrapper.html()
+    const positions = [
+      'data-testid="call-panel-answer"',
+      'data-testid="call-panel-path"',
+      'data-testid="call-panel-duration"',
+      'data-testid="slot-help"',
+    ].map((needle) => html.indexOf(needle))
+
+    expect(section(wrapper).text()).toContain('Tempo di risposta')
+    expect(positions.every((p) => p > -1)).toBe(true)
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions)
+    expect(section(wrapper).element.tagName).toBe('SECTION')
+    expect(section(wrapper).attributes('aria-labelledby')).toBe('call-panel-answer-label')
+  })
+
+  it('draws the answer figure and the chip it is handed', () => {
+    const wrapper = mountPanel({ ...TWENTY, answerSeconds: 12, answerPhase: 'waiting' })
+
+    expect(section(wrapper).get('time').text()).toBe('00:12')
+    expect(section(wrapper).get('[data-testid="call-answer-chip"]').text()).toBe(
+      'In attesa della tua risposta'
+    )
+  })
+
+  it('shows the muted hint only for the candidate intent it is handed', () => {
+    const muted = mountPanel({ ...TWENTY, micMuted: true })
+    const open = mountPanel({ ...TWENTY, micMuted: false })
+
+    expect(section(muted).find('[data-testid="call-answer-muted"]').exists()).toBe(true)
+    expect(section(open).find('[data-testid="call-answer-muted"]').exists()).toBe(false)
+  })
+
+  it('shows the bar and its labels with a budget, and neither without one', () => {
+    const withBudget = mountPanel({ ...TWENTY, budget: BUDGET })
+    const without = mountPanel({ ...TWENTY, budget: null })
+
+    expect(section(withBudget).get('[data-testid="call-answer-labels"]').text()).toBe(
+      '0:50 min · ideale 1:15–2:30 · 3:20 max'
+    )
+    expect(section(without).find('[data-testid="call-answer-bar"]').exists()).toBe(false)
+    expect(section(without).find('[data-testid="call-answer-labels"]').exists()).toBe(false)
+  })
+
+  it('renders even before the interview has started counting: the section is never hidden', () => {
+    const wrapper = mountPanel({ ended: null, total: null, elapsedSeconds: 0 })
+
+    expect(section(wrapper).get('time').text()).toBe('00:00')
+    expect(section(wrapper).find('[data-testid="call-answer-chip"]').exists()).toBe(false)
+  })
+
+  it('adds no timer role: the countdown stays the only one', () => {
+    const wrapper = mountPanel({ ...TWENTY, answerPhase: 'answering', budget: BUDGET })
+
+    expect(wrapper.findAll('[role="timer"]')).toHaveLength(1)
+    expect(section(wrapper).find('[role="timer"]').exists()).toBe(false)
+    expect(section(wrapper).html()).not.toContain('aria-live')
+  })
+
+  it('a timer past the suggested maximum emits nothing and leaves the countdown alone', async () => {
+    vi.useFakeTimers()
+    const wrapper = mountPanel({
+      ...TWENTY,
+      questionSeconds: 100,
+      answerSeconds: 900,
+      answerPhase: 'answering',
+      budget: BUDGET,
+    })
+    await vi.advanceTimersByTimeAsync(2000)
+
+    expect(wrapper.emitted('expired')).toBeUndefined()
+    expect(wrapper.get('[role="timer"]').text()).toBe('01:38')
+    expect(wrapper.emitted('tick')).toEqual([[99], [98]])
+  })
+})
+
 describe('CallPanel — the named path (Percorso)', () => {
   const THREE = [
     item(1, 'Pensiero strategico', 'done'),

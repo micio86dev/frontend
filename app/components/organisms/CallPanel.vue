@@ -13,6 +13,30 @@
     </p>
 
     <!--
+      Tempo di risposta: how long the current answer has been running, with the suggested-length
+      bar when a budget exists. Always present (the figure reads 00:00 until the interviewer has
+      spoken); guidance only, it never ends an answer.
+    -->
+    <section
+      data-testid="call-panel-answer"
+      aria-labelledby="call-panel-answer-label"
+      class="flex min-w-56 flex-1 flex-col gap-3 xl:flex-none"
+    >
+      <p
+        id="call-panel-answer-label"
+        class="text-xs font-semibold tracking-wide text-muted-foreground uppercase"
+      >
+        {{ $t('interview.call.answer.label') }}
+      </p>
+      <CallAnswerTimer
+        :seconds="answerSeconds"
+        :phase="answerPhase"
+        :budget="budget"
+        :mic-muted="micMuted"
+      />
+    </section>
+
+    <!--
       Percorso: where the candidate is in the interview. The sentence and bar state the server's
       total; the storyboard under them names the outline's competencies. A <p> label, not a
       heading, so the page's heading outline is unchanged.
@@ -114,7 +138,8 @@
  * CallPanel — the side panel of the candidate call screen
  * (candidate-interview-call-ui D7, D8; DESIGN.md §7.3).
  *
- * Titled "Intervista". Top to bottom: the "Percorso" section ("Competenza 2 di 5", a thin
+ * Titled "Intervista". Top to bottom: "Tempo di risposta" (the answer timer, its chip and the
+ * suggested-length bar), the "Percorso" section ("Competenza 2 di 5", a thin
  * bar, and the named storyboard), how long it has taken against the stated maximum
  * ("03:12 / 25:00"), the interview countdown, then the help link. Exit lives in the call
  * header.
@@ -147,6 +172,10 @@
  *                      empty: no storyboard and no empty frame; the rest of the panel renders.
  *   primaryIndex     — the number of primary questions asked in the current competency session
  *                      (null when unknown); only the storyboard reads it.
+ *   answerSeconds    — the answer timer (`useAnswerTimer`), owned by the page.
+ *   answerPhase      — idle / listening / waiting / answering: the chip beside the timer.
+ *   micMuted         — the candidate's own mute INTENT, for the hint (not the forced-mute state).
+ *   budget           — the suggested answer length (`answerBudget()`), or null for no bar.
  *   maxSeconds       — the interview's real limit (the avatar template's, `interview_max_seconds`).
  *                      The duration section is shown ONLY once the server has stated it; the
  *                      client's 300 s fallback is never presented as a maximum.
@@ -158,6 +187,9 @@
 import { computed } from 'vue'
 import InterviewTimer from '~/app/components/InterviewTimer.vue'
 import ProgressBar from '~/app/components/ProgressBar.vue'
+import CallAnswerTimer, {
+  type CallAnswerTimerProps,
+} from '~/app/components/molecules/CallAnswerTimer.vue'
 import CallStoryboard, { type StoryboardItem } from '~/app/components/molecules/CallStoryboard.vue'
 import { formatClock } from '~/app/composables/useInterviewClock'
 
@@ -171,6 +203,10 @@ const props = withDefaults(
     maxSeconds?: number | null
     storyboard?: StoryboardItem[] | null
     primaryIndex?: number | null
+    answerSeconds?: number
+    answerPhase?: CallAnswerTimerProps['phase']
+    micMuted?: boolean
+    budget?: CallAnswerTimerProps['budget']
   }>(),
   {
     questionSeconds: undefined,
@@ -178,6 +214,10 @@ const props = withDefaults(
     maxSeconds: null,
     storyboard: null,
     primaryIndex: null,
+    answerSeconds: 0,
+    answerPhase: 'idle',
+    micMuted: false,
+    budget: null,
   }
 )
 

@@ -1757,3 +1757,189 @@ describe('InterviewSession — the panel path (Percorso)', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// live-interview-call-chrome C2a.2 — the "Tempo di risposta" section and its wiring.
+// ---------------------------------------------------------------------------
+
+describe('InterviewSession — the answer time section', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    serveOutline(outlineOf())
+  })
+
+  /** Fake clock for the intervals only; always restored. */
+  async function withClock<T>(run: () => Promise<T>): Promise<T> {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    try {
+      return await run()
+    } finally {
+      vi.useRealTimers()
+    }
+  }
+
+  const answerTime = (wrapper: Mounted) =>
+    wrapper.get('[data-testid="call-panel-answer"] time').text()
+  const chip = (wrapper: Mounted) => wrapper.find('[data-testid="call-answer-chip"]')
+  const hint = (wrapper: Mounted) => wrapper.find('[data-testid="call-answer-muted"]')
+  const setSpeaker = async (value: 'avatar' | 'candidate' | 'none') => {
+    speakerTurn.speaker!.value = value
+    await flushPromises()
+  }
+  const toSeconds = (clock: string) => {
+    const [m, s] = clock.split(':').map(Number)
+    return m! * 60 + s!
+  }
+  const STATUS = (phase: string) => `interview.call.answer.status.${phase}`
+
+  it('reads 00:12 and "waiting" after 12 s of silence once the interviewer has stopped', async () => {
+    await withClock(async () => {
+      const { wrapper } = await mountLive()
+      expect(answerTime(wrapper)).toBe('00:00')
+      expect(chip(wrapper).exists()).toBe(false)
+
+      await setSpeaker('avatar')
+      expect(chip(wrapper).text()).toBe(STATUS('listening'))
+      await setSpeaker('none')
+      await vi.advanceTimersByTimeAsync(12_000)
+
+      expect(answerTime(wrapper)).toBe('00:12')
+      expect(chip(wrapper).text()).toBe(STATUS('waiting'))
+    })
+  })
+
+  it('keeps counting through the answer and resets only when the interviewer speaks again', async () => {
+    await withClock(async () => {
+      const { wrapper } = await mountLive()
+      await setSpeaker('avatar')
+      await setSpeaker('none')
+      await vi.advanceTimersByTimeAsync(12_000)
+
+      await setSpeaker('candidate')
+      expect(answerTime(wrapper)).toBe('00:12')
+      expect(chip(wrapper).text()).toBe(STATUS('answering'))
+      await vi.advanceTimersByTimeAsync(5_000)
+      await setSpeaker('none') // a pause in speech
+      await vi.advanceTimersByTimeAsync(3_000)
+      expect(answerTime(wrapper)).toBe('00:20')
+      expect(chip(wrapper).text()).toBe(STATUS('answering'))
+
+      await setSpeaker('avatar')
+      expect(answerTime(wrapper)).toBe('00:00')
+      expect(chip(wrapper).text()).toBe(STATUS('listening'))
+    })
+  })
+
+  it('muting for 10 s leaves the answer timer AND the countdown advancing, and shows the hint', async () => {
+    await withClock(async () => {
+      const { wrapper } = await mountLive({ stubs: { InterviewTimer: false } })
+      await setSpeaker('candidate')
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(answerTime(wrapper)).toBe('00:20')
+      expect(hint(wrapper).exists()).toBe(false)
+      const countdownBefore = toSeconds(wrapper.get('[role="timer"]').text())
+
+      await headerMic(wrapper).trigger('click')
+      await flushPromises()
+      expect(hint(wrapper).exists()).toBe(true)
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      expect(answerTime(wrapper)).toBe('00:30')
+      expect(countdownBefore - toSeconds(wrapper.get('[role="timer"]').text())).toBe(10)
+    })
+  })
+
+  it('hands the panel the candidate INTENT: a forced boundary mute is not a hint to unmute', async () => {
+    const { wrapper } = await mountLive()
+    captured.boundary!.value = true
+    await flushPromises()
+
+    expect(headerMic(wrapper).attributes('aria-pressed')).toBe('false')
+    expect(hint(wrapper).exists()).toBe(false)
+  })
+
+  it('an answer past the suggested maximum sends no /end and leaves the countdown alone', async () => {
+    await withClock(async () => {
+      const { wrapper } = await mountLive({ stubs: { InterviewTimer: false } })
+      await flushPromises()
+      await setSpeaker('candidate')
+      const countdownBefore = toSeconds(wrapper.get('[role="timer"]').text())
+      await vi.advanceTimersByTimeAsync(260_000)
+
+      // 1200 s over the 6 primaries of the outline: a 200 s maximum, long passed.
+      expect(answerTime(wrapper)).toBe('04:20')
+      expect(endCalls()).toHaveLength(0)
+      expect(countdownBefore - toSeconds(wrapper.get('[role="timer"]').text())).toBe(260)
+    })
+  })
+
+  it('resets when the live screen is left and does not count while it is gone', async () => {
+    await withClock(async () => {
+      const { wrapper, session } = await mountLive()
+      await setSpeaker('avatar')
+      await setSpeaker('none')
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(answerTime(wrapper)).toBe('00:15')
+
+      session.state.value = 'paused'
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(30_000)
+      session.state.value = 'live'
+      await flushPromises()
+
+      expect(answerTime(wrapper)).toBe('00:00')
+      expect(chip(wrapper).exists()).toBe(false)
+    })
+  })
+
+  describe('the suggested-length bar', () => {
+    const labels = (wrapper: Mounted) => wrapper.find('[data-testid="call-answer-labels"]')
+
+    it('reads the arithmetic of the server limit and the outline total: 1200 s over 6 is 3:20', async () => {
+      const { wrapper } = await mountLive()
+      await flushPromises()
+
+      expect(labels(wrapper).text()).toBe(
+        `interview.call.answer.budget_labels|${JSON.stringify({
+          min: '0:50',
+          from: '1:15',
+          to: '2:30',
+          max: '3:20',
+        })}`
+      )
+    })
+
+    it('stays hidden until the outline has supplied its total, then appears', async () => {
+      let release!: (value: unknown) => void
+      const pending = new Promise((resolve) => (release = resolve))
+      mockCandidateFetch.mockImplementation(async (path: string) =>
+        path === OUTLINE_PATH ? pending : undefined
+      )
+      const { wrapper } = await mountLive()
+      await flushPromises()
+      expect(labels(wrapper).exists()).toBe(false)
+      expect(wrapper.find('[data-testid="call-answer-bar"]').exists()).toBe(false)
+
+      release(outlineOf({ primary_total_all: 4 }))
+      await flushPromises()
+
+      expect(labels(wrapper).text()).toContain('"max":"5:00"')
+    })
+
+    it.each([
+      ['a failed outline', new Error('network')],
+      ['a zero primary total', outlineOf({ primary_total_all: 0 })],
+    ])(
+      'has no bar for %s, and the timer, chip and duration still render',
+      async (_label, value) => {
+        serveOutline(value)
+        const { wrapper } = await mountLive()
+        await flushPromises()
+
+        expect(labels(wrapper).exists()).toBe(false)
+        expect(wrapper.find('[data-testid="call-panel-answer"] time').exists()).toBe(true)
+        expect(wrapper.find('[data-testid="call-panel-duration-value"]').exists()).toBe(true)
+      }
+    )
+  })
+})

@@ -118,13 +118,16 @@ describe('call screen: the side panel names competencies but never carries a cod
   })
 
   it('CallPanel only imports presentational pieces and the clock formatter', () => {
-    const imports = [...panelSource.matchAll(/^import .* from '([^']+)'/gm)].map((m) => m[1])
+    // `[\s\S]*?` so a Prettier-wrapped, multi-line import is still seen: a guard that read only
+    // one-line imports would let a wrapped one through.
+    const imports = [...panelSource.matchAll(/^import [\s\S]*?from '([^']+)'/gm)].map((m) => m[1])
 
     expect(imports.sort()).toEqual(
       [
         'vue',
         '~/app/components/InterviewTimer.vue',
         '~/app/components/ProgressBar.vue',
+        '~/app/components/molecules/CallAnswerTimer.vue',
         '~/app/components/molecules/CallStoryboard.vue',
         '~/app/composables/useInterviewClock',
       ].sort()
@@ -151,9 +154,13 @@ describe('call screen: the side panel names competencies but never carries a cod
     expect(bound).toEqual(
       [
         'elapsed-seconds',
+        'answer-phase',
+        'answer-seconds',
+        'budget',
         'ended',
         'expired',
         'max-seconds',
+        'mic-muted',
         'primary-index',
         'question-seconds',
         'storyboard',

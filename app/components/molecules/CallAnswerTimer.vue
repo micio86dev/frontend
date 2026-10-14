@@ -104,12 +104,14 @@ import { formatClock } from '~/app/composables/useInterviewClock'
 import { formatBudgetTime, type AnswerBudget } from '~/app/utils/answer-budget'
 import type { AnswerPhase } from '~/app/composables/useAnswerTimer'
 
-const props = defineProps<{
+export interface CallAnswerTimerProps {
   seconds: number
   phase: AnswerPhase
   budget: AnswerBudget | null
   micMuted: boolean
-}>()
+}
+
+const props = defineProps<CallAnswerTimerProps>()
 
 const STATUS_KEYS = {
   listening: 'interview.call.answer.status.listening',
