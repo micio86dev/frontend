@@ -108,7 +108,7 @@ describe('terminal page — link_invalid copy', () => {
 
         expect(wrapper.get('h1').attributes('id')).toBe('terminal-page-heading')
         expect(wrapper.get('main').attributes('aria-labelledby')).toBe('terminal-page-heading')
-        expect(wrapper.find('a').exists()).toBe(false)
+        expect(wrapper.get('main').find('a').exists()).toBe(false)
       })
     })
   }
@@ -153,7 +153,7 @@ describe('terminal page: link_reopen copy', () => {
       it('offers no retry, link or button: the visitor must open the link again', async () => {
         const wrapper = await mountTerminal(locale, query)
 
-        expect(wrapper.find('a').exists()).toBe(false)
+        expect(wrapper.get('main').find('a').exists()).toBe(false)
         expect(wrapper.find('button').exists()).toBe(false)
         expect(wrapper.find('form').exists()).toBe(false)
         expect(wrapper.find('input').exists()).toBe(false)

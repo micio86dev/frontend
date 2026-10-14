@@ -88,17 +88,28 @@
       <slot v-else />
     </main>
 
+    <!-- The privacy policy link stays visible when configured; only the tagline is optional. -->
     <footer
-      v-if="footer"
-      class="mx-auto w-full max-w-6xl px-4 pb-6 text-sm text-on-primary-muted lg:px-10"
+      class="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-1 px-4 pb-6 text-sm text-on-primary-muted lg:px-10"
     >
-      {{ $t('shell.tagline') }}
+      <span v-if="footer">{{ $t('shell.tagline') }}</span>
+      <a
+        v-if="privacyPolicyUrl"
+        :href="privacyPolicyUrl"
+        target="_blank"
+        rel="noopener noreferrer"
+        data-testid="brand-canvas-privacy-link"
+        class="ml-auto underline underline-offset-2 hover:text-on-primary"
+      >
+        {{ $t('shell.privacyPolicy') }}
+      </a>
     </footer>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted } from 'vue'
+import { usePrivacyPolicyUrl } from '~/app/composables/usePrivacyPolicyUrl'
 import { useCandidateBranding } from '~/app/composables/useCandidateBranding'
 
 /**
@@ -136,7 +147,7 @@ const props = withDefaults(
      * own (the slot is then stacked straight in the landmark).
      */
     surface?: boolean
-    /** The tagline footer. Off during the live interview, where it is noise. */
+    /** The footer tagline. Off during the live interview, where it is noise (the privacy link stays). */
     footer?: boolean
     /**
      * Landmark name when there is no single `<h1>` to point at. Ignored when a
@@ -161,6 +172,8 @@ const props = withDefaults(
     wide: false,
   }
 )
+
+const privacyPolicyUrl = usePrivacyPolicyUrl()
 
 const { logoUrl, organizationName, ensureLoaded } = useCandidateBranding()
 

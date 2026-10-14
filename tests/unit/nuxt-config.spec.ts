@@ -224,3 +224,17 @@ describe('nuxt.config.ts — runtimeConfig.public.supportUrl (candidate-intervie
     expect(example).toMatch(/^NUXT_PUBLIC_SUPPORT_URL=$/m)
   })
 })
+
+describe('nuxt.config.ts — runtimeConfig.public.privacyPolicyUrl', () => {
+  const source = readFileSync(CONFIG_PATH, 'utf-8')
+
+  it("declares the privacy policy URL under runtimeConfig.public, defaulting to ''", () => {
+    expect(source.slice(source.indexOf('public: {'))).toMatch(/privacyPolicyUrl:\s*''/)
+  })
+
+  it('documents the environment variable in .env.example', () => {
+    const example = readFileSync(resolve(CONFIG_PATH, '../.env.example'), 'utf-8')
+
+    expect(example).toMatch(/^NUXT_PUBLIC_PRIVACY_POLICY_URL=$/m)
+  })
+})

@@ -8,7 +8,7 @@
  * canvas colour itself (`text-primary`). The visuals beyond that are reviewed
  * in screenshots, not asserted.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -23,6 +23,13 @@ vi.mock('../../app/utils/candidate-api', () => ({
 }))
 
 const tMock = (key: string) => key
+
+// setup.ts stubs useRuntimeConfig once for the whole run; put it back after a test overrides it.
+const defaultRuntimeConfig = (globalThis as Record<string, unknown>).useRuntimeConfig
+
+afterEach(() => {
+  vi.stubGlobal('useRuntimeConfig', defaultRuntimeConfig)
+})
 
 function mountCanvas(props: Record<string, unknown> = {}, slot = '<p>Surface content</p>') {
   return mount(BrandCanvas, {
@@ -259,8 +266,35 @@ describe('BrandCanvas — bare mode, for the interview that brings its own surfa
     expect(main.attributes('aria-labelledby')).toBeUndefined()
   })
 
-  it('drops the tagline footer when asked to', () => {
-    expect(mountCanvas({ footer: false }).find('footer').exists()).toBe(false)
+  it('drops the tagline but keeps the privacy policy link when footer is off', () => {
+    vi.stubGlobal(
+      'useRuntimeConfig',
+      vi.fn(() => ({ public: { privacyPolicyUrl: 'https://example.com/privacy-policy.pdf' } }))
+    )
+    const footer = mountCanvas({ footer: false }).get('footer')
+    expect(footer.text()).not.toContain('shell.tagline')
+    expect(footer.get('[data-testid="brand-canvas-privacy-link"]').attributes('href')).toBe(
+      'https://example.com/privacy-policy.pdf'
+    )
+  })
+
+  it('renders no privacy policy link while the env var is unset or not https', () => {
+    expect(mountCanvas().find('[data-testid="brand-canvas-privacy-link"]').exists()).toBe(false)
+    vi.stubGlobal(
+      'useRuntimeConfig',
+      vi.fn(() => ({ public: { privacyPolicyUrl: 'javascript:alert(1)' } }))
+    )
+    expect(mountCanvas().find('[data-testid="brand-canvas-privacy-link"]').exists()).toBe(false)
+  })
+
+  it('renders the configured privacy policy link in the footer', () => {
+    vi.stubGlobal(
+      'useRuntimeConfig',
+      vi.fn(() => ({ public: { privacyPolicyUrl: 'https://example.com/privacy-policy.pdf' } }))
+    )
+    const link = mountCanvas().get('[data-testid="brand-canvas-privacy-link"]')
+    expect(link.text()).toContain('shell.privacyPolicy')
+    expect(link.attributes('rel')).toContain('noopener')
   })
 
   it('renders trailing header chrome at the end of the header', () => {

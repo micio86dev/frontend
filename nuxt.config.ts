@@ -174,6 +174,10 @@ export default defineNuxtConfig({
       // EMPTY (or any other scheme) keeps mailto:support@beai.app. Read through
       // useSupportUrl(), which sanitizes it.
       supportUrl: '',
+      // The Privacy Policy document linked from the candidate footer. Set
+      // NUXT_PUBLIC_PRIVACY_POLICY_URL to an https: URL; EMPTY (or any other
+      // scheme) renders no link. Read through usePrivacyPolicyUrl().
+      privacyPolicyUrl: '',
       // C13 task 5.3 — analytics. EMPTY means the tool does not load at all,
       // which is the correct default: these are per-deployment IDs, and a
       // committed one would have every developer's local session reported into

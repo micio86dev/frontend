@@ -952,9 +952,15 @@ describe('interview session — on the brand canvas in every state', () => {
   })
 
   it.each(['idle', 'device_check', 'live'] as const)(
-    'carries no tagline footer in %s — the vertical room belongs to the interview',
+    'carries no tagline in %s, only the privacy policy link — the vertical room belongs to the interview',
     async (state) => {
-      expect((await mountPage(makeSession({ state }))).find('footer').exists()).toBe(false)
+      vi.stubGlobal(
+        'useRuntimeConfig',
+        vi.fn(() => ({ public: { privacyPolicyUrl: 'https://example.com/privacy-policy.pdf' } }))
+      )
+      const footer = (await mountPage(makeSession({ state }))).get('footer')
+      expect(footer.text()).not.toContain('shell.tagline')
+      expect(footer.find('[data-testid="brand-canvas-privacy-link"]').exists()).toBe(true)
     }
   )
 })
