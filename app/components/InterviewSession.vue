@@ -123,11 +123,19 @@
               </ClientOnly>
             </template>
           </CallTile>
+          <!--
+            The captions overlay (live-interview-call-chrome D8): a SIBLING of the tile inside the
+            layer, so the keyed players are never re-parented. Rendered only while live; when the
+            candidate turns captions off it stays mounted as the screen-reader region.
+          -->
+          <CallQuestion
+            v-if="live"
+            ref="callQuestion"
+            :text="currentCaption"
+            :speaker-name="interviewerName"
+            :visible="captionsEnabled"
+          />
         </div>
-      </template>
-
-      <template #question>
-        <CallQuestion ref="callQuestion" :text="currentCaption" />
       </template>
 
       <template #panel>
@@ -848,6 +856,11 @@ watch(
     outlineSessionId = id
     void outlineApi.refresh()
   }
+)
+
+/** The persona name the admin configured, or the generic label: never a technology provider's name. */
+const interviewerName = computed(
+  () => outlineApi.outline.value?.avatar_name?.trim() || t('interview.call.interviewer_name')
 )
 
 /**

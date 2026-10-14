@@ -355,9 +355,9 @@ function utterances() {
     .map((call: unknown[]) => (call[1] as { body: Record<string, unknown> }).body)
 }
 
-/** What the candidate reads: the written question band. */
+/** What the candidate reads: the question text of the captions overlay (without the speaker prefix). */
 const caption = (wrapper: Awaited<ReturnType<typeof mountLive>>['wrapper']) => {
-  const question = wrapper.find('[data-testid="call-question"] p:not([data-testid])')
+  const question = wrapper.find('[data-testid="call-question-text"]')
   return question.exists() ? question.text() : ''
 }
 
@@ -439,12 +439,13 @@ describe('InterviewSession — the written question', () => {
     expect(wrapper.find('[data-testid="network-pending-notice"]').exists()).toBe(false)
   })
 
-  it('renders the question band', async () => {
+  it('renders the question as the captions overlay', async () => {
     const { wrapper } = await mountLive()
     providers[0]!._emit('transcript', { role: 'avatar', text: 'First question', ts: 1 })
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="call-question"]').text()).toBe('First question')
+    expect(wrapper.get('[data-testid="call-question"]').text()).toContain('First question')
+    expect(caption(wrapper)).toBe('First question')
   })
 
   it("shows the avatar's utterance and replaces it with the next one", async () => {
@@ -1012,12 +1013,122 @@ async function beginHandover(session: { state: { value: string } }) {
   expect(session.state.value).toBe('live')
 }
 
+describe('InterviewSession — the captions overlay', () => {
+  const region = (wrapper: Mounted) => wrapper.get('[data-testid="call-question"]')
+  const speaker = (wrapper: Mounted) => wrapper.find('[data-testid="call-question-speaker"]')
+
+  async function say(text: string) {
+    providers[0]!._emit('transcript', { role: 'avatar', text, ts: Date.now() })
+    await flushPromises()
+  }
+
+  beforeEach(() => {
+    localStorage.clear()
+    serveOutline(outlineOf())
+  })
+
+  it('is rendered once, inside the avatar layer after the interviewer tile, and nowhere else', async () => {
+    const { wrapper } = await mountLive()
+    await say('A question')
+
+    const overlays = wrapper.findAll('[data-testid="call-question"]')
+    expect(overlays).toHaveLength(1)
+    expect(layer(wrapper).contains(overlays[0]!.element)).toBe(true)
+    const tile = layer(wrapper).querySelector('[data-slot="call-tile"]')!
+    expect(
+      tile.compareDocumentPosition(overlays[0]!.element) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(wrapper.findAll('[aria-live="polite"][aria-atomic="true"]')).toHaveLength(1)
+  })
+
+  it('is not mounted before the interview is live', async () => {
+    const { wrapper } = await mountLive({ ready: false })
+
+    expect(wrapper.find('[data-testid="call-question"]').exists()).toBe(false)
+  })
+
+  it('prefixes the caption with the persona name from the outline', async () => {
+    const { wrapper } = await mountLive()
+    await say('A question')
+
+    expect(speaker(wrapper).text()).toBe('Giulia:')
+  })
+
+  it.each([
+    ['no persona name', outlineOf({ avatar_name: null })],
+    ['a failed outline', new Error('network')],
+  ])('falls back to the generic interviewer name with %s', async (_l, served) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    serveOutline(served)
+    const { wrapper } = await mountLive()
+    await say('A question')
+
+    expect(speaker(wrapper).text()).toBe('interview.call.interviewer_name:')
+  })
+
+  it('keeps the hint, with no prefix, before the first question', async () => {
+    const { wrapper } = await mountLive()
+
+    expect(hint(wrapper).exists()).toBe(true)
+    expect(speaker(wrapper).exists()).toBe(false)
+  })
+
+  it('hides every visible word when captions are turned off, keeping the live region written to', async () => {
+    const { wrapper } = await mountLive()
+    await say('First question')
+
+    await headerCaptions(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(region(wrapper).classes()).toContain('sr-only')
+    expect(region(wrapper).attributes('tabindex')).toBeUndefined()
+    expect(region(wrapper).text()).toContain('First question')
+
+    await say('A follow-up')
+    expect(region(wrapper).classes()).toContain('sr-only')
+    expect(caption(wrapper)).toBe('A follow-up')
+    expect(wrapper.findAll('[aria-live="polite"][aria-atomic="true"]')).toHaveLength(1)
+  })
+
+  it('shows the latest question at once when captions are turned back on', async () => {
+    const { wrapper } = await mountLive()
+    await headerCaptions(wrapper).trigger('click')
+    await say('Said while off')
+
+    await headerCaptions(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(region(wrapper).classes()).not.toContain('sr-only')
+    expect(caption(wrapper)).toBe('Said while off')
+  })
+
+  it('restores an off preference on a fresh load', async () => {
+    localStorage.setItem('beai:interview:captions', 'false')
+    const { wrapper } = await mountLive()
+    await say('A question')
+
+    expect(region(wrapper).classes()).toContain('sr-only')
+    expect(headerCaptions(wrapper).attributes('aria-pressed')).toBe('false')
+  })
+
+  it('does not move focus at a competency boundary while captions are off', async () => {
+    const { wrapper, session } = await mountLive({ attach: true })
+    await headerCaptions(wrapper).trigger('click')
+    await flushPromises()
+
+    session.advanceAttribution(NEXT)
+    await flushPromises()
+
+    expect(document.activeElement).not.toBe(region(wrapper).element)
+  })
+})
+
 describe('InterviewSession — the stage', () => {
-  it('renders the four stage parts', async () => {
+  it('renders the stage parts, with the captions overlay inside the player layer', async () => {
     const { wrapper } = await mountLive({ stream: fakeStream() })
 
+    expect(layer(wrapper).contains(wrapper.get('[data-testid="call-question"]').element)).toBe(true)
     const parts = {
-      question: wrapper.get('[data-testid="call-question"]').element,
       panel: wrapper.get('[data-testid="call-panel"]').element,
       own: wrapper.get('[data-testid="call-self-view"]').element,
     }
