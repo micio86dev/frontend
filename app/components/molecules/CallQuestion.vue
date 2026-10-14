@@ -75,10 +75,14 @@ const props = withDefaults(
 
 const band = ref<HTMLElement | null>(null)
 
-/** Bottom of the video, left of the own tile: 9-14rem wide plus its 0.75rem margin and a gap. */
+/**
+ * Bottom of the video, left of the own tile: 9-14rem wide plus its 0.75rem margin and a gap.
+ * No vertical padding: the box is capped at 6rem and three lines of `leading-8` are exactly
+ * 6rem, so padding would clip the third line of a long question instead of scrolling it.
+ */
 const OVERLAY_CLASSES = [
   'absolute bottom-11 left-3 z-20 right-[calc(clamp(9rem,18%,14rem)+1.5rem)]',
-  'max-h-[6rem] overflow-y-auto rounded-md bg-avatar-bg px-4 py-2 text-white',
+  'max-h-[6rem] overflow-y-auto rounded-md bg-avatar-bg px-4 py-0 text-white',
   'outline-none focus-visible:ring-3 focus-visible:ring-white/70',
 ]
 
