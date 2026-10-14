@@ -3,13 +3,13 @@
  * (candidate-interview-call-ui, UI-06; design D7, D8; DESIGN.md §7.3, §9.3).
  *
  * What is pinned here is the arithmetic and what the panel must NEVER say:
- *   - "Domanda n di total" with `n` clamped to `total`, and a progress bar whose
- *     `aria-valuetext` is exactly the visible text;
+ *   - the "Percorso" section: "Competenza n di total" with `n` clamped to `total`, a
+ *     progress bar whose `aria-valuetext` is exactly the visible text, and the named
+ *     storyboard under it (live-interview-call-chrome D14);
  *   - a duration stated as a MAXIMUM (`total x 300 s`), minutes never wrapped at 60;
- *   - no competency code or name anywhere, even when the surrounding store holds
- *     one: a candidate must not be able to read, or have read to them, which
- *     competency is being assessed;
- *   - Exit before the help link in DOM order.
+ *   - competency NAMES from the outline may appear, a competency CODE never does, even
+ *     when the surrounding store holds one;
+ *   - the help link last in DOM order; Exit lives in the call header.
  *
  * `$t` is backed by the REAL `it.json` / `en.json`, with `{param}` interpolation,
  * so the assertions read the shipped copy.
@@ -60,6 +60,14 @@ function mountPanel(
   return wrapper
 }
 
+type Status = 'done' | 'current' | 'upcoming' | 'retry'
+const item = (ordinal: number, name: string, status: Status, primaryTotal = 3) => ({
+  name,
+  ordinal,
+  status,
+  primaryTotal,
+})
+
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount()
   vi.useRealTimers()
@@ -69,17 +77,30 @@ function bar(wrapper: VueWrapper) {
   return wrapper.get('[role="progressbar"]')
 }
 
-describe('CallPanel — progress', () => {
-  it('reads "Domanda 2 di 5" for ended = 1, total = 5', () => {
+describe('CallPanel — competency progress (Percorso)', () => {
+  it('reads "Competenza 2 di 5" for ended = 1, total = 5', () => {
     const wrapper = mountPanel()
 
-    expect(wrapper.get('[data-testid="call-panel-progress-text"]').text()).toBe('Domanda 2 di 5')
+    expect(wrapper.get('[data-testid="call-panel-progress-text"]').text()).toBe('Competenza 2 di 5')
   })
 
-  it('reads "Question 2 of 5" in English', () => {
+  it('reads "Competency 2 of 5" in English', () => {
     const wrapper = mountPanel({ ended: 1, total: 5, elapsedSeconds: 0 }, en)
 
-    expect(wrapper.get('[data-testid="call-panel-progress-text"]').text()).toBe('Question 2 of 5')
+    expect(wrapper.get('[data-testid="call-panel-progress-text"]').text()).toBe('Competency 2 of 5')
+  })
+
+  it('is worded differently from the storyboard counter, so the two are never confused', () => {
+    const wrapper = mountPanel({
+      ended: 1,
+      total: 5,
+      elapsedSeconds: 0,
+      storyboard: [item(1, 'A', 'done'), item(2, 'B', 'current')],
+      primaryIndex: 2,
+    })
+
+    expect(wrapper.get('[data-testid="call-panel-progress-text"]').text()).not.toContain('domanda')
+    expect(wrapper.get('[data-testid="call-storyboard"]').text()).toContain('domanda 2 di 3')
   })
 
   it('reports the bar as ended / total with a valuetext equal to the visible text', () => {
@@ -88,28 +109,28 @@ describe('CallPanel — progress', () => {
     expect(bar(wrapper).attributes('aria-valuenow')).toBe('1')
     expect(bar(wrapper).attributes('aria-valuemax')).toBe('5')
     expect(bar(wrapper).attributes('aria-valuemin')).toBe('0')
-    expect(bar(wrapper).attributes('aria-valuetext')).toBe('Domanda 2 di 5')
+    expect(bar(wrapper).attributes('aria-valuetext')).toBe('Competenza 2 di 5')
   })
 
-  it('starts at question 1 when nothing has ended yet', () => {
+  it('starts at competency 1 of the server total when nothing has ended yet', () => {
     const wrapper = mountPanel({ ended: null, total: 5, elapsedSeconds: 0 })
 
-    expect(wrapper.get('[data-testid="call-panel-progress-text"]').text()).toBe('Domanda 1 di 5')
+    expect(wrapper.get('[data-testid="call-panel-progress-text"]').text()).toBe('Competenza 1 di 5')
     expect(bar(wrapper).attributes('aria-valuenow')).toBe('0')
   })
 
   it('never shows n above total, even when every competency has ended', () => {
     const wrapper = mountPanel({ ended: 5, total: 5, elapsedSeconds: 0 })
 
-    expect(wrapper.get('[data-testid="call-panel-progress-text"]').text()).toBe('Domanda 5 di 5')
-    expect(bar(wrapper).attributes('aria-valuetext')).toBe('Domanda 5 di 5')
+    expect(wrapper.get('[data-testid="call-panel-progress-text"]').text()).toBe('Competenza 5 di 5')
+    expect(bar(wrapper).attributes('aria-valuetext')).toBe('Competenza 5 di 5')
     expect(bar(wrapper).attributes('aria-valuenow')).toBe('5')
   })
 
   it('never shows n above total when the server count overshoots', () => {
     const wrapper = mountPanel({ ended: 9, total: 5, elapsedSeconds: 0 })
 
-    expect(wrapper.get('[data-testid="call-panel-progress-text"]').text()).toBe('Domanda 5 di 5')
+    expect(wrapper.get('[data-testid="call-panel-progress-text"]').text()).toBe('Competenza 5 di 5')
     expect(bar(wrapper).attributes('aria-valuenow')).toBe('5')
   })
 
@@ -220,12 +241,21 @@ describe('CallPanel — until the server states a total', () => {
 })
 
 describe('CallPanel — landmark and order', () => {
-  it('is an <aside> named by interview.call.panel_label', () => {
+  it('is an <aside> titled "Intervista": the visible title is its accessible name', () => {
     const wrapper = mountPanel()
     const aside = wrapper.get('aside')
+    const title = wrapper.get('[data-testid="call-panel-title"]')
 
-    expect(aside.attributes('aria-label')).toBe('Avanzamento del colloquio')
+    expect(title.text()).toBe('Intervista')
+    expect(aside.attributes('aria-labelledby')).toBe(title.attributes('id'))
+    expect(aside.attributes('aria-label')).toBeUndefined()
     expect(aside.attributes('data-testid')).toBe('call-panel')
+  })
+
+  it('is titled "Interview" in English', () => {
+    const wrapper = mountPanel({ ended: 1, total: 5, elapsedSeconds: 0 }, en)
+
+    expect(wrapper.get('[data-testid="call-panel-title"]').text()).toBe('Interview')
   })
 
   it('has no Exit button and no exit slot: the control moved to the call header', () => {
@@ -240,7 +270,13 @@ describe('CallPanel — landmark and order', () => {
   })
 
   it('puts the help link last: the final focusable element of the panel', () => {
-    const wrapper = mountPanel({ ended: 1, total: 5, elapsedSeconds: 0, questionSeconds: 300 })
+    const wrapper = mountPanel({
+      ended: 1,
+      total: 5,
+      elapsedSeconds: 0,
+      questionSeconds: 300,
+      storyboard: [item(1, 'A', 'done'), item(2, 'B', 'current')],
+    })
     const focusable = wrapper.element.querySelectorAll('a[href], button, [tabindex]')
 
     expect(focusable.length).toBeGreaterThan(0)
@@ -328,16 +364,14 @@ describe('CallPanel — the question timer', () => {
   })
 })
 
-// A candidate must not learn which competency is being assessed. The panel is
-// handed progress NUMBERS only; this proves that even when the store the page
-// reads from holds a code and a name, nothing of them can surface, in an element,
-// an attribute or an accessible name.
-describe('CallPanel — never names a competency', () => {
+// The panel may now name competencies (the "Percorso" storyboard, from the outline) but it
+// is handed a name and never a code: even when the store the page reads from holds one, the
+// code cannot surface in an element, an attribute or an accessible name.
+describe('CallPanel — names appear, a code never does', () => {
   const store = reactive({
     endedCompetencies: 1 as number | null,
     totalCompetencies: 5 as number | null,
     competencyCode: 'COL',
-    competencyName: 'Collaboration',
     competency_code: 'COL',
   })
 
@@ -351,6 +385,11 @@ describe('CallPanel — never names a competency', () => {
             total: store.totalCompetencies,
             elapsedSeconds: 192,
             questionSeconds: 250,
+            storyboard: [
+              item(1, 'Pensiero strategico', 'done'),
+              item(2, 'Collaborazione', 'current'),
+            ],
+            primaryIndex: 1,
           },
           { help: () => h('a', 'Help') }
         ),
@@ -366,29 +405,129 @@ describe('CallPanel — never names a competency', () => {
     )
   }
 
-  it('renders no code or name in any text node', () => {
+  it('shows the competency names from the storyboard', () => {
+    const wrapper = mountFromStore()
+
+    expect(wrapper.text()).toContain('Pensiero strategico')
+    expect(wrapper.text()).toContain('Collaborazione')
+  })
+
+  it('renders no code in any text node', () => {
     const wrapper = mountFromStore()
 
     expect(wrapper.text()).not.toContain('COL')
-    expect(wrapper.text().toLowerCase()).not.toContain('collaboration')
   })
 
-  it('renders no code or name in any attribute, including every aria-label and aria-valuetext', () => {
+  it('renders no code in any attribute, including every aria-label and aria-valuetext', () => {
     const wrapper = mountFromStore()
     const attributes = everyAttributeValue(wrapper.element).join('\n')
 
     expect(attributes).not.toContain('COL')
-    expect(attributes.toLowerCase()).not.toContain('collaboration')
     expect(wrapper.html()).not.toContain('COL')
   })
 
-  it('does not even read competency fields: the source names none of them and imports no session', () => {
+  it('does not even read code fields: the source names none of them and imports no session', () => {
     const source = readFileSync(
       resolve(__dirname, '../../app/components/organisms/CallPanel.vue'),
       'utf-8'
     )
 
-    expect(source).not.toMatch(/competencyCode|competency_code|competencyName|currentCompetency/)
+    expect(source).not.toMatch(/competencyCode|competency_code|currentCompetency/)
     expect(source).not.toMatch(/useInterviewSession/)
+  })
+})
+
+describe('CallPanel — the named path (Percorso)', () => {
+  const THREE = [
+    item(1, 'Pensiero strategico', 'done'),
+    item(2, 'Orientamento al risultato', 'current'),
+    item(3, 'Collaborazione', 'upcoming'),
+  ]
+
+  it('lists the outline names under the progress sentence and its bar', () => {
+    const wrapper = mountPanel({
+      ended: 1,
+      total: 5,
+      elapsedSeconds: 0,
+      storyboard: THREE,
+      primaryIndex: 2,
+    })
+    const html = wrapper.html()
+
+    expect(wrapper.get('[data-testid="call-panel-path"]').text()).toContain('Percorso')
+    expect(wrapper.findAll('[data-testid="call-storyboard-item"]')).toHaveLength(3)
+    expect(html.indexOf('call-panel-progress-text')).toBeLessThan(html.indexOf('call-storyboard'))
+  })
+
+  it('hands the counter to the storyboard: "domanda 2 di 3" on the current item', () => {
+    const wrapper = mountPanel({
+      ended: 1,
+      total: 5,
+      elapsedSeconds: 0,
+      storyboard: THREE,
+      primaryIndex: 2,
+    })
+
+    expect(wrapper.get('[aria-current="step"]').text()).toContain('In corso · domanda 2 di 3')
+  })
+
+  it('an unknown index shows "In corso" with no counts', () => {
+    const wrapper = mountPanel({
+      ended: 1,
+      total: 5,
+      elapsedSeconds: 0,
+      storyboard: THREE,
+      primaryIndex: null,
+    })
+
+    expect(wrapper.get('[aria-current="step"]').text()).toContain('In corso')
+    expect(wrapper.get('[aria-current="step"]').text()).not.toContain('domanda')
+  })
+
+  it('an outline of 4 entries never changes the denominator: the server total (5) wins', () => {
+    const wrapper = mountPanel({
+      ended: 1,
+      total: 5,
+      elapsedSeconds: 0,
+      storyboard: [...THREE, item(4, 'Quarta', 'upcoming')],
+    })
+
+    expect(wrapper.get('[data-testid="call-panel-progress-text"]').text()).toBe('Competenza 2 di 5')
+    expect(bar(wrapper).attributes('aria-valuemax')).toBe('5')
+  })
+
+  it('omits the storyboard, with no empty frame, when the outline is missing; the rest renders', () => {
+    const wrapper = mountPanel({ ended: 1, total: 5, elapsedSeconds: 192 })
+
+    expect(wrapper.find('[data-testid="call-storyboard"]').exists()).toBe(false)
+    expect(wrapper.find('ol').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="call-panel-progress-text"]').text()).toBe('Competenza 2 di 5')
+    expect(wrapper.find('[data-testid="call-panel-duration"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="slot-help"]').exists()).toBe(true)
+  })
+
+  it('an empty outline is the same as a missing one', () => {
+    const wrapper = mountPanel({ ended: 1, total: 5, elapsedSeconds: 0, storyboard: [] })
+
+    expect(wrapper.find('ol').exists()).toBe(false)
+  })
+
+  it('still shows the storyboard while the total is unknown; the bar and sentence wait', () => {
+    const wrapper = mountPanel({
+      ended: null,
+      total: null,
+      elapsedSeconds: 0,
+      storyboard: THREE,
+    })
+
+    expect(wrapper.findAll('[data-testid="call-storyboard-item"]')).toHaveLength(3)
+    expect(wrapper.find('[data-testid="call-panel-progress"]').exists()).toBe(false)
+    expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
+  })
+
+  it('draws no Percorso section at all with neither a total nor an outline', () => {
+    const wrapper = mountPanel({ ended: null, total: null, elapsedSeconds: 0 })
+
+    expect(wrapper.find('[data-testid="call-panel-path"]').exists()).toBe(false)
   })
 })

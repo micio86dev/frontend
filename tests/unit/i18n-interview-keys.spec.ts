@@ -56,7 +56,8 @@ const REQUIRED_KEYS = [
   // landmark name, the duration maximum (visual + screen-reader text), and the
   // longer per-question timer caption.
   'interview.call.panel_label',
-  'interview.call.progress',
+  'interview.call.path.label',
+  'interview.call.path.progress',
   'interview.call.duration_label',
   'interview.call.duration_value',
   'interview.call.duration_sr',

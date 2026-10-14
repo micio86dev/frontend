@@ -58,7 +58,7 @@
     },
     "call": {
       "question_region": "Current question",
-      "panel_label": "Interview progress",
+      "panel_label": "Interview",
       "header": {
         "title": "Assessment interview",
         "title_with_subject": "Assessment interview · {subject}",
@@ -75,7 +75,10 @@
         "current_counted": "In progress · question {k} of {n}",
         "unnamed": "Competency {ordinal}"
       },
-      "progress": "Question {n} of {total}",
+      "path": {
+        "label": "Path",
+        "progress": "Competency {n} of {total}"
+      },
       "duration_label": "Duration",
       "duration_value": "{elapsed} / {total}",
       "duration_sr": "{elapsed} elapsed out of a maximum of {total}",
