@@ -6,6 +6,7 @@
     :footer="false"
     :load-branding="false"
     :wide="callStageLive"
+    :plate="!callStageLive"
   >
     <!--
       The whole interview sits on the brand canvas the candidate arrived on
@@ -17,10 +18,27 @@
       the avatar, which already fill a 1440x900 viewport.
 
       The header carries the where-am-I chrome: the three steps on the two
-      pre-interview screens, the question, progress and timer while live.
+      pre-interview screens, the live call header (title, clock, captions,
+      microphone, Exit) while live. The logo loses its white plate only while
+      live (`plate`), so every other screen is unchanged.
     -->
     <template v-if="preInterviewStep" #header-end>
       <InterviewSteps :current="preInterviewStep" />
+    </template>
+    <template v-else-if="callStageLive" #header-end>
+      <CallHeader
+        :title="callTitle"
+        :elapsed-seconds="elapsedSeconds"
+        :captions-enabled="captionsEnabled"
+        :mic-muted="session.micMuted.value || session.handoverInFlight.value"
+        :mic-disabled="session.handoverInFlight.value"
+        @toggle-captions="captionsEnabled = !captionsEnabled"
+        @toggle-mic="session.setMicMuted(!session.micMuted.value)"
+      >
+        <template #exit>
+          <CallExitDialog :loading="session.handoverInFlight.value" @confirm="onExitConfirmed" />
+        </template>
+      </CallHeader>
     </template>
 
     <!--
@@ -123,9 +141,6 @@
           @tick="interviewRemaining = $event"
           @expired="onTimerExpired"
         >
-          <template #exit>
-            <CallExitDialog :loading="session.handoverInFlight.value" @confirm="onExitConfirmed" />
-          </template>
           <template #help>
             <CallHelpLink />
           </template>
@@ -547,7 +562,10 @@ import { interviewRemainingSeconds } from '~/app/utils/interview-max-seconds'
 import { INTERVIEW_CLOSING_GRACE_MS } from '~/app/utils/interview-budget'
 import CallSelfView from '~/components/molecules/CallSelfView.client.vue'
 import CallTile from '~/components/molecules/CallTile.vue'
+import CallHeader from '~/components/organisms/CallHeader.vue'
 import CallPanel from '~/components/organisms/CallPanel.vue'
+import { useInterviewOutline } from '~/composables/useInterviewOutline'
+import { useCaptionsPreference } from '~/composables/useCaptionsPreference'
 import CallStage from '~/components/organisms/CallStage.vue'
 import InterviewGuide from '~/components/molecules/InterviewGuide.vue'
 import { Separator } from '~/components/ui/separator'
@@ -809,6 +827,44 @@ const speakerTurn = useSpeakerTurn({
   micStream: confirmedStream,
 })
 const speaker = speakerTurn.speaker
+
+// ---------------------------------------------------------------------------
+// Live header (live-interview-call-chrome D12, D13, D17).
+// ---------------------------------------------------------------------------
+
+const outlineApi = useInterviewOutline()
+const captionsEnabled = useCaptionsPreference()
+
+/**
+ * Refetch the outline when the live screen first shows and whenever the session id moves
+ * while it does (a boundary, a continuation, a re-offer) - never per utterance, and not
+ * again when the SAME session resumes after a pause. A failed fetch keeps the bare title.
+ */
+let outlineSessionId: number | null = null
+watch(
+  () => (callStageLive.value ? session.sessionId.value : null),
+  (id) => {
+    if (id === null || id === outlineSessionId) return
+    outlineSessionId = id
+    void outlineApi.refresh()
+  }
+)
+
+/**
+ * "Colloquio di assessment · {role}" for a standard assessment, "... · Potenziale" for a
+ * potential one, the bare title when the role is unknown: no separator, no placeholder.
+ */
+const callTitle = computed(() => {
+  const outline = outlineApi.outline.value
+  const subject =
+    outline?.assessment_type === 'potential'
+      ? t('interview.call.header.potential')
+      : outline?.role_name?.trim()
+
+  return subject
+    ? t('interview.call.header.title_with_subject', { subject })
+    : t('interview.call.header.title')
+})
 
 /** Whole seconds of live interview time, for "03:12 / 25:00". It stops while suspended. */
 const interviewClock = useInterviewClock({ isRunning: () => session.state.value === 'live' })

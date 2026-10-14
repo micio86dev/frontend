@@ -48,7 +48,6 @@ function mountPanel(
   props: Record<string, unknown> = { ended: 1, total: 5, elapsedSeconds: 192 },
   locale: unknown = it_,
   slots: Record<string, string> = {
-    exit: '<button data-testid="slot-exit">Exit</button>',
     help: '<a data-testid="slot-help" href="#">Help</a>',
   }
 ) {
@@ -212,11 +211,10 @@ describe('CallPanel — until the server states a total', () => {
     expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
   })
 
-  it('still offers Exit and help, so the candidate is never locked in during the first question', () => {
+  it('still offers the help link; Exit lives in the call header, so it is never locked in', () => {
     const wrapper = mountPanel({ ended: null, total: null, elapsedSeconds: 0 })
 
     expect(wrapper.find('[data-testid="call-panel"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="slot-exit"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="slot-help"]').exists()).toBe(true)
   })
 })
@@ -230,24 +228,33 @@ describe('CallPanel — landmark and order', () => {
     expect(aside.attributes('data-testid')).toBe('call-panel')
   })
 
-  it('puts Exit before the help link in DOM order', () => {
-    const wrapper = mountPanel()
-    const html = wrapper.html()
+  it('has no Exit button and no exit slot: the control moved to the call header', () => {
+    const wrapper = mountPanel({ ended: 1, total: 5, elapsedSeconds: 0 }, it_, {
+      exit: '<button data-testid="slot-exit">Exit</button>',
+      help: '<a data-testid="slot-help" href="#">Help</a>',
+    })
 
-    expect(html.indexOf('data-testid="slot-exit"')).toBeGreaterThan(-1)
-    expect(html.indexOf('data-testid="slot-exit"')).toBeLessThan(
-      html.indexOf('data-testid="slot-help"')
-    )
+    expect(wrapper.find('[data-testid="slot-exit"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="call-exit"]').exists()).toBe(false)
+    expect(wrapper.findAll('button')).toHaveLength(0)
   })
 
-  it('puts progress, then duration, then the question timer, then Exit', () => {
+  it('puts the help link last: the final focusable element of the panel', () => {
+    const wrapper = mountPanel({ ended: 1, total: 5, elapsedSeconds: 0, questionSeconds: 300 })
+    const focusable = wrapper.element.querySelectorAll('a[href], button, [tabindex]')
+
+    expect(focusable.length).toBeGreaterThan(0)
+    expect((focusable[focusable.length - 1] as HTMLElement).dataset.testid).toBe('slot-help')
+  })
+
+  it('puts progress, then duration, then the question timer, then the help link', () => {
     const wrapper = mountPanel({ ended: 1, total: 5, elapsedSeconds: 0, questionSeconds: 300 })
     const html = wrapper.html()
     const positions = [
       'data-testid="call-panel-progress"',
       'data-testid="call-panel-duration"',
       'role="timer"',
-      'data-testid="slot-exit"',
+      'data-testid="slot-help"',
     ].map((needle) => html.indexOf(needle))
 
     expect(positions.every((p) => p > -1)).toBe(true)
@@ -345,7 +352,7 @@ describe('CallPanel — never names a competency', () => {
             elapsedSeconds: 192,
             questionSeconds: 250,
           },
-          { exit: () => h('button', 'Exit'), help: () => h('a', 'Help') }
+          { help: () => h('a', 'Help') }
         ),
     })
     const wrapper = mount(Host, { global: { mocks: { $t: translator(en) } } })

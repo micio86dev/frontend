@@ -49,7 +49,6 @@
     />
 
     <div class="flex flex-wrap items-center gap-x-6 gap-y-3 xl:flex-col xl:items-stretch">
-      <slot name="exit" />
       <slot name="help" />
     </div>
   </aside>
@@ -62,7 +61,7 @@
  *
  * Top to bottom: where the candidate is ("Domanda 2 di 5" and a thin bar), how
  * long it has taken against the stated maximum ("03:12 / 25:00"), the per-question
- * counter, then Exit and the help link in that DOM order.
+ * counter, then the help link. Exit moved to the call header.
  *
  * PROGRESS AND TIME, NEVER A NAME. The panel is handed numbers and nothing else:
  * it imports no session and has no prop that could carry which competency is being
@@ -74,8 +73,8 @@
  *   total            — the server's total; null or 0 hides progress and duration (the
  *                      figure is not known until the first /end, and a bar "of nothing"
  *                      would be a lie). The panel itself, the counter, Exit and help
- *                      are NEVER hidden: a candidate must be able to leave during the
- *                      first question.
+ *                      are NEVER hidden (Exit is in the call header, so a candidate can leave
+ *                      during the first question).
  *   elapsedSeconds   — from `useInterviewClock()`; owned by the caller.
  *   questionSeconds  — what the per-question counter starts from. Omitted: no counter.
  *                      The caller owns the remaining time (see InterviewTimer) and
@@ -91,7 +90,7 @@
  *
  * Emits: tick / expired — forwarded unchanged from the counter.
  *
- * Slots: exit, help.
+ * Slots: help.
  */
 import { computed } from 'vue'
 import InterviewTimer from '~/app/components/InterviewTimer.vue'

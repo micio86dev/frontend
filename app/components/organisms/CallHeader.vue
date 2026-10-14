@@ -21,11 +21,15 @@
     </p>
 
     <div class="flex shrink-0 items-center gap-2">
+      <!--
+        White controls drawn from the CARD tokens, never `bg-background` / `text-foreground`:
+        on the brand canvas only the card pair keeps its measured contrast on any colour.
+      -->
       <Button
         data-testid="call-header-captions"
         variant="outline"
         :aria-pressed="captionsEnabled ? 'true' : 'false'"
-        class="h-(--spacing-control) gap-2 px-4"
+        class="h-(--spacing-control) gap-2 bg-card px-4 text-card-foreground"
         @click="emit('toggle-captions')"
       >
         <CaptionsIcon v-if="captionsEnabled" data-icon="captions" aria-hidden="true" />
@@ -42,7 +46,7 @@
         variant="outline"
         :aria-pressed="micMuted ? 'false' : 'true'"
         :aria-disabled="micDisabled ? 'true' : undefined"
-        class="h-(--spacing-control) gap-2 px-4 aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
+        class="h-(--spacing-control) gap-2 bg-card px-4 text-card-foreground aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
         @click="onToggleMic"
       >
         <MicOffIcon v-if="micMuted" data-icon="mic-off" aria-hidden="true" />
