@@ -39,7 +39,7 @@
         on a white plate on a yellow page had nothing to sit on.
       -->
       <span
-        v-if="logoUrl"
+        v-if="logoUrl && plate"
         class="inline-flex shrink-0 items-center rounded-lg border border-border bg-card px-4 py-2.5 shadow-sm"
       >
         <img
@@ -49,6 +49,18 @@
           class="h-8 w-auto max-w-[10rem] object-contain"
         />
       </span>
+      <!--
+        No plate (the live call screen only, DESIGN.md §7.3): the mark is shown as the
+        organization supplied it, with nothing invented around it, even when it shares the
+        canvas colour. The pre-interview pages keep the plate above.
+      -->
+      <img
+        v-else-if="logoUrl"
+        :src="logoUrl"
+        alt=""
+        data-testid="brand-canvas-logo"
+        class="h-8 w-auto max-w-[10rem] shrink-0 object-contain"
+      />
       <!-- Ours when the organization configured none: never nothing (CLAUDE.md ruling 9). -->
       <p v-else class="text-lg leading-none font-semibold tracking-[0.3em]">BEAI</p>
 
@@ -60,7 +72,10 @@
       </template>
 
       <!-- Where-am-I chrome (the interview's steps, progress and timer). -->
-      <div v-if="$slots['header-end']" class="ml-auto flex items-center gap-3">
+      <div
+        v-if="$slots['header-end']"
+        class="ml-auto flex min-w-0 flex-1 items-center justify-end gap-3"
+      >
         <slot name="header-end" />
       </div>
     </header>
@@ -150,6 +165,11 @@ const props = withDefaults(
      * exactly what they have always been.
      */
     wide?: boolean
+    /**
+     * Seat the logo on the white plate. Only the live call screen turns it off, so the
+     * mark sits bare on the canvas next to the call controls; every other page keeps it.
+     */
+    plate?: boolean
   }>(),
   {
     headingId: undefined,
@@ -159,6 +179,7 @@ const props = withDefaults(
     footer: true,
     ariaLabel: undefined,
     wide: false,
+    plate: true,
   }
 )
 
