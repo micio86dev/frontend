@@ -67,6 +67,14 @@
         "captions": "Captions",
         "microphone": "Microphone"
       },
+      "storyboard": {
+        "label": "Interview path",
+        "done": "Completed",
+        "retry": "To repeat",
+        "current": "In progress",
+        "current_counted": "In progress · question {k} of {n}",
+        "unnamed": "Competency {ordinal}"
+      },
       "progress": "Question {n} of {total}",
       "duration_label": "Duration",
       "duration_value": "{elapsed} / {total}",
