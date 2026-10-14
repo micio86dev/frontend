@@ -198,6 +198,26 @@ test.describe('the call stage (the default live interview)', () => {
     await expect(page.getByRole('button', { name: /^pause$/i })).toHaveCount(0)
   })
 
+  test('the header names the interview, shows a clock and offers exactly three controls', async ({
+    page,
+  }) => {
+    await mockCallApi(page)
+    await goLive(page)
+
+    const header = page.getByTestId('call-header')
+    await expect(page.getByTestId('call-header-title')).toHaveText(
+      'Assessment interview · Sales Manager'
+    )
+    await expect(header.getByRole('button')).toHaveText(['Captions', 'Microphone', 'Exit'])
+    await expect(page.getByTestId('call-header-clock').locator('time')).toHaveText(/^\d{2,}:\d{2}$/)
+    await expect(header.getByRole('timer')).toHaveCount(0)
+    await expect(page.getByRole('timer')).toHaveCount(1)
+    await expect(page.getByTestId('call-header-captions')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('call-header-mic')).toHaveAttribute('aria-pressed', 'true')
+    // The logo sits bare on the canvas while live: no white plate around it.
+    await expect(page.locator('header .bg-card [data-testid="brand-canvas-logo"]')).toHaveCount(0)
+  })
+
   test('the question is the avatar transcript, and a user transcript never appears', async ({
     page,
   }) => {
@@ -435,7 +455,7 @@ test.describe('the call stage (the default live interview)', () => {
     })
   })
 
-  test('Tab visits the question, Exit, then the help link, and never the self-view', async ({
+  test('Tab visits Captions, Microphone, Exit, the question, then the help link, never the self-view', async ({
     page,
     browserName,
   }) => {
@@ -448,6 +468,10 @@ test.describe('the call stage (the default live interview)', () => {
     // default, not the stage's order, so WebKit is read with the modifier.
     const next = browserName === 'webkit' ? 'Alt+Tab' : 'Tab'
     const visited: string[] = []
+
+    // Start from the top of the page the same way in every engine: WebKit would otherwise
+    // resume from the question band that took focus at the competency start and wrap round.
+    await page.getByTestId('call-header-title').click()
 
     for (let i = 0; i < 8; i++) {
       await page.keyboard.press(next)
@@ -463,7 +487,13 @@ test.describe('the call stage (the default live interview)', () => {
     expect(visited).not.toContain('SELF-VIEW')
     expect(visited).not.toContain('video')
 
-    const order = ['call-question', 'call-exit', 'call-help-link'].map((id) => visited.indexOf(id))
+    const order = [
+      'call-header-captions',
+      'call-header-mic',
+      'call-exit',
+      'call-question',
+      'call-help-link',
+    ].map((id) => visited.indexOf(id))
     expect(
       order.every((index) => index >= 0),
       `visited: ${visited.join(' > ')}`
@@ -824,10 +854,10 @@ test.describe('the call stage fits the viewport', () => {
     expect(panel.left).toBeGreaterThanOrEqual(question.right)
     expect(Math.abs(panel.top - layer.top)).toBeLessThanOrEqual(1)
     expect(Math.round(panel.width)).toBe(288)
-    // Beside the tile the panel's sections are stacked: Exit is below the progress.
-    const progress = await boxOf(page.getByTestId('call-panel-progress'))
+    // Exit lives in the call header, above the whole stage, not in the panel.
     const exit = await boxOf(page.getByTestId('call-exit'))
-    expect(exit.top).toBeGreaterThanOrEqual(progress.bottom)
+    expect(exit.bottom).toBeLessThanOrEqual(layer.top)
+    await expect(page.getByTestId('call-panel').getByTestId('call-exit')).toHaveCount(0)
   })
 
   test('1100x800: one column, the panel is a strip under the question band', async ({ page }) => {

@@ -42,6 +42,23 @@ const START_RESPONSE = {
   },
 }
 
+/**
+ * `GET /candidate/interview/outline` (live-interview-call-chrome): what the live header
+ * names. Without a route the request would reach no API at all.
+ */
+export const OUTLINE_RESPONSE = {
+  assessment_type: 'standard',
+  role_name: 'Sales Manager',
+  avatar_name: null,
+  candidate_name: null,
+  primary_total_all: 6,
+  competencies: [
+    { name: 'Communication', ordinal: 1, status: 'current', primary_total: 3 },
+    { name: 'Teamwork', ordinal: 2, status: 'upcoming', primary_total: 3 },
+    { name: 'Planning', ordinal: 3, status: 'upcoming', primary_total: 0 },
+  ],
+}
+
 export async function mockBrandedInterview(page: Page, primaryColor: string | null): Promise<void> {
   await page.route('**/api/sso/exchange*', (route) =>
     route.fulfill({
@@ -67,6 +84,13 @@ export async function mockBrandedInterview(page: Page, primaryColor: string | nu
       status: 201,
       contentType: 'application/json',
       body: JSON.stringify(START_RESPONSE),
+    })
+  )
+  await page.route('**/api/candidate/interview/outline', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(OUTLINE_RESPONSE),
     })
   )
   for (const path of ['utterance', 'integrity', 'snapshot']) {
