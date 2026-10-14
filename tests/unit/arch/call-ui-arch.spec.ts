@@ -139,13 +139,13 @@ describe('call screen: the side panel names competencies but never carries a cod
     expect(panelSource).not.toMatch(/<slot name="exit"/)
   })
 
-  it('the page binds the panel to numbers and the counter only', () => {
+  it('the page binds the panel to exactly its documented props and events, none a competency', () => {
     const page = stripComments(read(join(APP_ROOT, 'components/InterviewSession.vue')))
     const tag = page.match(/<CallPanel\b[^>]*?(?:\/>|>)(?=[\s\S]*<\/CallPanel>)/)
 
     expect(tag).not.toBeNull()
-    // `endedCompetencies` / `totalCompetencies` are COUNTS; a competency's code or name is not.
-    expect(tag![0]).not.toMatch(/competency/i)
+    // `endedCompetencies` / `totalCompetencies` are COUNTS; a competency's code is not.
+    expect(tag![0]).not.toMatch(/competency|\bcode\b/i)
     const bound = [...tag![0].matchAll(/(?::|@)([a-z-]+)=/g)].map((m) => m[1]).sort()
     expect(bound).toEqual(
       [
@@ -153,13 +153,38 @@ describe('call screen: the side panel names competencies but never carries a cod
         'ended',
         'expired',
         'max-seconds',
+        'primary-index',
         'question-seconds',
+        'storyboard',
         'tick',
         'timer-key',
         'total',
       ].sort()
     )
   })
+
+  /**
+   * The one sanctioned reader: the exit dialog states the resume deadline, and
+   * `useCandidateSession().read()` is the only place that value may come from. It reads
+   * nothing about a competency. No other call component may import it.
+   */
+  const CANDIDATE_SESSION_READER = 'components/molecules/CallExitDialog.vue'
+
+  it.each(CALL_COMPONENTS.map((file) => [name(file), file]))(
+    '%s imports no interview session or outline composable',
+    (_name, file) => {
+      expect(stripComments(read(file))).not.toMatch(/useInterviewSession|useInterviewOutline/)
+    }
+  )
+
+  it.each(CALL_COMPONENTS.map((file) => [name(file), file]))(
+    '%s imports the candidate session only if it is the exit dialog',
+    (fileName, file) => {
+      const imports = /useCandidateSession/.test(stripComments(read(file)))
+
+      expect(imports).toBe(fileName === CANDIDATE_SESSION_READER)
+    }
+  )
 })
 
 describe('call screen: the live header', () => {

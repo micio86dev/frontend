@@ -79,6 +79,8 @@ function makeSession(state: SessionState, withProvider = false) {
     handoverInFlight: computed(() => false),
     boundaryInFlight: ref(false),
     micMuted: ref(false),
+    primaryIndex: ref<number | null>(null),
+    competencyOrdinal: ref<number | null>(null),
     acceptConsent: vi.fn(),
     confirmDevices: vi.fn(),
     pause: vi.fn(),

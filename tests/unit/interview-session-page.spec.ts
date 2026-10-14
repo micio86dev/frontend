@@ -146,6 +146,8 @@ function makeSession(
     handoverInFlight: computed(() => incomingSession.value !== null),
     boundaryInFlight: ref(false),
     micMuted: ref(false),
+    primaryIndex: ref<number | null>(null),
+    competencyOrdinal: ref<number | null>(null),
     acceptConsent: vi.fn(),
     confirmDevices: vi.fn(),
     pause: vi.fn(),
