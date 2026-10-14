@@ -95,6 +95,7 @@ export const BRAND_COLOR_TOKENS = ['--color-primary'] as const
  */
 export const BRAND_DERIVED_TOKENS = [
   '--color-primary-light',
+  '--color-primary-caption',
   '--color-primary-dark',
   '--color-lavender',
 ] as const
@@ -185,7 +186,7 @@ const AVATAR_PANEL = '#0f172a'
  * white adds chroma — so these reproduce each token's ROLE, and the product's
  * own three values stay the authored constants they are.
  *
- * Two of the three then pass through `ensureContrast`, because two of them
+ * Three of the four then pass through `ensureContrast`, because three of them
  * land on a canvas where §9.1's floor is binding and the operator's colour is
  * arbitrary. That is DESIGN.md §7.3.2 rule 2, and it is the difference between
  * branding a waveform and hiding one.
@@ -195,6 +196,14 @@ const DERIVE: Record<(typeof BRAND_DERIVED_TOKENS)[number], (color: string) => s
   // product's own `#c222d3` measures 3.79:1 — so 3:1 is the guarantee, not the
   // target, and a tenant colour that already clears it is left alone.
   '--color-primary-light': (color) => ensureContrast(mix(color, '#ffffff', 0.7), AVATAR_PANEL, 3),
+
+  // The speaker prefix of the captions overlay (live-interview-call-chrome D8): normal-size
+  // text on the opaque avatar panel, so it is held to 4.5:1 rather than the 3:1 the ribbon edge
+  // above is. The same hue step as `--color-primary-light`, lifted only as far as 4.5:1 needs.
+  // A separate token on purpose: raising `--color-primary-light` would restyle the waveform and
+  // every `bg-primary-light/30` notice surface for a requirement only the caption has.
+  '--color-primary-caption': (color) =>
+    ensureContrast(mix(color, '#ffffff', 0.7), AVATAR_PANEL, 4.5),
 
   // The "active / pressed" shade — also aliased by `--color-accent-dark` in
   // main.css, so this ONE derivation covers both roles. Darkening toward

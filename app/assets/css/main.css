@@ -35,6 +35,10 @@
   /* Normative Quint brand values (D9 — C7b reconciliation; replaces stale navy/teal) */
   --color-primary: #771aaf;
   --color-primary-light: #c222d3;
+  /* Caption speaker prefix on the avatar panel (DESIGN.md §3.1): the light shade
+     lifted to 4.5:1 against --color-avatar-bg, equal to
+     ensureContrast('#c222d3', '#0f172a', 4.5). 4.55:1. */
+  --color-primary-caption: #cb43da;
   /* 15% darker than the prior #4f1aaf — still 11.75:1 against white (was
      10:1), so the ≥4.5:1 white-text floor stays comfortably clear. */
   --color-primary-dark: #431695;
