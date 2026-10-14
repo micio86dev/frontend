@@ -118,6 +118,7 @@
           :elapsed-seconds="elapsedSeconds"
           :question-seconds="interviewRemaining"
           :timer-key="session.sessionId.value ?? null"
+          :max-seconds="session.interviewMaxSeconds.value"
           @tick="interviewRemaining = $event"
           @expired="onTimerExpired"
         >
@@ -291,7 +292,7 @@
         <p class="text-sm text-muted-foreground">{{ $t('interview.paused.body') }}</p>
       </template>
       <p
-        v-if="pauseReason === 'tab_hidden'"
+        v-if="pauseReason === 'tab_hidden' && !silentIntegrity"
         class="text-sm text-muted-foreground"
         data-testid="tab-hidden-warning"
       >

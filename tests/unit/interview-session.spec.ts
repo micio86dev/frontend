@@ -883,7 +883,7 @@ describe('InterviewSession — the stage', () => {
       await flushPromises()
       const duration = () => wrapper.get('[data-testid="call-panel-duration-value"]').text()
       const shown = (elapsed: string) =>
-        `interview.call.duration_value|${JSON.stringify({ elapsed, total: '15:00' })}`
+        `interview.call.duration_value|${JSON.stringify({ elapsed, total: '20:00' })}`
       expect(duration()).toBe(shown('00:00'))
 
       await vi.advanceTimersByTimeAsync(65_000)
@@ -998,6 +998,27 @@ describe('InterviewSession — the stage', () => {
     })
 
     expect(wrapper.get('[data-testid="proctor-overlay"]').attributes('data-silent')).toBe('true')
+  })
+
+  it('hides the tab-hidden warning on the paused panel for a reusable-link interview', async () => {
+    storedSession.read.mockReturnValue({ exp: EXP, entry: 'reusable' })
+    const { wrapper } = await mountLive({ attach: true })
+
+    guards.tab!.onHiddenTimeout()
+    await settle()
+
+    expect(wrapper.get('#paused-heading').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="tab-hidden-warning"]').exists()).toBe(false)
+  })
+
+  it('keeps the network notices on a reusable-link interview (functional, not integrity)', async () => {
+    storedSession.read.mockReturnValue({ exp: EXP, entry: 'reusable' })
+    const { wrapper } = await mountLive({ attach: true })
+
+    guards.network!.onOffline()
+    await settle()
+
+    expect(wrapper.find('[data-testid="network-reconnecting-notice"]').exists()).toBe(true)
   })
 
   it('does not mount the overlay, or widen the canvas, before the interview is live', async () => {

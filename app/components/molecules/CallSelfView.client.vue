@@ -106,9 +106,11 @@ watch(
 // the element is, and detached (never stopped: it is not ours) when it goes.
 // Vue re-runs it on every patch of this element, and a changed `stream` prop
 // always re-renders the component, so a swapped stream is rebound here too.
+// Assigning an unchanged stream restarts media load (a visible blink on every
+// speaking-ring toggle), so it is only written when it differs.
 function bindVideo(el: unknown) {
   if (videoEl && el === null) videoEl.srcObject = null
   videoEl = el as HTMLVideoElement | null
-  if (videoEl) videoEl.srcObject = props.stream
+  if (videoEl && videoEl.srcObject !== props.stream) videoEl.srcObject = props.stream
 }
 </script>
