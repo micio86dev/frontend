@@ -244,6 +244,39 @@ describe('call screen: the live header', () => {
   })
 })
 
+describe('call screen: the answer timer', () => {
+  const page = stripComments(read(join(APP_ROOT, 'components/InterviewSession.vue')))
+  const answerTimer = stripComments(
+    read(join(APP_ROOT, 'components/molecules/CallAnswerTimer.vue'))
+  )
+
+  it('draws its figure with a plain <time>, never a timer role, status role or live region', () => {
+    expect(answerTimer).toMatch(/<time\b/)
+    expect(answerTimer).not.toMatch(/role="(?:timer|status|alert|log)"|aria-live/)
+  })
+
+  it('the page hands the panel the candidate INTENT, not the visual state, for the muted hint', () => {
+    const tag = page.match(/<CallPanel\b[^>]*?(?:\/>|>)(?=[\s\S]*<\/CallPanel>)/)![0]
+
+    expect(tag).toMatch(/:mic-muted="session\.micMuted\.value"/)
+    expect(tag).not.toMatch(/handoverInFlight/)
+  })
+
+  it('the page, not a call component, owns the timer: none of them calls useAnswerTimer or answerBudget', () => {
+    expect(page).toMatch(/useAnswerTimer\(/)
+    for (const file of CALL_COMPONENTS) {
+      expect(stripComments(read(file))).not.toMatch(/\b(?:useAnswerTimer|answerBudget)\(/)
+    }
+  })
+
+  it('the answer timer and the budget never reach /end: the page wires them to the panel only', () => {
+    const timerBlock = page.match(/const answerTimer = useAnswerTimer\([\s\S]*?\n\}\)/)![0]
+    const budgetBlock = page.match(/const budget = computed\([\s\S]*?\n\)/)![0]
+
+    expect(timerBlock + budgetBlock).not.toMatch(/endInterview|\/end|onTimerExpired|timeout/)
+  })
+})
+
 describe('call screen: the captions overlay lives inside the avatar layer', () => {
   /** A minimal view of a template AST node: elements have `tag`, `props` and `children`. */
   type Node = {
