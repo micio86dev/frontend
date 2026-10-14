@@ -1,5 +1,5 @@
 <template>
-  <CallTile :name="t('interview.call.you')" :speaking-label="speakingLabel" :speaking="speaking">
+  <CallTile :name="chipName" :speaking-label="speakingLabel" :speaking="speaking">
     <!--
       Display only. Every attribute here keeps the tile inert: no controls, no
       focus, no pointer events (the camera tile must never trap focus or
@@ -36,7 +36,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import CallTile from './CallTile.vue'
 
 /**
@@ -51,6 +51,9 @@ import CallTile from './CallTile.vue'
  * With no live video track (none at all, or every one `ended`) it swaps the
  * video for a static placeholder carrying its own accessible name.
  * `speaking` / `speakingLabel` pass straight through to `CallTile`'s ring.
+ *
+ * `name` is the candidate's own name from the interview outline, shown on the chip as
+ * text. Missing, blank or an outline that never loaded: the generic "Tu" / "You" label.
  */
 const props = withDefaults(
   defineProps<{
@@ -59,14 +62,18 @@ const props = withDefaults(
     /** Already-localized hidden text for the ring, shown only while speaking. */
     speakingLabel?: string
     speaking?: boolean
+    /** The candidate's own name; blank or absent falls back to the generic label. */
+    name?: string
   }>(),
-  { speakingLabel: '', speaking: false }
+  { speakingLabel: '', speaking: false, name: undefined }
 )
 
 // Imported by name (not auto-registered), so it keeps the name it is stubbed and traced by.
 defineOptions({ name: 'CallSelfView' })
 
 const { t } = useI18n()
+
+const chipName = computed(() => props.name?.trim() || t('interview.call.you'))
 
 let videoEl: HTMLVideoElement | null = null
 const hasLiveVideo = ref(false)
