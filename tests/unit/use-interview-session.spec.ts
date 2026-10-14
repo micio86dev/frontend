@@ -2612,3 +2612,172 @@ describe('useInterviewSession', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// primaryIndex (live-interview-call-chrome, T-B1.4): how many distinct scripted primary
+// questions the interviewer has asked in the current competency, from the /utterance 202.
+// Only the live session's lines may move it; a new /start or a session change clears it.
+// ---------------------------------------------------------------------------
+
+describe('primaryIndex', () => {
+  /** Answers every /utterance with a 202 carrying `primaryIndex` (omitted when undefined). */
+  function utteranceReplies(primaryIndex?: number) {
+    mockCandidateFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === '/candidate/interview/utterance'
+          ? {
+              boundary_due: false,
+              ...(primaryIndex === undefined ? {} : { primary_index: primaryIndex }),
+            }
+          : undefined
+      )
+    )
+  }
+
+  const say = (provider: ReturnType<typeof createMockProvider>, text = 'Una risposta') =>
+    provider._emit('transcript', { role: 'user', text, ts: Date.now() })
+
+  it('is null before any utterance has been answered', async () => {
+    const session = await createLiveSession()
+
+    expect(session.primaryIndex.value).toBeNull()
+  })
+
+  it('is set from the 202 of a line sent for the live session', async () => {
+    const session = await createLiveSession()
+    utteranceReplies(2)
+
+    say(currentMockProvider)
+    await flushPromises()
+
+    expect(session.primaryIndex.value).toBe(2)
+  })
+
+  it('follows the latest 202 (2, then 3)', async () => {
+    const session = await createLiveSession()
+    utteranceReplies(2)
+    say(currentMockProvider)
+    await flushPromises()
+
+    utteranceReplies(3)
+    say(currentMockProvider, 'Un altro pezzo')
+    await flushPromises()
+
+    expect(session.primaryIndex.value).toBe(3)
+  })
+
+  it('is set from the 202 of a line re-sent from the outbox after a network failure', async () => {
+    const session = await createLiveSession()
+    mockCandidateFetch.mockRejectedValueOnce(makeFetchError(503))
+    say(currentMockProvider)
+    await flushPromises()
+    expect(session.primaryIndex.value).toBeNull()
+
+    utteranceReplies(4)
+    await vi.advanceTimersByTimeAsync(3_000)
+    await flushPromises()
+
+    expect(session.primaryIndex.value).toBe(4)
+  })
+
+  it('stays null when the 202 carries no primary_index (an older API)', async () => {
+    const session = await createLiveSession()
+    utteranceReplies(undefined)
+
+    say(currentMockProvider)
+    await flushPromises()
+
+    expect(session.primaryIndex.value).toBeNull()
+  })
+
+  it('keeps its value when a later line is refused with 409', async () => {
+    const session = await createLiveSession()
+    utteranceReplies(2)
+    say(currentMockProvider)
+    await flushPromises()
+
+    mockCandidateFetch.mockReset()
+    mockCandidateFetch.mockRejectedValueOnce(makeFetchError(409))
+    say(currentMockProvider, 'Troppo tardi')
+    await flushPromises()
+
+    expect(session.primaryIndex.value).toBe(2)
+  })
+
+  it('ignores the 202 of a line that belongs to a session that is no longer current', async () => {
+    const session = await createLiveSession()
+    const outgoing = mockProviderRegistry[0]!
+    mockCandidateFetch.mockResolvedValueOnce({
+      ended_competencies: 1,
+      total_competencies: 3,
+      next_action: 'continue',
+    })
+    mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: 99 }))
+    outgoing._emit('state', 'complete')
+    await flushPromises()
+
+    // The outgoing's tail line (row 42) is still in flight when the incoming (row 99) takes over.
+    let settleTail!: (body: unknown) => void
+    mockCandidateFetch.mockReturnValueOnce(new Promise((resolve) => (settleTail = resolve)))
+    say(outgoing, 'La coda')
+    await flushPromises()
+
+    session.notifyPainted(99)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await flushPromises()
+    expect(session.sessionId.value).toBe(99)
+
+    settleTail({ boundary_due: false, primary_index: 3 })
+    await flushPromises()
+
+    expect(session.primaryIndex.value).toBeNull()
+  })
+
+  it('applies the 202 of the outgoing session while it is still the current one, then clears it on the swap', async () => {
+    const session = await createLiveSession()
+    const outgoing = mockProviderRegistry[0]!
+    mockCandidateFetch.mockResolvedValueOnce({
+      ended_competencies: 1,
+      total_competencies: 3,
+      next_action: 'continue',
+    })
+    mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: 99 }))
+    outgoing._emit('state', 'complete')
+    await flushPromises()
+    expect(session.sessionId.value).toBe(42)
+
+    utteranceReplies(3)
+    say(outgoing, 'Ancora sulla riga 42')
+    await flushPromises()
+    expect(session.primaryIndex.value).toBe(3)
+
+    session.notifyPainted(99)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await flushPromises()
+
+    expect(session.sessionId.value).toBe(99)
+    expect(session.primaryIndex.value).toBeNull()
+  })
+
+  it('is cleared as soon as a new /start succeeds', async () => {
+    const session = await createLiveSession()
+    utteranceReplies(2)
+    say(currentMockProvider)
+    await flushPromises()
+    expect(session.primaryIndex.value).toBe(2)
+
+    mockCandidateFetch.mockReset()
+    mockCandidateFetch.mockResolvedValueOnce({
+      ended_competencies: 1,
+      total_competencies: 3,
+      next_action: 'continue',
+    })
+    mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: 99 }))
+    mockProviderRegistry[0]!._emit('state', 'complete')
+    await flushPromises()
+
+    // The incoming exists but has not taken over yet: sessionId is still 42.
+    expect(session.sessionId.value).toBe(42)
+    expect(session.primaryIndex.value).toBeNull()
+  })
+})
