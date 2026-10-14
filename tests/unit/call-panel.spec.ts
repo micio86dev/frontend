@@ -664,6 +664,14 @@ describe('CallPanel - the panel fills the stage cell and the path scrolls inside
     )
   })
 
+  it('the title spans the row in the strip but never claims column height at xl', () => {
+    const title = mountPanel(TWENTY).get('[data-testid="call-panel-title"]').classes()
+
+    // `basis-full` alone is 100% of the COLUMN's height once the panel is a column: the title
+    // swallowed the panel and collapsed the storyboard (found by the e2e fit gate at 1440x900).
+    expect(title).toEqual(expect.arrayContaining(['basis-full', 'xl:basis-auto']))
+  })
+
   it('keeps the other sections at their natural height, so only the storyboard gives way', () => {
     const wrapper = mountPanel(TWENTY)
 

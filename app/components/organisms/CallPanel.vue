@@ -7,7 +7,7 @@
     <p
       id="call-panel-title"
       data-testid="call-panel-title"
-      class="basis-full text-lg font-semibold"
+      class="basis-full text-lg font-semibold xl:basis-auto"
     >
       {{ $t('interview.call.panel_label') }}
     </p>
