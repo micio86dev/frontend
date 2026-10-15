@@ -98,7 +98,7 @@
  * `handle.providerName === 'heygen'`.
  */
 
-import { ref, shallowRef, computed, type ComputedRef, type Ref } from 'vue'
+import { ref, shallowRef, computed, readonly, type ComputedRef, type Ref } from 'vue'
 import { createProvider } from '~/app/providers/factory'
 import { effectiveViewportWidth } from '~/app/utils/browser-gate'
 import { interviewMaxSecondsFrom } from '~/app/utils/interview-max-seconds'
@@ -320,6 +320,13 @@ export interface UseInterviewSessionReturn {
   players: ComputedRef<SessionPlayer[]>
   /** True while an incoming HeyGen session is connecting behind the live one (D2). */
   handoverInFlight: ComputedRef<boolean>
+  /**
+   * True from the moment a primary boundary starts (including the wait for the avatar
+   * to fall silent) until the steering is acknowledged or the boundary aborts. The
+   * view holds the interviewer ring lit across it. Always reset in `assertBoundary`'s
+   * `finally`, so it cannot stay set.
+   */
+  boundaryInFlight: Readonly<Ref<boolean>>
   acceptConsent: () => void
   /** @param audioDeviceId Microphone from device check; remembered for later competencies. */
   confirmDevices: (audioDeviceId?: string) => void
@@ -1551,6 +1558,11 @@ export function useInterviewSession(
     // or a throw, restores it here.
     let micHandedOff = false
     try {
+      // Let the avatar finish its sentence before anything is muted or ended.
+      // `boundaryInFlight` stays set across the wait so a second trigger is a no-op.
+      await handle.provider.whenAvatarSilent?.()
+      if (handle !== activeSession.value) return // torn down while the avatar finished
+
       await handle.provider.setMicMuted(true).catch(() => {})
 
       const directive = await callEnd(handle.attribution.current, endedReason)
@@ -2141,6 +2153,7 @@ export function useInterviewSession(
     activeConfig,
     players,
     handoverInFlight,
+    boundaryInFlight: readonly(boundaryInFlight),
     acceptConsent,
     confirmDevices,
     pause,

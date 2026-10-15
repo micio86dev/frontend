@@ -34,6 +34,7 @@ const {
   captured: {
     session: null as null | Record<string, unknown>,
     handover: null as null | { value: boolean },
+    boundary: null as null | { value: boolean },
   },
   // The options each guard was built with, so a test can fire its callbacks.
   guards: {
@@ -98,8 +99,14 @@ vi.mock('~/composables/useInterviewSession', async (importOriginal) => {
       // `handoverInFlight` is swapped for a ref the test owns: the real one only
       // flips inside a HeyGen handover, which this spec does not stage.
       const handover = ref(false)
-      const session = { ...real.useInterviewSession(...args), handoverInFlight: handover }
+      const boundary = ref(false)
+      const session = {
+        ...real.useInterviewSession(...args),
+        handoverInFlight: handover,
+        boundaryInFlight: boundary,
+      }
       captured.handover = handover
+      captured.boundary = boundary
       captured.session = session as unknown as Record<string, unknown>
       return session
     },
@@ -854,6 +861,21 @@ describe('InterviewSession — the stage', () => {
     expect(tile().attributes('data-speaking')).toBe('false')
     expect(own().attributes('data-speaking')).toBe('true')
     expect(own().attributes('data-speaking-label')).toBe('interview.call.candidate_speaking')
+  })
+
+  it('keeps the interviewer ring lit across a boundary even when the avatar is silent', async () => {
+    const { wrapper } = await mountLive({ stream: fakeStream() })
+    const tile = () => wrapper.get('[data-slot="avatar-layer"] [data-slot="call-tile"]')
+    const own = () => wrapper.get('[data-testid="call-self-view"]')
+
+    captured.boundary!.value = true
+    await flushPromises()
+    expect(tile().attributes('data-speaking')).toBe('true')
+    expect(own().attributes('data-speaking')).toBe('false')
+
+    captured.boundary!.value = false
+    await flushPromises()
+    expect(tile().attributes('data-speaking')).toBe('false')
   })
 
   it('feeds the speaker signal the session state, the live provider state, the avatar stream and the mic', async () => {

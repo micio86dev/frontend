@@ -77,6 +77,7 @@ function makeSession(state: SessionState, withProvider = false) {
     players,
     incomingSession: shallowRef(null),
     handoverInFlight: computed(() => false),
+    boundaryInFlight: ref(false),
     acceptConsent: vi.fn(),
     confirmDevices: vi.fn(),
     pause: vi.fn(),
