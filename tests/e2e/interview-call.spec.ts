@@ -966,7 +966,8 @@ async function overflowOf(root: Pick<Page, 'locator'>): Promise<{ x: number; y: 
 /**
  * The live call after the first competency ended: the server has now stated a total, so
  * the panel carries every section it ever shows (progress, duration, counter, Exit, help),
- * the tallest it gets. The question is a realistic three-line one.
+ * the tallest it gets. The question is a realistic three-line one that fits one caption page
+ * (a longer utterance is paged, so one full page is the tallest the overlay gets).
  */
 async function goLiveFullPanel(page: Page, api: CallApi): Promise<void> {
   await goLive(page)
@@ -978,7 +979,7 @@ async function goLiveFullPanel(page: Page, api: CallApi): Promise<void> {
   await expect(page.getByTestId('call-question-hint')).toBeVisible()
   await say(
     page,
-    'Tell me about a time you had to change your approach in the middle of a project. What made you realise it, what did you do next, and what would you do differently today?'
+    'Tell me about a time you had to change your approach mid-project: what made you see it, and what would you do differently today?'
   )
   await expect(page.getByTestId('call-question')).toContainText('what would you do differently')
 }
