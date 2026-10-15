@@ -1,7 +1,8 @@
 <template>
   <!--
     ONE persistent live region: it never unmounts, and the hint and the question
-    swap inside it, so a screen reader announces each new question as a whole.
+    swap inside it, so a screen reader announces each new question as a whole (a long one
+    page by page, as it is shown).
     The visible overlay IS that region, so the text is announced once, never twice.
 
     Captions on, it is the overlay over the bottom of the interviewer's video: opaque
@@ -79,7 +80,8 @@ const band = ref<HTMLElement | null>(null)
 /**
  * A long utterance arrives whole but the overlay holds three lines: it is shown one page
  * at a time, each for as long as it takes to say, and the last page stays. Captions off,
- * the screen-reader region gets the whole text at once.
+ * the screen-reader region gets the whole text at once. The pages keep advancing while
+ * captions are off, so turning them back on shows the page being said, not the first.
  */
 const pages = computed(() => captionPages(props.text))
 const pageIndex = ref(0)

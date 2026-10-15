@@ -45,6 +45,13 @@ describe('captionPages', () => {
     expect(pages.join(' ')).toBe(words)
   })
 
+  it('does not end a sentence inside a decimal number', () => {
+    const lead = 'a'.repeat(100)
+    const pages = captionPages(`${lead} for 3.5 years now.`)
+
+    expect(pages.some((page) => page.includes('3.5'))).toBe(true)
+  })
+
   it('loses no word of the original text', () => {
     const text =
       'Benvenuto! Oggi parleremo della tua esperienza. ' +

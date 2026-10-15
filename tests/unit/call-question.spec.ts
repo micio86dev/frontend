@@ -146,6 +146,17 @@ describe('CallQuestion — a long utterance is paged', () => {
     expect(shown(wrapper)).toBe('A follow-up')
   })
 
+  it('shows the page being said when captions are turned back on', async () => {
+    vi.useFakeTimers()
+    const pages = captionPages(LONG)
+    const wrapper = mountBand(LONG, { visible: false })
+
+    await vi.advanceTimersByTimeAsync(captionPageMs(pages[0]!))
+    await wrapper.setProps({ visible: true })
+
+    expect(shown(wrapper)).toBe(pages[1])
+  })
+
   it('writes the whole utterance at once while captions are off', () => {
     const wrapper = mountBand(LONG, { visible: false })
 
