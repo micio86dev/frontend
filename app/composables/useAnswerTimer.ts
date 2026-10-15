@@ -79,6 +79,9 @@ export function useAnswerTimer(options: UseAnswerTimerOptions): UseAnswerTimerRe
 
   watch(options.speaker, onSpeaker, { flush: 'sync' })
 
+  // Created while someone is already talking: the watcher above only sees later changes.
+  onSpeaker(options.speaker.value)
+
   // A new session or leaving `live` starts over; whoever is already talking is picked up
   // again so a crossfade that keeps the interviewer speaking does not lose the question.
   watch(

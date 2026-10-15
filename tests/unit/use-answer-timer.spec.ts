@@ -40,6 +40,27 @@ describe('useAnswerTimer', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('picks up an interviewer who is already speaking when it is created, then counts the silence', () => {
+    const t = setup({ speaker: 'avatar' })
+
+    expect(t.phase.value).toBe('listening')
+    expect(t.seconds.value).toBe(0)
+
+    t.speaker.value = 'none'
+    tick(7)
+
+    expect(t.phase.value).toBe('waiting')
+    expect(t.seconds.value).toBe(7)
+  })
+
+  it('picks up a candidate who is already speaking when it is created', () => {
+    const t = setup({ speaker: 'candidate' })
+    tick(3)
+
+    expect(t.phase.value).toBe('answering')
+    expect(t.seconds.value).toBe(3)
+  })
+
   it('reads listening at zero while the interviewer speaks, with no interval', () => {
     const t = setup()
     t.speaker.value = 'avatar'
