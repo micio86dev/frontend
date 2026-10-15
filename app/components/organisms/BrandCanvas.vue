@@ -105,15 +105,25 @@
 
     <footer
       v-if="footer"
-      class="mx-auto w-full max-w-6xl px-4 pb-6 text-sm text-on-primary-muted lg:px-10"
+      class="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 pb-6 text-sm text-on-primary-muted lg:px-10"
     >
-      {{ $t('shell.tagline') }}
+      <span>{{ $t('shell.tagline') }}</span>
+      <a
+        v-if="privacyPolicyUrl"
+        :href="privacyPolicyUrl"
+        target="_blank"
+        rel="noopener noreferrer"
+        data-testid="privacy-policy-link"
+        class="text-on-primary underline underline-offset-4"
+      >
+        {{ $t('shell.privacyPolicy') }}
+      </a>
     </footer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useCandidateBranding } from '~/app/composables/useCandidateBranding'
 
 /**
@@ -184,6 +194,23 @@ const props = withDefaults(
 )
 
 const { logoUrl, organizationName, ensureLoaded } = useCandidateBranding()
+
+/**
+ * The privacy policy document (env NUXT_PUBLIC_PRIVACY_POLICY_URL). It ends up in
+ * an `href`, so only an absolute `https:` URL is linked; anything else renders no link.
+ */
+const privacyPolicyUrl = computed((): string | null => {
+  const configured = (useRuntimeConfig().public as Record<string, unknown>).privacyPolicyUrl
+  if (typeof configured !== 'string') return null
+
+  try {
+    const url = new URL(configured.trim())
+
+    return url.protocol === 'https:' && url.hostname !== '' ? url.href : null
+  } catch {
+    return null
+  }
+})
 
 onMounted(() => {
   if (props.loadBranding) void ensureLoaded()

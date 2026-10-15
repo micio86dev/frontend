@@ -4,6 +4,7 @@
   },
   "shell": {
     "tagline": "Soft-skill assessment through a structured interview.",
+    "privacyPolicy": "Privacy Policy",
     "loading": {
       "title": "Opening your interview",
       "body": "This takes a moment. Please keep this page open."

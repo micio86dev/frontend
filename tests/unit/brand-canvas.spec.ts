@@ -8,7 +8,7 @@
  * canvas colour itself (`text-primary`). The visuals beyond that are reviewed
  * in screenshots, not asserted.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -129,6 +129,43 @@ describe('BrandCanvas — landmark and surface', () => {
 
   it('renders the tagline in the footer through i18n', () => {
     expect(mountCanvas().get('footer').text()).toContain('shell.tagline')
+  })
+})
+
+describe('BrandCanvas — the privacy policy link in the footer', () => {
+  const POLICY = 'https://demo.beai.quint.org/assets/documents/privacy-policy-2026.01.15.pdf'
+
+  function withPolicyUrl(value: unknown): void {
+    vi.stubGlobal(
+      'useRuntimeConfig',
+      vi.fn(() => ({ public: { apiBase: '', appEnv: 'local', privacyPolicyUrl: value } }))
+    )
+  }
+
+  afterEach(() => withPolicyUrl(''))
+
+  it('links the configured document in a new tab', () => {
+    withPolicyUrl(POLICY)
+    const link = mountCanvas().get('footer a[data-testid="privacy-policy-link"]')
+
+    expect(link.attributes('href')).toBe(POLICY)
+    expect(link.attributes('target')).toBe('_blank')
+    expect(link.attributes('rel')).toBe('noopener noreferrer')
+    expect(link.text()).toBe('shell.privacyPolicy')
+  })
+
+  it.each([
+    ['empty', ''],
+    ['not a string', true],
+    ['plain http', 'http://example.com/policy.pdf'],
+    ['a script', 'javascript:alert(1)'],
+    ['relative', '/policy.pdf'],
+  ])('renders no link when the URL is %s', (_label, value) => {
+    withPolicyUrl(value)
+    const footer = mountCanvas().get('footer')
+
+    expect(footer.find('a').exists()).toBe(false)
+    expect(footer.text()).toContain('shell.tagline')
   })
 })
 
