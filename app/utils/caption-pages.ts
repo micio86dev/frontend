@@ -18,7 +18,12 @@ const MIN_PAGE_MS = 1_500
 /** Splits `text` into pages of whole sentences; a sentence longer than a page is split by words. */
 export function captionPages(text: string): string[] {
   // A sentence ends at punctuation followed by whitespace, so "3.5 years" stays whole.
-  const sentences = text.trim().split(/(?<=[.!?…])\s+/)
+  // No regex lookbehind: Safari before 16.4 fails to parse it, taking the module down.
+  const sentences = text
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/([.!?…]) /g, '$1\n')
+    .split('\n')
   const pages: string[] = []
   let page = ''
 
