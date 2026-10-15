@@ -159,6 +159,9 @@ describe('CallQuestion — a long utterance is paged', () => {
     await wrapper.setProps({ utteranceKey: 2 })
 
     expect(shown(wrapper)).toBe(pages[0])
+    expect(vi.getTimerCount()).toBe(1)
+    await vi.advanceTimersByTimeAsync(captionPageMs(pages[0]!))
+    expect(shown(wrapper)).toBe(pages[1])
   })
 
   it('leaves no page timer behind once unmounted', () => {
