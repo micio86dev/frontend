@@ -110,9 +110,11 @@ describe('CallQuestion — what it shows', () => {
 })
 
 describe('CallQuestion — a long utterance is paged', () => {
-  const LONG = 'Welcome to this interview, we are glad to have you here today with us. '
-    .repeat(8)
-    .trim()
+  // Distinct sentences, so every page differs and a wrong page is visible.
+  const LONG = Array.from(
+    { length: 8 },
+    (_, i) => `Sentence number ${i + 1} of the welcome, said by the interviewer today.`
+  ).join(' ')
 
   afterEach(() => {
     vi.useRealTimers()
@@ -144,6 +146,30 @@ describe('CallQuestion — a long utterance is paged', () => {
     await vi.advanceTimersByTimeAsync(60_000)
 
     expect(shown(wrapper)).toBe('A follow-up')
+  })
+
+  it('starts again from the first page when the same utterance is said again', async () => {
+    vi.useFakeTimers()
+    const pages = captionPages(LONG)
+    const wrapper = mountBand(LONG, { utteranceKey: 1 })
+
+    await vi.advanceTimersByTimeAsync(captionPageMs(pages[0]!))
+    expect(shown(wrapper)).toBe(pages[1])
+
+    await wrapper.setProps({ utteranceKey: 2 })
+
+    expect(shown(wrapper)).toBe(pages[0])
+  })
+
+  it('leaves no page timer behind once unmounted', () => {
+    vi.useFakeTimers()
+    const wrapper = mountBand(LONG)
+
+    expect(vi.getTimerCount()).toBe(1)
+    wrapper.unmount()
+    mounted.splice(mounted.indexOf(wrapper), 1)
+
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('shows the page being said when captions are turned back on', async () => {

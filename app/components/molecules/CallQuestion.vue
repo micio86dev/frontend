@@ -52,6 +52,8 @@
  *   visible     — captions on (default). Off, nothing is visible and the region is
  *                 `sr-only` without a tabindex, but it stays mounted and keeps receiving
  *                 the text.
+ *   utteranceKey — changes with every avatar utterance, so the same long text said again
+ *                 restarts from its first page.
  *
  * Exposed:
  *   focusOnBoundary() — moves focus to the overlay. The parent calls it ONCE per
@@ -72,6 +74,7 @@ const props = withDefaults(
     text: string
     speakerName: string
     visible?: boolean
+    utteranceKey?: number
   }>(),
   { visible: true }
 )
@@ -110,7 +113,7 @@ function scheduleNextPage(): void {
 }
 
 watch(
-  () => props.text,
+  () => [props.text, props.utteranceKey],
   () => {
     pageIndex.value = 0
     scheduleNextPage()
