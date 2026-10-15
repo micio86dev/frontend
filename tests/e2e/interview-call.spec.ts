@@ -27,6 +27,9 @@ function startResponse(sessionId: number, competency: string) {
     provider: 'heygen',
     provider_token: 'heygen-token-xyz',
     audio_only: false,
+    // The server states the interview limit: the duration section, the countdown and the
+    // suggested-length bar all render, so the panel is as tall as it ever gets.
+    interview_max_seconds: 1200,
     question_context: {
       question_index: sessionId - 1,
       total_questions: 3,
@@ -580,6 +583,33 @@ test.describe('the call stage (the default live interview)', () => {
     await expect(page.getByTestId('call-exit')).toBeFocused()
     expect(await bandFocusCount()).toBe(1)
   })
+
+  test('a muted microphone stays muted across a competency boundary, and an open one stays open', async ({
+    page,
+  }) => {
+    const api = await mockCallApi(page)
+    await goLive(page)
+    const mic = page.getByTestId('call-header-mic')
+    await expect(mic).toHaveAttribute('aria-pressed', 'true')
+
+    // Open: the boundary mutes it for its duration and gives it back as it was.
+    api.startNextWith(2, 'COL')
+    await drive(page, 'emitEndPhrase')
+    await expect.poll(() => api.starts(), { timeout: 15000 }).toBe(2)
+    await expect(mic).not.toHaveAttribute('aria-disabled', 'true', { timeout: 15000 })
+    await expect(mic).toHaveAttribute('aria-pressed', 'true')
+    // The boundary cleared the end phrase: the next competency's player is the live one only now.
+    await expect(page.getByTestId('call-question-hint')).toBeVisible()
+
+    // Muted by the candidate: still muted, still pressed-off, after the next boundary.
+    await mic.click()
+    await expect(mic).toHaveAttribute('aria-pressed', 'false')
+    api.startNextWith(3, 'LRN')
+    await drive(page, 'emitEndPhrase')
+    await expect.poll(() => api.starts(), { timeout: 15000 }).toBe(3)
+    await expect(mic).not.toHaveAttribute('aria-disabled', 'true', { timeout: 15000 })
+    await expect(mic).toHaveAttribute('aria-pressed', 'false')
+  })
 })
 
 for (const [label, colour] of [
@@ -599,6 +629,16 @@ for (const [label, colour] of [
 
       await page.getByTestId('call-exit-confirm').click()
       await expect(page.getByRole('heading', { name: /interview suspended/i })).toBeVisible()
+      await checkA11y(page)
+    })
+
+    test('the full panel: answer bar, storyboard and duration', async ({ page }) => {
+      const api = await mockCallApi(page, colour)
+      await goLiveFullPanel(page, api)
+      await expect(page.getByTestId('call-answer-bar')).toBeVisible()
+      await expect(page.getByTestId('call-storyboard')).toBeVisible()
+      await expect(page.getByTestId('call-panel-duration')).toBeVisible()
+
       await checkA11y(page)
     })
 
@@ -930,7 +970,7 @@ test.describe('the call stage fits the viewport', () => {
     })
   }
 
-  test('1440x900: two columns, the panel beside the tile and 18 rem wide', async ({ page }) => {
+  test('1440x900: two columns, the panel beside the tile and 22 rem wide', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     const api = await mockCallApi(page)
     await goLiveFullPanel(page, api)
@@ -941,12 +981,40 @@ test.describe('the call stage fits the viewport', () => {
     expect(panel.left).toBeGreaterThanOrEqual(layer.right)
     expect(panel.left).toBeGreaterThanOrEqual(question.right)
     expect(Math.abs(panel.top - layer.top)).toBeLessThanOrEqual(1)
-    expect(Math.round(panel.width)).toBe(288)
+    expect(Math.round(panel.width)).toBe(352)
     // Exit lives in the call header, above the whole stage, not in the panel.
     const exit = await boxOf(page.getByTestId('call-exit'))
     expect(exit.bottom).toBeLessThanOrEqual(layer.top)
     await expect(page.getByTestId('call-panel').getByTestId('call-exit')).toHaveCount(0)
   })
+
+  for (const [width, height] of HOSTED) {
+    test(`hosted at ${width}x${height}: the panel takes the row, shows every section and clips nothing`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height })
+      const api = await mockCallApi(page)
+      await goLiveFullPanel(page, api)
+      await expect.poll(() => overflowOf(page), { timeout: 8000 }).toEqual({ x: 0, y: 0 })
+
+      const layer = await boxOf(page.locator('[data-slot="avatar-layer"]'))
+      const panel = await boxOf(page.getByTestId('call-panel'))
+      // The panel is at least as tall as the video and never taller than the screen.
+      expect(panel.height).toBeGreaterThanOrEqual(layer.height - 1)
+      expect(panel.bottom).toBeLessThanOrEqual(height)
+      for (const id of ['call-panel-answer', 'call-panel-path', 'call-panel-duration']) {
+        await expect(page.getByTestId(id)).toBeVisible()
+      }
+      // The help link is the last thing in the panel: if it is inside the panel and on screen,
+      // nothing above it pushed the column past its bottom edge.
+      const help = await boxOf(page.getByTestId('call-help-link'))
+      expect(help.bottom).toBeLessThanOrEqual(panel.bottom)
+      expect(help.bottom).toBeLessThanOrEqual(height)
+      // The storyboard gives way (it scrolls) rather than the panel growing the page.
+      const path = await boxOf(page.getByTestId('call-panel-path'))
+      expect(path.bottom).toBeLessThanOrEqual(panel.bottom)
+    })
+  }
 
   test('1100x800: one column, the panel is a strip under the tile', async ({ page }) => {
     await page.setViewportSize({ width: 1100, height: 800 })
@@ -955,6 +1023,21 @@ test.describe('the call stage fits the viewport', () => {
 
     await expect.poll(() => overflowOf(page), { timeout: 8000 }).toMatchObject({ x: 0 })
     await expectSingleColumn(page, { rows: true })
+  })
+
+  test('1024x768: one column, the strip shows the same sections and nothing overflows sideways', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1024, height: 768 })
+    const api = await mockCallApi(page)
+    await goLiveFullPanel(page, api)
+
+    await expect.poll(() => overflowOf(page), { timeout: 8000 }).toMatchObject({ x: 0 })
+    await expectSingleColumn(page, { rows: true })
+    for (const id of ['call-panel-answer', 'call-panel-path', 'call-panel-duration']) {
+      await expect(page.getByTestId(id)).toBeVisible()
+    }
+    await expect(page.getByTestId('call-help-link')).toBeVisible()
   })
 
   test.describe('embedded', () => {
@@ -997,16 +1080,21 @@ test.describe('the call stage fits the viewport', () => {
       await expect.poll(() => overflowOf(embedded), { timeout: 8000 }).toMatchObject({ x: 0 })
       // The host page did not grow a scrollbar around the frame either.
       expect((await overflowOf(page)).x).toBeLessThanOrEqual(0)
-      await expectSingleColumn(embedded, { rows: false })
+      // Settled, not sampled once: the host grows the frame from each `resize` message, and a
+      // read taken while the frame is still catching up (the container saw the stage scrolled
+      // out of the frame's top) is a measurement of a layout that is not done yet.
+      await expect(async () => expectSingleColumn(embedded, { rows: false })).toPass({
+        timeout: 8000,
+      })
     })
   })
 })
 
 /**
  * One column, the panel under the interviewer tile and as wide as the column. `rows`
- * adds what makes it a strip rather than a card: the sections are laid out in rows
- * (the duration shares a row with the progress) instead of one per line, which is
- * what the two-column panel does.
+ * adds what makes it a strip rather than a card: the sections are laid out side by side
+ * (the path beside the answer time) instead of one per line, which is what the
+ * two-column panel does.
  */
 async function expectSingleColumn(
   root: Pick<Page, 'getByTestId' | 'locator'>,
@@ -1025,9 +1113,12 @@ async function expectSingleColumn(
   expect(question.bottom, 'the captions sit inside the tile').toBeLessThanOrEqual(layer.bottom)
 
   if (!rows) return
-  const progress = await boxOf(root.getByTestId('call-panel-progress'))
-  const duration = await boxOf(root.getByTestId('call-panel-duration'))
-  expect(duration.top, 'the duration shares a row with the progress').toBeLessThan(progress.bottom)
+  const answer = await boxOf(root.getByTestId('call-panel-answer'))
+  const path = await boxOf(root.getByTestId('call-panel-path'))
+  expect(path.top, 'the answer time and the path share a row').toBeLessThan(answer.bottom)
+  expect(path.left, 'the path is beside the answer time, not under it').toBeGreaterThanOrEqual(
+    answer.right
+  )
 }
 
 /**

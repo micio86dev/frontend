@@ -652,6 +652,35 @@ describe('CallPanel — answer time (Tempo di risposta)', () => {
   })
 })
 
+describe('CallPanel - the panel fills the stage cell and the path scrolls inside it', () => {
+  it('takes the cell height from xl and lets the Percorso section shrink to scroll', () => {
+    const wrapper = mountPanel({ ...TWENTY, storyboard: [item(1, 'A', 'current')] })
+
+    expect(wrapper.get('aside').classes()).toEqual(
+      expect.arrayContaining(['xl:min-h-0', 'xl:flex-1'])
+    )
+    expect(wrapper.get('[data-testid="call-panel-path"]').classes()).toEqual(
+      expect.arrayContaining(['min-h-0', 'xl:flex-1'])
+    )
+  })
+
+  it('the title spans the row in the strip but never claims column height at xl', () => {
+    const title = mountPanel(TWENTY).get('[data-testid="call-panel-title"]').classes()
+
+    // `basis-full` alone is 100% of the COLUMN's height once the panel is a column: the title
+    // swallowed the panel and collapsed the storyboard (found by the e2e fit gate at 1440x900).
+    expect(title).toEqual(expect.arrayContaining(['basis-full', 'xl:basis-auto']))
+  })
+
+  it('keeps the other sections at their natural height, so only the storyboard gives way', () => {
+    const wrapper = mountPanel(TWENTY)
+
+    for (const id of ['call-panel-answer', 'call-panel-duration']) {
+      expect(wrapper.get(`[data-testid="${id}"]`).classes()).toContain('xl:flex-none')
+    }
+  })
+})
+
 describe('CallPanel — the named path (Percorso)', () => {
   const THREE = [
     item(1, 'Pensiero strategico', 'done'),
