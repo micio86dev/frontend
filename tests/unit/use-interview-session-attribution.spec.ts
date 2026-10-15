@@ -680,6 +680,53 @@ describe('useInterviewSession — integrity events reach the row they belong to 
     expect(integritySessionIds().sort()).toEqual([A, B])
   })
 
+  it('/end waits for a periodic flush still in flight', async () => {
+    const buf = drainingBuffer()
+    const session = await liveSession(buf.options)
+    buf.push(event(1))
+    let land!: () => void
+    const order: string[] = []
+    mockCandidateFetch.mockImplementation((path: string) => {
+      if (path === INTEGRITY)
+        return new Promise<void>((resolve) => {
+          land = () => {
+            order.push('integrity landed')
+            resolve()
+          }
+        })
+      if (path === '/candidate/interview/end') order.push('end sent')
+      return Promise.resolve(
+        path === '/candidate/interview/end' ? { next_action: 'done' } : undefined
+      )
+    })
+
+    await vi.advanceTimersByTimeAsync(FLUSH_INTERVAL_MS)
+    const ended = session.endQuestion('timeout')
+    await vi.advanceTimersByTimeAsync(100)
+    land()
+    await ended
+
+    expect(order).toEqual(['integrity landed', 'end sent'])
+  })
+
+  it('a throwing event source never rejects the periodic flush', async () => {
+    const session = await liveSession({
+      getPendingIntegrityEvents: () => {
+        throw new Error('proctor gone')
+      },
+    })
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      await vi.advanceTimersByTimeAsync(FLUSH_INTERVAL_MS)
+      await flush()
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
+    expect(session.state.value).toBe('live')
+  })
+
   it('a hanging integrity request never holds /end past the ceiling', async () => {
     const buf = drainingBuffer()
     const session = await liveSession(buf.options)
