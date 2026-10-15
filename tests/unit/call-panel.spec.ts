@@ -310,24 +310,35 @@ describe('CallPanel — until the server states interview_max_seconds', () => {
 
   it('never presents the 300 s fallback seed as a maximum or as remaining time', () => {
     const wrapper = mountPanel({ ...TWENTY, maxSeconds: null, questionSeconds: 300 })
-    const visible = wrapper.get('[data-testid="call-panel-duration"]')
 
-    expect(visible.attributes('style')).toContain('display: none')
     expect(wrapper.text()).not.toContain('/ 05:00')
     expect(wrapper.text()).not.toContain('Restano')
     // The percentage-of-total derivation is gone: 5 competencies x 300 s must not become 25:00.
     expect(wrapper.text()).not.toContain('25:00')
   })
 
-  it('keeps the countdown MOUNTED and enforcing while it is hidden: tick and expired still reach the page', async () => {
+  it.each(HIDDEN)(
+    'keeps the enforcing countdown VISIBLE, as the exact figure alone, for maxSeconds = %s',
+    (maxSeconds) => {
+      const wrapper = mountPanel({ ...TWENTY, maxSeconds, questionSeconds: 125 })
+      const timer = wrapper.get('[role="timer"]')
+
+      expect(timer.text()).toBe('02:05')
+      // No ancestor hides it, and the heading of the maximum is not shown for a missing maximum.
+      let node: Element | null = timer.element
+      while (node && node !== wrapper.element) {
+        expect((node as HTMLElement).style.display).not.toBe('none')
+        node = node.parentElement
+      }
+      expect(wrapper.find('#call-panel-duration-label').exists()).toBe(false)
+    }
+  )
+
+  it('keeps the countdown enforcing without a maximum: tick and expired still reach the page', async () => {
     vi.useFakeTimers()
     const wrapper = mountPanel({ ...TWENTY, maxSeconds: null, questionSeconds: 2 })
-    const timer = wrapper.get('[role="timer"]')
 
-    expect(wrapper.get('[data-testid="call-panel-duration"]').attributes('style')).toContain(
-      'display: none'
-    )
-    expect(timer.exists()).toBe(true)
+    expect(wrapper.get('[role="timer"]').exists()).toBe(true)
 
     await vi.advanceTimersByTimeAsync(2000)
     expect(wrapper.emitted('tick')).toEqual([[1], [0]])
@@ -342,9 +353,7 @@ describe('CallPanel — until the server states interview_max_seconds', () => {
 
     await wrapper.setProps({ maxSeconds: 1200 })
 
-    expect(
-      wrapper.get('[data-testid="call-panel-duration"]').attributes('style') ?? ''
-    ).not.toContain('display: none')
+    expect(wrapper.find('#call-panel-duration-label').exists()).toBe(true)
     expect(wrapper.get('[role="timer"]').element).toBe(before)
     expect(wrapper.get('[role="timer"]').text()).toBe('19:57')
   })
@@ -649,6 +658,12 @@ describe('CallPanel — answer time (Tempo di risposta)', () => {
     expect(wrapper.emitted('expired')).toBeUndefined()
     expect(wrapper.get('[role="timer"]').text()).toBe('01:38')
     expect(wrapper.emitted('tick')).toEqual([[99], [98]])
+  })
+})
+
+describe('CallPanel — fake timers never leak between tests', () => {
+  it('starts on real timers even after the tests above installed fake ones', () => {
+    expect(vi.isFakeTimers()).toBe(false)
   })
 })
 
