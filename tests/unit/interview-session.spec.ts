@@ -1849,6 +1849,23 @@ describe('InterviewSession — the answer time section', () => {
     })
   })
 
+  it('the "about N minutes left" sentence tracks the countdown as time passes', async () => {
+    await withClock(async () => {
+      const { wrapper } = await mountLive({ stubs: { InterviewTimer: false } })
+      const remaining = () => wrapper.get('[data-testid="call-panel-remaining"]').text()
+      const sentence = (minutes: number) => `interview.call.duration.remaining|${minutes}`
+
+      expect(remaining()).toBe(sentence(20)) // 1200 s from the server maximum
+      await vi.advanceTimersByTimeAsync(61_000)
+      expect(toSeconds(wrapper.get('[role="timer"]').text())).toBe(1139)
+      expect(remaining()).toBe(sentence(19))
+
+      await vi.advanceTimersByTimeAsync(600_000)
+      expect(toSeconds(wrapper.get('[role="timer"]').text())).toBe(539)
+      expect(remaining()).toBe(sentence(9))
+    })
+  })
+
   it('hands the panel the candidate INTENT: a forced boundary mute is not a hint to unmute', async () => {
     const { wrapper } = await mountLive()
     captured.boundary!.value = true
