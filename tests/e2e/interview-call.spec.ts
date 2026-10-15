@@ -196,7 +196,7 @@ const say = (page: Page, text: string, role: 'avatar' | 'user' = 'avatar') =>
   callProvider(page, 'emitTranscript', text, role)
 
 const interviewerTile = (page: Page) =>
-  page.locator('[data-slot="avatar-layer"] [data-slot="call-tile"]')
+  page.locator('[data-slot="avatar-layer"] > [data-slot="call-tile"]')
 const selfTile = (page: Page) =>
   page.locator('[data-slot="call-stage-self"] [data-slot="call-tile"]')
 
@@ -220,6 +220,30 @@ test.describe('the call stage (the default live interview)', () => {
     page,
   }) => {
     await mockCallApi(page)
+    // Later routes win: give the organization a logo so the plate is actually drawn.
+    await page.route('**/api/candidate/session', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            project: { exit_redirect_url: null },
+            branding: {
+              primary_color: '#771aaf',
+              logo_url: 'https://cdn.test/acme.png',
+              name: 'Acme Selezione',
+            },
+          },
+        }),
+      })
+    )
+    await page.route('https://cdn.test/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'image/svg+xml',
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="16"/>',
+      })
+    )
     await goLive(page)
 
     const header = page.getByTestId('call-header')
@@ -232,8 +256,8 @@ test.describe('the call stage (the default live interview)', () => {
     await expect(page.getByRole('timer')).toHaveCount(1)
     await expect(page.getByTestId('call-header-captions')).toHaveAttribute('aria-pressed', 'true')
     await expect(page.getByTestId('call-header-mic')).toHaveAttribute('aria-pressed', 'true')
-    // The logo sits bare on the canvas while live: no white plate around it.
-    await expect(page.locator('header .bg-card [data-testid="brand-canvas-logo"]')).toHaveCount(0)
+    // The logo keeps the same white plate while live as on every other page.
+    await expect(page.locator('header .bg-card [data-testid="brand-canvas-logo"]')).toHaveCount(1)
   })
 
   test('the question is the avatar transcript, and a user transcript never appears', async ({
@@ -692,12 +716,21 @@ test.describe('captions', () => {
     const overlay = await boxOf(page.getByTestId('call-question'))
     const own = await boxOf(page.locator('[data-slot="call-stage-self"]'))
     const chip = await boxOf(
-      page.locator('[data-slot="avatar-layer"] [data-slot="call-tile-name"]')
+      page.locator(
+        '[data-slot="avatar-layer"] > [data-slot="call-tile"] [data-slot="call-tile-name"]'
+      )
     )
 
     expect(overlay.left).toBeGreaterThanOrEqual(layer.left)
     expect(overlay.bottom).toBeLessThanOrEqual(layer.bottom)
     expect(overlay.right, 'clear of the own tile').toBeLessThanOrEqual(own.left)
+    // The own tile is an overlay INSIDE the interviewer tile, bottom right, with a margin.
+    expect(own.left).toBeGreaterThanOrEqual(layer.left)
+    expect(own.top).toBeGreaterThanOrEqual(layer.top)
+    expect(own.right, 'margin from the right edge').toBeLessThan(layer.right)
+    expect(own.bottom, 'margin from the bottom edge').toBeLessThan(layer.bottom)
+    expect(layer.right - own.right, 'bottom-right corner').toBeLessThan(24)
+    expect(layer.bottom - own.bottom, 'bottom-right corner').toBeLessThan(24)
     expect(overlay.bottom, 'above the name chip').toBeLessThanOrEqual(chip.top)
     await expect(page.getByTestId('call-question-speaker')).toHaveText('AI interviewer:')
   })

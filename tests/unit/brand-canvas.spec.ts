@@ -8,7 +8,7 @@
  * canvas colour itself (`text-primary`). The visuals beyond that are reviewed
  * in screenshots, not asserted.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -129,6 +129,43 @@ describe('BrandCanvas — landmark and surface', () => {
 
   it('renders the tagline in the footer through i18n', () => {
     expect(mountCanvas().get('footer').text()).toContain('shell.tagline')
+  })
+})
+
+describe('BrandCanvas — the privacy policy link in the footer', () => {
+  const POLICY = 'https://demo.beai.quint.org/assets/documents/privacy-policy-2026.01.15.pdf'
+
+  function withPolicyUrl(value: unknown): void {
+    vi.stubGlobal(
+      'useRuntimeConfig',
+      vi.fn(() => ({ public: { apiBase: '', appEnv: 'local', privacyPolicyUrl: value } }))
+    )
+  }
+
+  afterEach(() => withPolicyUrl(''))
+
+  it('links the configured document in a new tab', () => {
+    withPolicyUrl(POLICY)
+    const link = mountCanvas().get('footer a[data-testid="privacy-policy-link"]')
+
+    expect(link.attributes('href')).toBe(POLICY)
+    expect(link.attributes('target')).toBe('_blank')
+    expect(link.attributes('rel')).toBe('noopener noreferrer')
+    expect(link.text()).toBe('shell.privacyPolicy')
+  })
+
+  it.each([
+    ['empty', ''],
+    ['not a string', true],
+    ['plain http', 'http://example.com/policy.pdf'],
+    ['a script', 'javascript:alert(1)'],
+    ['relative', '/policy.pdf'],
+  ])('renders no link when the URL is %s', (_label, value) => {
+    withPolicyUrl(value)
+    const footer = mountCanvas().get('footer')
+
+    expect(footer.find('a').exists()).toBe(false)
+    expect(footer.text()).toContain('shell.tagline')
   })
 })
 
@@ -352,52 +389,28 @@ describe("BrandCanvas — the organization's mark, or ours, but never nothing", 
     expect(wrapper.find('[data-testid="brand-canvas-org"]').exists()).toBe(false)
   })
 
-  describe('the plate opt-out (live-interview-call-chrome, D13)', () => {
+  describe('the logo is always plated (one BrandLogo on every candidate page)', () => {
     const PRIMED = {
       primary_color: '#771aaf',
       logo_url: 'https://cdn.test/acme.png',
       name: null,
     }
 
-    it('renders the logo bare, with no plate element, when plate is false', async () => {
-      useCandidateBranding().prime(PRIMED)
-      const wrapper = mountCanvas({ plate: false })
-      await flushPromises()
-
-      const logo = wrapper.get('[data-testid="brand-canvas-logo"]')
-
-      expect(logo.attributes('src')).toBe('https://cdn.test/acme.png')
-      expect(logo.attributes('alt')).toBe('')
-      // The image sits straight in the header: no wrapper carries the white plate.
-      expect(logo.element.parentElement?.tagName).toBe('HEADER')
-      expect(wrapper.find('header span.bg-card').exists()).toBe(false)
-    })
-
-    it('keeps the plate by default and when plate is explicitly true', async () => {
-      useCandidateBranding().prime(PRIMED)
-
-      for (const props of [{}, { plate: true }]) {
+    it.each([{}, { wide: true }, { surface: false }, { wide: true, surface: false }])(
+      'seats the logo on the white plate with %j',
+      async (props) => {
+        useCandidateBranding().prime(PRIMED)
         const wrapper = mountCanvas(props)
         await flushPromises()
 
         const logo = wrapper.get('[data-testid="brand-canvas-logo"]')
+        expect(logo.attributes('alt')).toBe('')
         expect(logo.element.parentElement?.className).toContain('bg-card')
       }
-    })
+    )
 
-    it('does not compensate a bare logo that shares the canvas colour', async () => {
-      useCandidateBranding().prime({ ...PRIMED, primary_color: '#ffd400' })
-      const wrapper = mountCanvas({ plate: false })
-      await flushPromises()
-
-      const logo = wrapper.get('[data-testid="brand-canvas-logo"]')
-
-      // Shown as supplied: no filter, background or outline invented around it.
-      expect(logo.classes().join(' ')).not.toMatch(/bg-|filter|drop-shadow|outline|ring|border/)
-    })
-
-    it('leaves the BEAI wordmark alone when there is no logo', async () => {
-      const wrapper = mountCanvas({ plate: false })
+    it('keeps the BEAI wordmark when there is no logo', async () => {
+      const wrapper = mountCanvas({ wide: true })
       await flushPromises()
 
       expect(wrapper.get('header').text()).toContain('BEAI')

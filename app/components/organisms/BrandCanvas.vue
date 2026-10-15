@@ -24,45 +24,7 @@
     <header
       :class="`mx-auto flex w-full ${wide ? 'max-w-[96rem]' : 'max-w-6xl'} items-center gap-4 px-4 pt-6 lg:px-10`"
     >
-      <!--
-        The client's mark sits on a white plate, never straight on the canvas:
-        the most common logo file there is, the brand colour on a transparent
-        background, would vanish into a canvas of that same colour.
-
-        `alt=""`: the organization name beside it is the accessible text, and
-        repeating it would make a screen reader say the name twice. With no
-        name it stays decoration on purpose (notice-shell.spec.ts): the
-        candidate already knows whose assessment they are taking.
-      -->
-      <!--
-        The hairline edge is for the light logo on a light canvas: a yellow mark
-        on a white plate on a yellow page had nothing to sit on.
-      -->
-      <span
-        v-if="logoUrl && plate"
-        class="inline-flex shrink-0 items-center rounded-lg border border-border bg-card px-4 py-2.5 shadow-sm"
-      >
-        <img
-          :src="logoUrl"
-          alt=""
-          data-testid="brand-canvas-logo"
-          class="h-8 w-auto max-w-[10rem] object-contain"
-        />
-      </span>
-      <!--
-        No plate (the live call screen only, DESIGN.md §7.3): the mark is shown as the
-        organization supplied it, with nothing invented around it, even when it shares the
-        canvas colour. The pre-interview pages keep the plate above.
-      -->
-      <img
-        v-else-if="logoUrl"
-        :src="logoUrl"
-        alt=""
-        data-testid="brand-canvas-logo"
-        class="h-8 w-auto max-w-[10rem] shrink-0 object-contain"
-      />
-      <!-- Ours when the organization configured none: never nothing (CLAUDE.md ruling 9). -->
-      <p v-else class="text-lg leading-none font-semibold tracking-[0.3em]">BEAI</p>
+      <BrandLogo :logo-url="logoUrl" />
 
       <template v-if="organizationName">
         <span aria-hidden="true" class="h-6 w-px shrink-0 bg-current opacity-40" />
@@ -105,15 +67,26 @@
 
     <footer
       v-if="footer"
-      class="mx-auto w-full max-w-6xl px-4 pb-6 text-sm text-on-primary-muted lg:px-10"
+      class="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 pb-6 text-sm text-on-primary-muted lg:px-10"
     >
-      {{ $t('shell.tagline') }}
+      <span>{{ $t('shell.tagline') }}</span>
+      <a
+        v-if="privacyPolicyUrl"
+        :href="privacyPolicyUrl"
+        target="_blank"
+        rel="noopener noreferrer"
+        data-testid="privacy-policy-link"
+        class="text-on-primary underline underline-offset-4"
+      >
+        {{ $t('shell.privacyPolicy') }}
+      </a>
     </footer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
+import BrandLogo from '~/components/molecules/BrandLogo.vue'
 import { useCandidateBranding } from '~/app/composables/useCandidateBranding'
 
 /**
@@ -165,11 +138,6 @@ const props = withDefaults(
      * exactly what they have always been.
      */
     wide?: boolean
-    /**
-     * Seat the logo on the white plate. Only the live call screen turns it off, so the
-     * mark sits bare on the canvas next to the call controls; every other page keeps it.
-     */
-    plate?: boolean
   }>(),
   {
     headingId: undefined,
@@ -179,11 +147,27 @@ const props = withDefaults(
     footer: true,
     ariaLabel: undefined,
     wide: false,
-    plate: true,
   }
 )
 
 const { logoUrl, organizationName, ensureLoaded } = useCandidateBranding()
+
+/**
+ * The privacy policy document (env NUXT_PUBLIC_PRIVACY_POLICY_URL). It ends up in
+ * an `href`, so only an absolute `https:` URL is linked; anything else renders no link.
+ */
+const privacyPolicyUrl = computed((): string | null => {
+  const configured = (useRuntimeConfig().public as Record<string, unknown>).privacyPolicyUrl
+  if (typeof configured !== 'string') return null
+
+  try {
+    const url = new URL(configured.trim())
+
+    return url.protocol === 'https:' && url.hostname !== '' ? url.href : null
+  } catch {
+    return null
+  }
+})
 
 onMounted(() => {
   if (props.loadBranding) void ensureLoaded()

@@ -24,14 +24,13 @@ const Layer = defineComponent({
   },
 })
 
-function mountStage(props: { live: boolean; embedded?: boolean }, withSelf = true) {
+function mountStage(props: { live: boolean; embedded?: boolean }) {
   mounts = 0
   return mount(CallStage, {
     props,
     slots: {
       layer: ({ live }: { live: boolean }) => h(Layer, { live }),
       panel: () => h('div', { 'data-testid': 'p' }, 'panel'),
-      ...(withSelf ? { self: () => h('div', { 'data-testid': 's' }, 'self') } : {}),
     },
   })
 }
@@ -43,7 +42,6 @@ describe('CallStage', () => {
 
     expect(layout.find('[data-slot="avatar-layer"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="p"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="s"]').exists()).toBe(false)
     // Not live: no box of its own, so the layer lays out exactly as it did without the stage.
     expect(layout.classes()).toContain('contents')
 
@@ -52,7 +50,6 @@ describe('CallStage', () => {
     expect(layout.classes()).toContain('grid')
     expect(layout.classes()).not.toContain('contents')
     expect(wrapper.find('[data-testid="p"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="s"]').exists()).toBe(true)
   })
 
   it('makes every stage part a sibling of the layer inside the layout', () => {
@@ -61,7 +58,7 @@ describe('CallStage', () => {
     const layer = layout.querySelector('[data-slot="avatar-layer"]')!
 
     expect(layer.parentElement).toBe(layout)
-    for (const id of ['p', 's']) {
+    for (const id of ['p']) {
       expect(wrapper.get(`[data-testid="${id}"]`).element.parentElement!.parentElement).toBe(layout)
     }
   })
@@ -94,8 +91,8 @@ describe('CallStage', () => {
     expect(wrapper.get('[data-slot="call-layout"]').attributes('class')).not.toMatch(/question/)
   })
 
-  it('draws no own-camera cell when no self slot is given', () => {
-    const wrapper = mountStage({ live: true }, false)
+  it('draws no own-camera cell: the own tile is an overlay inside the layer, not a stage part', () => {
+    const wrapper = mountStage({ live: true })
 
     expect(wrapper.find('[data-slot="call-stage-self"]').exists()).toBe(false)
   })
