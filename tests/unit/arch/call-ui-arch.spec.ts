@@ -325,6 +325,16 @@ describe('call screen: the captions overlay lives inside the avatar layer', () =
     expect(layerAncestors.some((n) => n.tag === 'CallStage')).toBe(true)
   })
 
+  it('has the own tile inside the avatar layer, so it can only ever overlay the video', () => {
+    const found: Node[][] = []
+    walk(root(), (n, ancestors) => {
+      if (n.tag === 'CallSelfView') found.push(ancestors)
+    })
+
+    expect(found).toHaveLength(1)
+    expect(found[0]!.some(isAvatarLayer)).toBe(true)
+  })
+
   it('no #question slot remains: not in the page, not in the stage', () => {
     const page = stripComments(read(join(APP_ROOT, 'components/InterviewSession.vue')))
     const stage = stripComments(read(join(APP_ROOT, 'components/organisms/CallStage.vue')))

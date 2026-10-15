@@ -1050,6 +1050,24 @@ describe('InterviewSession — the tile names and the candidate ring', () => {
     expect(ownTile(wrapper).attributes('data-name')).toBe('')
   })
 
+  it('overlays the own tile inside the interviewer layer, bottom right, with a margin', async () => {
+    const { wrapper } = await mountLive({ stream: fakeStream() })
+    const self = wrapper.get('[data-slot="avatar-layer"] [data-slot="call-stage-self"]')
+
+    expect(self.classes()).toEqual(
+      expect.arrayContaining(['absolute', 'bottom-3', 'right-3', 'z-10', 'pointer-events-none'])
+    )
+    expect(self.classes().join(' ')).toContain('w-[clamp(9rem,18%,14rem)]')
+  })
+
+  it('draws no own tile without a confirmed stream, nor before the call is live', async () => {
+    const noStream = await mountLive()
+    expect(noStream.wrapper.find('[data-slot="call-stage-self"]').exists()).toBe(false)
+
+    const consent = await mountLive({ begin: false, stream: fakeStream() })
+    expect(consent.wrapper.find('[data-slot="call-stage-self"]').exists()).toBe(false)
+  })
+
   it('falls back to "You" on the real own tile when the name is missing', async () => {
     serveOutline(outlineOf({ candidate_name: null }))
     const { wrapper } = await mountLive({ stream: fakeStream(), stubs: { CallSelfView: false } })
@@ -1214,18 +1232,16 @@ describe('InterviewSession — the stage', () => {
   it('renders the stage parts, with the captions overlay inside the player layer', async () => {
     const { wrapper } = await mountLive({ stream: fakeStream() })
 
+    // The captions and the own tile are overlays inside the player layer.
     expect(layer(wrapper).contains(wrapper.get('[data-testid="call-question"]').element)).toBe(true)
-    const parts = {
-      panel: wrapper.get('[data-testid="call-panel"]').element,
-      own: wrapper.get('[data-testid="call-self-view"]').element,
-    }
-    // Siblings of the player layer: each one is a grid child of the same layout.
+    expect(layer(wrapper).contains(wrapper.get('[data-testid="call-self-view"]').element)).toBe(
+      true
+    )
+    // The panel is a sibling of the player layer: a grid child of the same layout.
     expect(layer(wrapper).parentElement).toBe(layout(wrapper))
-    for (const part of Object.values(parts)) {
-      const cell = gridChildOf(wrapper, part)
-      expect(cell).not.toBeNull()
-      expect(cell).not.toBe(layer(wrapper))
-    }
+    const cell = gridChildOf(wrapper, wrapper.get('[data-testid="call-panel"]').element)
+    expect(cell).not.toBeNull()
+    expect(cell).not.toBe(layer(wrapper))
   })
 
   it('puts the help link in the panel and the timer in the panel only; Exit is in the header', async () => {

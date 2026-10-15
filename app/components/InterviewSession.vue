@@ -134,6 +134,26 @@
             :speaker-name="interviewerName"
             :visible="captionsEnabled"
           />
+          <!--
+            The candidate's own tile: an overlay INSIDE the interviewer tile, bottom right, with a
+            margin. Anchored to the layer (not to a grid cell), so a row taller than the 16:9 tile
+            cannot drop it below the video. Its width resolves against the layer, which is the
+            width the captions inset (CallQuestion) reserves. Inert: it never takes a click or focus.
+          -->
+          <div
+            v-if="live && confirmedStream"
+            data-slot="call-stage-self"
+            class="pointer-events-none absolute right-3 bottom-3 z-10 w-[clamp(9rem,18%,14rem)]"
+          >
+            <ClientOnly>
+              <CallSelfView
+                :stream="confirmedStream"
+                :speaking-label="$t('interview.call.candidate_speaking')"
+                :name="candidateName"
+                :speaking="speaker === 'candidate' && !session.micMuted.value"
+              />
+            </ClientOnly>
+          </div>
         </div>
       </template>
 
@@ -158,17 +178,6 @@
             <CallHelpLink />
           </template>
         </CallPanel>
-      </template>
-
-      <template v-if="confirmedStream" #self>
-        <ClientOnly>
-          <CallSelfView
-            :stream="confirmedStream"
-            :speaking-label="$t('interview.call.candidate_speaking')"
-            :name="candidateName"
-            :speaking="speaker === 'candidate' && !session.micMuted.value"
-          />
-        </ClientOnly>
       </template>
     </CallStage>
 

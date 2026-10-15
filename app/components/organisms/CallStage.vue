@@ -27,19 +27,6 @@
       >
         <slot name="panel" />
       </div>
-      <!--
-        The candidate's own tile shares the layer's grid cell, bottom right. A
-        percentage width resolves against that cell, so the tile scales with the
-        interviewer tile and is clamped to 9-14rem. Inert: it must never take a
-        click or the focus.
-      -->
-      <div
-        v-if="$slots.self"
-        data-slot="call-stage-self"
-        class="pointer-events-none relative z-10 m-3 w-[clamp(9rem,18%,14rem)] place-self-end [grid-area:layer]"
-      >
-        <slot name="self" />
-      </div>
     </template>
   </div>
 </template>
@@ -52,8 +39,8 @@
  * Presentational: it places what it is given and owns no signal.
  *
  * Props:
- *   live     — the interview is live and its avatar is mounted. The side panel and
- *              the own tile exist only then.
+ *   live     — the interview is live and its avatar is mounted. The side panel exists
+ *              only then.
  *   embedded — rendered inside the host's iframe. The stage is then width-driven
  *              only: no viewport-height unit (`vh`, `dvh`, `svh`) appears anywhere,
  *              because the host sizes the iframe from the height we report, and a
@@ -62,8 +49,8 @@
  * Slots:
  *   layer    — the player mount layer, scoped with `{ live }` so the layer can swap
  *              its classes. It MUST be rendered into this slot in every state.
- *   panel, self — the stage parts, rendered while `live`. There is no question slot:
- *              the written question is the captions overlay inside the layer.
+ *   panel    — the side panel, rendered while `live`. There is no question or own-tile
+ *              slot: the captions and the candidate's own tile are overlays inside the layer.
  *
  * Hosted, the stage's width is capped so the whole stage fits the viewport height
  * (no vertical scroll at 1280x800, 1440x900 or 1920x1080): the tile is 16:9, so its
