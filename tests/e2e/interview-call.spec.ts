@@ -54,6 +54,11 @@ interface CallApi {
   startNextWith: (sessionId: number, competency: string) => void
   /** The next call to this endpoint answers 500, once; the counters still count it. */
   failNext: (endpoint: 'start' | 'suspend') => void
+  /**
+   * Hold every `/start` from now on until the returned function is called, so the boundary's
+   * forced-mute window stays open long enough to be observed instead of raced.
+   */
+  holdStart: () => () => void
 }
 
 /** The branded interview routes, the call-screen media, and the counters the specs read. */
@@ -67,6 +72,7 @@ async function mockCallApi(page: Page, primaryColor: string | null = '#771aaf'):
   const calls: string[] = []
   const failing = new Set<'start' | 'suspend'>()
   let next = startResponse(1, 'COM')
+  let startGate: Promise<void> | null = null
 
   /** A 500 for an endpoint armed with `failNext`, consumed by the call that gets it. */
   const failure = (endpoint: 'start' | 'suspend') => {
@@ -79,9 +85,10 @@ async function mockCallApi(page: Page, primaryColor: string | null = '#771aaf'):
   }
 
   // LIFO: registered after the branded fixture's own /start, so these answer.
-  await page.route('**/api/candidate/interview/start', (route) => {
+  await page.route('**/api/candidate/interview/start', async (route) => {
     starts += 1
     calls.push('start')
+    await startGate
     const failed = failure('start')
     if (failed) return route.fulfill(failed)
     return route.fulfill({
@@ -125,6 +132,14 @@ async function mockCallApi(page: Page, primaryColor: string | null = '#771aaf'):
     },
     failNext: (endpoint) => {
       failing.add(endpoint)
+    },
+    holdStart: () => {
+      let release!: () => void
+      startGate = new Promise<void>((resolve) => (release = resolve))
+      return () => {
+        startGate = null
+        release()
+      }
     },
   }
 }
@@ -592,9 +607,13 @@ test.describe('the call stage (the default live interview)', () => {
     const mic = page.getByTestId('call-header-mic')
     await expect(mic).toHaveAttribute('aria-pressed', 'true')
 
-    // Open: the boundary mutes it for its duration and gives it back as it was.
+    // Open: the boundary mutes it for its duration and gives it back as it was. The /start is
+    // held so the forced-mute window is observed (disabled), not raced past.
+    const releaseFirst = api.holdStart()
     api.startNextWith(2, 'COL')
     await drive(page, 'emitEndPhrase')
+    await expect(mic).toHaveAttribute('aria-disabled', 'true', { timeout: 15000 })
+    releaseFirst()
     await expect.poll(() => api.starts(), { timeout: 15000 }).toBe(2)
     await expect(mic).not.toHaveAttribute('aria-disabled', 'true', { timeout: 15000 })
     await expect(mic).toHaveAttribute('aria-pressed', 'true')
@@ -604,8 +623,11 @@ test.describe('the call stage (the default live interview)', () => {
     // Muted by the candidate: still muted, still pressed-off, after the next boundary.
     await mic.click()
     await expect(mic).toHaveAttribute('aria-pressed', 'false')
+    const releaseSecond = api.holdStart()
     api.startNextWith(3, 'LRN')
     await drive(page, 'emitEndPhrase')
+    await expect(mic).toHaveAttribute('aria-disabled', 'true', { timeout: 15000 })
+    releaseSecond()
     await expect.poll(() => api.starts(), { timeout: 15000 }).toBe(3)
     await expect(mic).not.toHaveAttribute('aria-disabled', 'true', { timeout: 15000 })
     await expect(mic).toHaveAttribute('aria-pressed', 'false')
