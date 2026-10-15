@@ -58,10 +58,11 @@ const REQUIRED_KEYS = [
   'interview.call.panel_label',
   'interview.call.path.label',
   'interview.call.path.progress',
-  'interview.call.duration_label',
-  'interview.call.duration_value',
-  'interview.call.duration_sr',
-  'interview.call.question_timer_label',
+  'interview.call.duration.label',
+  'interview.call.duration.value',
+  'interview.call.duration.sr',
+  'interview.call.duration.remaining',
+  'interview.call.remaining_label',
   // candidate-interview-call-ui UI-08 — the audio/video help link and its
   // visually hidden new-tab note.
   'interview.call.help.label',

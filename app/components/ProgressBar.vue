@@ -19,7 +19,7 @@
       :aria-valuemin="0"
       :aria-valuemax="total"
       :aria-valuetext="valueText"
-      :aria-label="$t('interview.progress.label')"
+      :aria-label="label ?? $t('interview.progress.label')"
       class="h-2 overflow-hidden rounded-full bg-secondary"
       :class="compact ? 'w-24' : 'w-full'"
     >
@@ -53,6 +53,8 @@
  *   valueText — human-readable `aria-valuetext` for the bar, so a screen reader
  *             hears "Domanda 2 di 5" rather than a bare number. Omitted by
  *             default, in which case no attribute is rendered.
+ *   label     — accessible name of the bar. Omitted: "Avanzamento del colloquio". A screen
+ *             with two bars (the call panel's path and duration) names each one.
  *
  * Always drawn on a white surface (the pause card or the header pill), so the
  * card text tokens apply. Accessible: role="progressbar" with
@@ -67,8 +69,9 @@ const props = withDefaults(
     compact?: boolean
     hideCounts?: boolean
     valueText?: string
+    label?: string
   }>(),
-  { compact: false, hideCounts: false, valueText: undefined }
+  { compact: false, hideCounts: false, valueText: undefined, label: undefined }
 )
 
 const percentage = computed(() => {
