@@ -148,6 +148,10 @@
           :max-seconds="session.interviewMaxSeconds.value"
           :storyboard="storyboard"
           :primary-index="session.primaryIndex.value"
+          :answer-seconds="answerTimer.seconds.value"
+          :answer-phase="answerTimer.phase.value"
+          :mic-muted="session.micMuted.value"
+          :budget="budget"
           @tick="interviewRemaining = $event"
           @expired="onTimerExpired"
         >
@@ -576,6 +580,8 @@ import CallTile from '~/components/molecules/CallTile.vue'
 import CallHeader from '~/components/organisms/CallHeader.vue'
 import CallPanel from '~/components/organisms/CallPanel.vue'
 import { useInterviewOutline } from '~/composables/useInterviewOutline'
+import { useAnswerTimer } from '~/composables/useAnswerTimer'
+import { answerBudget } from '~/app/utils/answer-budget'
 import { useCaptionsPreference } from '~/composables/useCaptionsPreference'
 import CallStage from '~/components/organisms/CallStage.vue'
 import InterviewGuide from '~/components/molecules/InterviewGuide.vue'
@@ -912,6 +918,26 @@ const callTitle = computed(() => {
     ? t('interview.call.header.title_with_subject', { subject })
     : t('interview.call.header.title')
 })
+
+/**
+ * The answer timer: counts from the moment the interviewer stops speaking and runs through the
+ * candidate's answer (D10). It reads the speaker signal only, never the microphone, so muting
+ * changes nothing here, and it never drives `/end`.
+ */
+const answerTimer = useAnswerTimer({
+  speaker,
+  sessionId: computed(() => session.sessionId.value ?? null),
+  live: () => session.state.value === 'live',
+})
+
+/**
+ * The suggested answer length: the server's interview limit split across every scripted primary
+ * question. `null` (no bar) until BOTH inputs exist; the client's 300 s countdown seed is never
+ * an input.
+ */
+const budget = computed(() =>
+  answerBudget(session.interviewMaxSeconds.value, outlineApi.outline.value?.primary_total_all)
+)
 
 /** Whole seconds of live interview time, for "03:12 / 25:00". It stops while suspended. */
 const interviewClock = useInterviewClock({ isRunning: () => session.state.value === 'live' })
