@@ -2,7 +2,7 @@
   <aside
     data-testid="call-panel"
     aria-labelledby="call-panel-title"
-    class="brand-canvas__surface flex flex-row flex-wrap items-center gap-x-8 gap-y-4 rounded-surface bg-card p-6 text-card-foreground shadow-surface xl:min-h-0 xl:flex-1 xl:flex-col xl:flex-nowrap xl:items-stretch xl:gap-5"
+    class="brand-canvas__surface flex flex-row flex-wrap items-center gap-x-8 gap-y-4 rounded-surface bg-card p-6 text-card-foreground shadow-surface xl:min-h-0 xl:flex-1 xl:flex-col xl:flex-nowrap xl:overflow-y-auto xl:items-stretch xl:gap-5"
   >
     <p
       id="call-panel-title"

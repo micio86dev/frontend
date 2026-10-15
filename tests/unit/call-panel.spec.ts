@@ -672,7 +672,7 @@ describe('CallPanel - the panel fills the stage cell and the path scrolls inside
     const wrapper = mountPanel({ ...TWENTY, storyboard: [item(1, 'A', 'current')] })
 
     expect(wrapper.get('aside').classes()).toEqual(
-      expect.arrayContaining(['xl:min-h-0', 'xl:flex-1'])
+      expect.arrayContaining(['xl:min-h-0', 'xl:flex-1', 'xl:overflow-y-auto'])
     )
     expect(wrapper.get('[data-testid="call-panel-path"]').classes()).toEqual(
       expect.arrayContaining(['min-h-0', 'xl:flex-1'])
