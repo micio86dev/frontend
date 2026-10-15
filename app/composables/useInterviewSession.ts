@@ -912,7 +912,11 @@ export function useInterviewSession(
     try {
       await candidateFetch('/candidate/interview/integrity', { method: 'POST', body })
     } catch {
-      flushIntegrityKeepalive(body)
+      try {
+        flushIntegrityKeepalive(body)
+      } catch {
+        // Best effort: a refused fallback must not reject this flush, or every later end waits on it.
+      }
     }
   }
 
@@ -933,6 +937,8 @@ export function useInterviewSession(
 
   function attachResizeListener() {
     if (typeof window === 'undefined') return
+    // Live again (first connect, or a resume on the same row): the periodic flush addresses it.
+    endingSessionId = null
     startIntegrityTimer()
 
     resizeListener = () => {

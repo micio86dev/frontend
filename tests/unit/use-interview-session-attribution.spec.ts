@@ -778,6 +778,43 @@ describe('useInterviewSession — integrity events reach the row they belong to 
     expect(integritySessionIds()).toEqual([])
   })
 
+  it('after a pause and a resume on the same row, the periodic flush addresses it again', async () => {
+    const buf = drainingBuffer()
+    const session = await liveSession(buf.options)
+    session.pause()
+    await flush()
+    expect(session.state.value).toBe('paused')
+
+    mockCandidateFetch.mockResolvedValueOnce(startResponse(A, 'tavus'))
+    session.resume()
+    await flush()
+    providers.at(-1)!._emit('state', 'ready')
+    await flush()
+    expect(session.state.value).toBe('live')
+
+    buf.push(event(1))
+    await vi.advanceTimersByTimeAsync(FLUSH_INTERVAL_MS)
+
+    expect(integritySessionIds()).toEqual([A])
+  })
+
+  it('a throwing keepalive transport never rejects the flush or blocks /end', async () => {
+    const buf = drainingBuffer()
+    const session = await liveSession(buf.options)
+    buf.push(event(1))
+    mockFlushIntegrityKeepalive.mockImplementation(() => {
+      throw new Error('keepalive refused')
+    })
+    mockCandidateFetch.mockImplementation(async (path: string) => {
+      if (path === INTEGRITY) throw new Error('offline')
+      return path === '/candidate/interview/end' ? { next_action: 'done' } : undefined
+    })
+
+    await session.endQuestion('timeout')
+
+    expect(callsTo('/candidate/interview/end')).toHaveLength(1)
+  })
+
   it('a failed integrity request falls back to keepalive once, to the same row, and /end still runs', async () => {
     const buf = drainingBuffer()
     const session = await liveSession(buf.options)
