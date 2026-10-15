@@ -98,7 +98,7 @@
  * `handle.providerName === 'heygen'`.
  */
 
-import { ref, shallowRef, computed, readonly, type ComputedRef, type Ref } from 'vue'
+import { ref, shallowRef, computed, readonly, watch, type ComputedRef, type Ref } from 'vue'
 import { createProvider } from '~/app/providers/factory'
 import { effectiveViewportWidth } from '~/app/utils/browser-gate'
 import { interviewMaxSecondsFrom } from '~/app/utils/interview-max-seconds'
@@ -291,10 +291,18 @@ export interface UseInterviewSessionReturn {
   terminalReason: Ref<TerminalReason | null>
   /** DB session id from the latest /start response — null until the first /start succeeds. */
   sessionId: Ref<number | null>
+  /**
+   * Distinct scripted primary questions asked in the current competency session, from the latest
+   * /utterance 202 of the current session. Null until one is answered, and again after a new /start
+   * or a session change.
+   */
+  primaryIndex: Readonly<Ref<number | null>>
   /** Competencies ended so far, from the /end directive. Null until the first /end. */
   endedCompetencies: Ref<number | null>
-  /** Total competencies in the project, from the /end directive. */
+  /** Total competencies in the project: seeded by /start, then confirmed by every /end directive. */
   totalCompetencies: Ref<number | null>
+  /** 1-based position of the competency now being interviewed, from /start. Null until one names it. */
+  competencyOrdinal: Readonly<Ref<number | null>>
   /** The interview's total time limit from the active template, once a start response has named it. */
   interviewMaxSeconds: Ref<number | null>
   /** Set once the whole interview's time is spent: the question in progress finishes, and the server settles the interview. */
@@ -598,9 +606,13 @@ export function useInterviewSession(
   const currentCompetencyIndex = ref(0)
   const terminalReason = ref<TerminalReason | null>(null)
   const sessionId = ref<number | null>(null)
+  const primaryIndex = ref<number | null>(null)
+  // Sync, so a 202 landing right after the swap cannot be wiped by a watcher that flushes late.
+  watch(sessionId, () => (primaryIndex.value = null), { flush: 'sync' })
   /** Server-fed progress (D6/D7). Never derived here — deriving it is the defect. */
   const endedCompetencies = ref<number | null>(null)
   const totalCompetencies = ref<number | null>(null)
+  const competencyOrdinal = ref<number | null>(null)
   /** The interview's total time limit from the active template, once a start response has named it. */
   const interviewMaxSeconds = ref<number | null>(null)
   /** Set once the whole interview's time is spent: the question in progress finishes, and nothing after it starts. */
@@ -872,6 +884,22 @@ export function useInterviewSession(
     }
   }
 
+  /**
+   * Keeps the 202's `primary_index` only for a line that belongs to the session now current: a
+   * late answer for the outgoing row must not overwrite the incoming one's count. A response
+   * missing the field leaves the value alone.
+   */
+  function recordPrimaryIndex(dbSessionId: number, body: UtteranceResponse | undefined) {
+    if (dbSessionId === sessionId.value && typeof body?.primary_index === 'number') {
+      primaryIndex.value = body.primary_index
+    }
+  }
+
+  /** A count the server stated: a finite number above zero. Anything else is treated as not stated. */
+  function isPositiveNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0
+  }
+
   /** A send that failed for a reason worth trying again: no response at all, a 5xx, or a 429. */
   function isRetryableUtteranceError(err: unknown): boolean {
     const status =
@@ -890,6 +918,7 @@ export function useInterviewSession(
         method: 'POST',
         body: { session_id: dbSessionId, speaker, text, ts },
       })
+      recordPrimaryIndex(dbSessionId, body)
       // The server says the competency's turn budget is met: close it, but only for the live session.
       if (body?.boundary_due === true && activeSession.value?.attribution.current === dbSessionId) {
         void assertBoundary('completed')
@@ -989,6 +1018,7 @@ export function useInterviewSession(
         method: 'POST',
         body: { session_id: dbSessionId, speaker, text, ts: item.ts },
       })
+      recordPrimaryIndex(dbSessionId, body)
       return body?.boundary_due === true
     } catch (err) {
       // 401 → the stored session has already expired or been cleared (candidateFetch clears it
@@ -1779,13 +1809,21 @@ export function useInterviewSession(
       // D4: end_phrase and final_phrase come from NESTED question_context — NOT top-level
       const { end_phrase, final_phrase } = response.question_context
       const dbSessionId = Number(response.session_id)
+      // A new /start opens a competency session whose primaries have not been asked yet.
+      primaryIndex.value = null
       const providerName = response.provider as ProviderName
       // `question_index` is deliberately NOT stored: it was only ever read to
       // derive last-competency detection, which the server owns now. It also
       // carries a pre-existing off-by-one (-1 on the first competency of every
       // project, because `position` is written 0-based while the query subtracts
       // one), so keeping it around invites someone to compute progress from it.
-      // `competency_ordinal` is the field to trust.
+      // `competency_ordinal` is the field to trust, and it is stored now (with the
+      // total) so the panel can read "competency n of N" from the first competency.
+      // `endedCompetencies` is NOT touched here: it stays /end-only, because it also
+      // decides whether a competency has run.
+      const { competency_ordinal, total_competencies } = response.question_context
+      if (isPositiveNumber(total_competencies)) totalCompetencies.value = total_competencies
+      if (isPositiveNumber(competency_ordinal)) competencyOrdinal.value = competency_ordinal
 
       const startConfig: StartConfig = {
         dbSessionId,
@@ -2144,8 +2182,10 @@ export function useInterviewSession(
     currentCompetencyIndex,
     terminalReason,
     sessionId,
+    primaryIndex: readonly(primaryIndex),
     endedCompetencies,
     totalCompetencies,
+    competencyOrdinal: readonly(competencyOrdinal),
     interviewMaxSeconds,
     interviewBudgetSpent,
     pendingUtterances,

@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { nextTick } from 'vue'
+import { nextTick, watch } from 'vue'
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks — must be defined before any other imports using vi.hoisted
@@ -155,6 +155,8 @@ function makeStartResponse(
     competency_code?: string
     provider?: string
     session_id?: number
+    competency_ordinal?: unknown
+    total_competencies?: unknown
   } = {}
 ) {
   return {
@@ -172,6 +174,13 @@ function makeStartResponse(
       question_index: overrides.question_index ?? 0,
       end_phrase: overrides.end_phrase ?? 'Passiamo alla prossima domanda.',
       final_phrase: overrides.final_phrase ?? 'Grazie per il tuo tempo.',
+      // Sent only when a test names them: an absent field must stay representable.
+      ...('competency_ordinal' in overrides
+        ? { competency_ordinal: overrides.competency_ordinal }
+        : {}),
+      ...('total_competencies' in overrides
+        ? { total_competencies: overrides.total_competencies }
+        : {}),
     },
   }
 }
@@ -2610,5 +2619,281 @@ describe('useInterviewSession', () => {
       // gated on a promise settling.
       expect(flushed).toHaveLength(1)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// primaryIndex (live-interview-call-chrome, T-B1.4): how many distinct scripted primary
+// questions the interviewer has asked in the current competency, from the /utterance 202.
+// Only the live session's lines may move it; a new /start or a session change clears it.
+// ---------------------------------------------------------------------------
+
+describe('primaryIndex', () => {
+  /** Answers every /utterance with a 202 carrying `primaryIndex` (omitted when undefined). */
+  function utteranceReplies(primaryIndex?: number) {
+    mockCandidateFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === '/candidate/interview/utterance'
+          ? {
+              boundary_due: false,
+              ...(primaryIndex === undefined ? {} : { primary_index: primaryIndex }),
+            }
+          : undefined
+      )
+    )
+  }
+
+  const say = (provider: ReturnType<typeof createMockProvider>, text = 'Una risposta') =>
+    provider._emit('transcript', { role: 'user', text, ts: Date.now() })
+
+  it('is null before any utterance has been answered', async () => {
+    const session = await createLiveSession()
+
+    expect(session.primaryIndex.value).toBeNull()
+  })
+
+  it('is set from the 202 of a line sent for the live session', async () => {
+    const session = await createLiveSession()
+    utteranceReplies(2)
+
+    say(currentMockProvider)
+    await flushPromises()
+
+    expect(session.primaryIndex.value).toBe(2)
+  })
+
+  it('follows the latest 202 (2, then 3)', async () => {
+    const session = await createLiveSession()
+    utteranceReplies(2)
+    say(currentMockProvider)
+    await flushPromises()
+
+    utteranceReplies(3)
+    say(currentMockProvider, 'Un altro pezzo')
+    await flushPromises()
+
+    expect(session.primaryIndex.value).toBe(3)
+  })
+
+  it('is set from the 202 of a line re-sent from the outbox after a network failure', async () => {
+    const session = await createLiveSession()
+    mockCandidateFetch.mockRejectedValueOnce(makeFetchError(503))
+    say(currentMockProvider)
+    await flushPromises()
+    expect(session.primaryIndex.value).toBeNull()
+
+    utteranceReplies(4)
+    await vi.advanceTimersByTimeAsync(3_000)
+    await flushPromises()
+
+    expect(session.primaryIndex.value).toBe(4)
+  })
+
+  it('stays null when the 202 carries no primary_index (an older API)', async () => {
+    const session = await createLiveSession()
+    utteranceReplies(undefined)
+
+    say(currentMockProvider)
+    await flushPromises()
+
+    expect(session.primaryIndex.value).toBeNull()
+  })
+
+  it('keeps its value when a later line is refused with 409', async () => {
+    const session = await createLiveSession()
+    utteranceReplies(2)
+    say(currentMockProvider)
+    await flushPromises()
+
+    mockCandidateFetch.mockReset()
+    mockCandidateFetch.mockRejectedValueOnce(makeFetchError(409))
+    say(currentMockProvider, 'Troppo tardi')
+    await flushPromises()
+
+    expect(session.primaryIndex.value).toBe(2)
+  })
+
+  it('ignores the 202 of a line that belongs to a session that is no longer current', async () => {
+    const session = await createLiveSession()
+    const outgoing = mockProviderRegistry[0]!
+    mockCandidateFetch.mockResolvedValueOnce({
+      ended_competencies: 1,
+      total_competencies: 3,
+      next_action: 'continue',
+    })
+    mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: 99 }))
+    outgoing._emit('state', 'complete')
+    await flushPromises()
+
+    // The outgoing's tail line (row 42) is still in flight when the incoming (row 99) takes over.
+    let settleTail!: (body: unknown) => void
+    mockCandidateFetch.mockReturnValueOnce(new Promise((resolve) => (settleTail = resolve)))
+    say(outgoing, 'La coda')
+    await flushPromises()
+
+    session.notifyPainted(99)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await flushPromises()
+    expect(session.sessionId.value).toBe(99)
+
+    settleTail({ boundary_due: false, primary_index: 3 })
+    await flushPromises()
+
+    expect(session.primaryIndex.value).toBeNull()
+  })
+
+  it('applies the 202 of the outgoing session while it is still the current one, then clears it on the swap', async () => {
+    const session = await createLiveSession()
+    const outgoing = mockProviderRegistry[0]!
+    mockCandidateFetch.mockResolvedValueOnce({
+      ended_competencies: 1,
+      total_competencies: 3,
+      next_action: 'continue',
+    })
+    mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: 99 }))
+    outgoing._emit('state', 'complete')
+    await flushPromises()
+    expect(session.sessionId.value).toBe(42)
+
+    utteranceReplies(3)
+    say(outgoing, 'Ancora sulla riga 42')
+    await flushPromises()
+    expect(session.primaryIndex.value).toBe(3)
+
+    session.notifyPainted(99)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await flushPromises()
+
+    expect(session.sessionId.value).toBe(99)
+    expect(session.primaryIndex.value).toBeNull()
+  })
+
+  it('is cleared as soon as a new /start succeeds', async () => {
+    const session = await createLiveSession()
+    utteranceReplies(2)
+    say(currentMockProvider)
+    await flushPromises()
+    expect(session.primaryIndex.value).toBe(2)
+
+    mockCandidateFetch.mockReset()
+    mockCandidateFetch.mockResolvedValueOnce({
+      ended_competencies: 1,
+      total_competencies: 3,
+      next_action: 'continue',
+    })
+    mockCandidateFetch.mockResolvedValueOnce(makeStartResponse({ session_id: 99 }))
+    mockProviderRegistry[0]!._emit('state', 'complete')
+    await flushPromises()
+
+    // The incoming exists but has not taken over yet: sessionId is still 42.
+    expect(session.sessionId.value).toBe(42)
+    expect(session.primaryIndex.value).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Competency total and ordinal seeded from /start (live-interview-call-chrome, T-B1.5, M1):
+// the panel reads "competency n of N" from the first competency, so the total cannot wait for
+// the first /end. `endedCompetencies` stays /end-only: it feeds hasRunACompetency.
+// ---------------------------------------------------------------------------
+
+describe('competency total and ordinal from /start', () => {
+  async function startWith(overrides: Parameters<typeof makeStartResponse>[0]) {
+    const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+    session.acceptConsent()
+    mockCandidateFetch.mockResolvedValueOnce(makeStartResponse(overrides))
+    session.confirmDevices()
+    await flushPromises()
+    return session
+  }
+
+  it('seeds totalCompetencies and competencyOrdinal while endedCompetencies stays null', async () => {
+    const session = await startWith({ total_competencies: 5, competency_ordinal: 3 })
+
+    expect(session.totalCompetencies.value).toBe(5)
+    expect(session.competencyOrdinal.value).toBe(3)
+    expect(session.endedCompetencies.value).toBeNull()
+  })
+
+  it('has both in place at the moment the session id first appears (the embed page reads them then)', async () => {
+    const session = useInterviewSession({ competencies: DEFAULT_COMPETENCIES })
+    const seenWhenSessionIdAppeared: Array<[number | null, number | null]> = []
+    watch(
+      session.sessionId,
+      () =>
+        seenWhenSessionIdAppeared.push([
+          session.totalCompetencies.value,
+          session.competencyOrdinal.value,
+        ]),
+      { flush: 'sync' }
+    )
+    session.acceptConsent()
+    mockCandidateFetch.mockResolvedValueOnce(
+      makeStartResponse({ total_competencies: 5, competency_ordinal: 1 })
+    )
+    session.confirmDevices()
+    await flushPromises()
+
+    expect(seenWhenSessionIdAppeared).toEqual([[5, 1]])
+  })
+
+  it.each([
+    ['a string', '5'],
+    ['null', null],
+    ['zero', 0],
+    ['a negative number', -2],
+    ['NaN', Number.NaN],
+  ])('ignores %s as the total and as the ordinal', async (_label, value) => {
+    const session = await startWith({ total_competencies: value, competency_ordinal: value })
+
+    expect(session.totalCompetencies.value).toBeNull()
+    expect(session.competencyOrdinal.value).toBeNull()
+  })
+
+  it('ignores both when the fields are absent', async () => {
+    const session = await startWith({})
+
+    expect(session.totalCompetencies.value).toBeNull()
+    expect(session.competencyOrdinal.value).toBeNull()
+  })
+
+  it('lets /end overwrite the total with no flicker through null or zero', async () => {
+    const session = await startWith({ total_competencies: 5, competency_ordinal: 1 })
+    const seen: Array<number | null> = []
+    watch(session.totalCompetencies, (value) => seen.push(value), { flush: 'sync' })
+
+    mockCandidateFetch.mockResolvedValueOnce({
+      ended_competencies: 1,
+      total_competencies: 6,
+      next_action: 'done',
+    })
+    currentMockProvider._emit('state', 'complete')
+    await flushPromises()
+
+    expect(seen).toEqual([6])
+    expect(session.totalCompetencies.value).toBe(6)
+    expect(session.endedCompetencies.value).toBe(1)
+  })
+
+  it('keeps the total and moves the ordinal across competencies', async () => {
+    const session = await startWith({ total_competencies: 5, competency_ordinal: 1 })
+    const outgoing = mockProviderRegistry[0]!
+    mockCandidateFetch.mockResolvedValueOnce({
+      ended_competencies: 1,
+      total_competencies: 5,
+      next_action: 'continue',
+    })
+    mockCandidateFetch.mockResolvedValueOnce(
+      makeStartResponse({ session_id: 99, total_competencies: 5, competency_ordinal: 2 })
+    )
+    outgoing._emit('state', 'complete')
+    await flushPromises()
+    session.notifyPainted(99)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await flushPromises()
+
+    expect(session.sessionId.value).toBe(99)
+    expect(session.totalCompetencies.value).toBe(5)
+    expect(session.competencyOrdinal.value).toBe(2)
   })
 })
