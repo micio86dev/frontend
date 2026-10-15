@@ -61,7 +61,8 @@
  *          dialog is never robbed of its focus, and nothing while captions are off
  *          (there is no visible surface to focus).
  *
- * SSR-safe: `document` is only touched inside `focusOnBoundary`.
+ * SSR-safe: `document` is only touched inside `focusOnBoundary`, and page timers start on
+ * the client only.
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { captionPageMs, captionPages } from '~/utils/caption-pages'
@@ -98,6 +99,8 @@ function clearPageTimer(): void {
 
 function scheduleNextPage(): void {
   clearPageTimer()
+  // No timers on the server: nothing would ever unmount them there.
+  if (import.meta.server) return
   const current = pages.value[pageIndex.value]
   if (current === undefined || pageIndex.value >= pages.value.length - 1) return
   pageTimer = setTimeout(() => {
