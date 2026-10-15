@@ -45,6 +45,12 @@ describe('captionPages', () => {
     expect(pages.join(' ')).toBe(words)
   })
 
+  it('keeps a word longer than a page whole, as its own page', () => {
+    const url = `https://example.com/${'x'.repeat(CAPTION_PAGE_MAX_CHARS)}`
+
+    expect(captionPages(`Visit ${url} now`)).toEqual(['Visit', url, 'now'])
+  })
+
   it('does not end a sentence inside a decimal number', () => {
     const lead = 'a'.repeat(100)
     const pages = captionPages(`${lead} for 3.5 years now.`)

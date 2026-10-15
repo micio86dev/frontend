@@ -142,6 +142,10 @@ describe('CallQuestion — a long utterance is paged', () => {
     const wrapper = mountBand(LONG)
 
     await vi.advanceTimersByTimeAsync(captionPageMs(captionPages(LONG)[0]!))
+    const other = LONG.replaceAll('welcome', 'closing')
+    await wrapper.setProps({ text: other })
+    expect(shown(wrapper)).toBe(captionPages(other)[0])
+
     await wrapper.setProps({ text: 'A follow-up' })
     await vi.advanceTimersByTimeAsync(60_000)
 
