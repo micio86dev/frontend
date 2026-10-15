@@ -152,6 +152,9 @@ let providers: ReturnType<typeof createMockProvider>[] = []
 const FIRST = 42
 const NEXT = 77
 
+/** Extra `question_context` fields the next /start answers with (`competency_ordinal`, `total_competencies`); reset before each test. */
+let questionContextExtras: Record<string, unknown> = {}
+
 function startResponse(sessionId: number, provider = 'tavus', interviewMaxSeconds = 1200) {
   return {
     session_id: sessionId,
@@ -165,6 +168,7 @@ function startResponse(sessionId: number, provider = 'tavus', interviewMaxSecond
       question_index: 0,
       end_phrase: 'Passiamo alla prossima domanda.',
       final_phrase: 'Grazie.',
+      ...questionContextExtras,
     },
   }
 }
@@ -368,6 +372,7 @@ const hint = (wrapper: Awaited<ReturnType<typeof mountLive>>['wrapper']) =>
 
 beforeEach(() => {
   vi.clearAllMocks()
+  questionContextExtras = {}
   playerLifecycle.mounted = 0
   playerLifecycle.unmounted = 0
   realPlayer.emitNullOnUnmount = false
@@ -1600,5 +1605,155 @@ describe('InterviewSession — the player layer is never re-parented (R1)', () =
     expect(playerLifecycle.unmounted).toBe(1)
     expect(maps.playerStates.size).toBe(0)
     expect(maps.playerStreams.size).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// live-interview-call-chrome C2a.1 — the panel's named path, fed by the outline.
+// ---------------------------------------------------------------------------
+
+const THREE_COMPETENCIES = [
+  { name: 'Pensiero strategico', ordinal: 1, status: 'done', primary_total: 3 },
+  { name: 'Orientamento al risultato', ordinal: 2, status: 'current', primary_total: 3 },
+  { name: 'Collaborazione', ordinal: 3, status: 'upcoming', primary_total: 2 },
+]
+
+describe('InterviewSession — the panel path (Percorso)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    serveOutline(outlineOf({ competencies: THREE_COMPETENCIES }))
+  })
+
+  const itemsOf = (wrapper: Mounted) => wrapper.findAll('[data-testid="call-storyboard-item"]')
+
+  it('lists the outline competencies by name, in order, in the panel', async () => {
+    const { wrapper } = await mountLive()
+    await flushPromises()
+
+    expect(
+      itemsOf(wrapper).map((row) => row.get('[data-testid="call-storyboard-name"]').text())
+    ).toEqual(['Pensiero strategico', 'Orientamento al risultato', 'Collaborazione'])
+    expect(wrapper.get('[data-testid="call-panel"]').find('ol').exists()).toBe(true)
+    expect(wrapper.get('[aria-current="step"]').text()).toContain('Orientamento al risultato')
+  })
+
+  it('hands the latest primary_index to the current item, and clears it with the session', async () => {
+    let primaryIndex = 2
+    mockCandidateFetch.mockImplementation(async (path: string) => {
+      if (path === OUTLINE_PATH) return outlineOf({ competencies: THREE_COMPETENCIES })
+      if (path === '/candidate/interview/utterance') return { primary_index: primaryIndex }
+      return undefined
+    })
+    const { wrapper, session } = await mountLive()
+    await flushPromises()
+    const line = () => wrapper.get('[aria-current="step"] [data-testid="call-storyboard-line"]')
+    expect(line().text()).toBe('interview.call.storyboard.current')
+
+    providers[0]!._emit('transcript', { role: 'avatar', text: 'Una domanda', ts: 1 })
+    await flushPromises()
+    expect(line().text()).toBe(
+      `interview.call.storyboard.current_counted|${JSON.stringify({ k: 2, n: 3 })}`
+    )
+
+    primaryIndex = 3
+    providers[0]!._emit('transcript', { role: 'avatar', text: "Un'altra", ts: 2 })
+    await flushPromises()
+    expect(line().text()).toBe(
+      `interview.call.storyboard.current_counted|${JSON.stringify({ k: 3, n: 3 })}`
+    )
+
+    session.advanceAttribution(NEXT)
+    await flushPromises()
+    expect(line().text()).toBe('interview.call.storyboard.current')
+  })
+
+  it.each([
+    ['a null name', null],
+    ['a blank name', '   '],
+  ])('gives %s the generic "Competenza {ordinal}", never a code', async (_label, name) => {
+    serveOutline(
+      outlineOf({
+        competencies: [
+          { name: 'Prima', ordinal: 1, status: 'done', primary_total: 1 },
+          { name, ordinal: 2, status: 'current', primary_total: 1 },
+        ],
+      })
+    )
+    const { wrapper } = await mountLive()
+    await flushPromises()
+
+    expect(itemsOf(wrapper)[1]!.get('[data-testid="call-storyboard-name"]').text()).toBe(
+      `interview.call.storyboard.unnamed|${JSON.stringify({ ordinal: 2 })}`
+    )
+  })
+
+  it('renders no competency code anywhere on the live screen, even one the outline or store carries', async () => {
+    serveOutline(
+      outlineOf({
+        competencies: THREE_COMPETENCIES.map((c) => ({
+          ...c,
+          code: 'COL',
+          competency_code: 'COL',
+        })),
+      })
+    )
+    const { wrapper } = await mountLive({ attach: true })
+    await flushPromises()
+
+    // The start response carried `PRS`; the outline entries carry `COL`.
+    expect(wrapper.html()).not.toMatch(/COL|PRS/)
+    expect(document.body.textContent).not.toMatch(/COL|PRS/)
+  })
+
+  it('omits the storyboard when the outline fails, and the rest of the panel still renders', async () => {
+    serveOutline(new Error('network'))
+    const { wrapper, session } = await mountLive()
+    ;(session as unknown as { totalCompetencies: { value: number } }).totalCompetencies.value = 5
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="call-storyboard"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="call-panel-progress-text"]').text()).toContain('"total":5')
+    expect(wrapper.find('[data-testid="call-panel-duration-value"]').exists()).toBe(true)
+  })
+
+  describe('"Competenza n di N" numerator', () => {
+    const progressText = (wrapper: Mounted) =>
+      wrapper.get('[data-testid="call-panel-progress-text"]').text()
+    const reads = (n: number, total: number) =>
+      `interview.call.path.progress|${JSON.stringify({ n, total })}`
+
+    it('counts from the /end tally when there is one', async () => {
+      questionContextExtras = { total_competencies: 5, competency_ordinal: 4 }
+      const { wrapper, session } = await mountLive()
+      ;(
+        session as unknown as { endedCompetencies: { value: number | null } }
+      ).endedCompetencies.value = 1
+      await flushPromises()
+
+      expect(progressText(wrapper)).toBe(reads(2, 5))
+    })
+
+    it('falls back to the /start ordinal before any /end, so a resumed run does not read 1', async () => {
+      questionContextExtras = { total_competencies: 5, competency_ordinal: 3 }
+      const { wrapper } = await mountLive()
+      await flushPromises()
+
+      expect(progressText(wrapper)).toBe(reads(3, 5))
+    })
+
+    it('reads "1 of N" on the first competency, from the /start total', async () => {
+      questionContextExtras = { total_competencies: 5, competency_ordinal: 1 }
+      const { wrapper } = await mountLive()
+      await flushPromises()
+
+      expect(progressText(wrapper)).toBe(reads(1, 5))
+    })
+
+    it('shows no sentence while the /start response named neither total nor ordinal', async () => {
+      const { wrapper } = await mountLive()
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="call-panel-progress-text"]').exists()).toBe(false)
+    })
   })
 })

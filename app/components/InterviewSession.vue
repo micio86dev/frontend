@@ -140,12 +140,14 @@
 
       <template #panel>
         <CallPanel
-          :ended="session.endedCompetencies.value ?? null"
+          :ended="panelEnded"
           :total="session.totalCompetencies.value ?? null"
           :elapsed-seconds="elapsedSeconds"
           :question-seconds="interviewRemaining"
           :timer-key="session.sessionId.value ?? null"
           :max-seconds="session.interviewMaxSeconds.value"
+          :storyboard="storyboard"
+          :primary-index="session.primaryIndex.value"
           @tick="interviewRemaining = $event"
           @expired="onTimerExpired"
         >
@@ -865,6 +867,34 @@ const candidateName = computed(() => outlineApi.outline.value?.candidate_name?.t
 /** The persona name the admin configured, or the generic label: never a technology provider's name. */
 const interviewerName = computed(
   () => outlineApi.outline.value?.avatar_name?.trim() || t('interview.call.interviewer_name')
+)
+
+/**
+ * The panel's named path, one item per outline entry. A name that is missing or blank gets the
+ * generic "Competenza {ordinal}": the panel is never handed, and never shows, a competency code.
+ * `null` (no outline, or it failed) omits the storyboard; the rest of the panel renders.
+ */
+const storyboard = computed(
+  () =>
+    outlineApi.outline.value?.competencies.map((competency) => ({
+      name:
+        competency.name?.trim() ||
+        t('interview.call.storyboard.unnamed', { ordinal: competency.ordinal }),
+      ordinal: competency.ordinal,
+      status: competency.status,
+      primaryTotal: competency.primary_total,
+    })) ?? null
+)
+
+/**
+ * Competencies already ended, for "Competenza n di N": the `/end` tally when there is one, else
+ * the position the `/start` response named minus one, so a run resumed on its third competency
+ * does not read "1 of N" until its first `/end`.
+ */
+const panelEnded = computed(
+  () =>
+    session.endedCompetencies.value ??
+    (session.competencyOrdinal.value === null ? null : session.competencyOrdinal.value - 1)
 )
 
 /**
