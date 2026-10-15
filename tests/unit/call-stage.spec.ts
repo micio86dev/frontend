@@ -30,7 +30,6 @@ function mountStage(props: { live: boolean; embedded?: boolean }, withSelf = tru
     props,
     slots: {
       layer: ({ live }: { live: boolean }) => h(Layer, { live }),
-      question: () => h('div', { 'data-testid': 'q' }, 'question'),
       panel: () => h('div', { 'data-testid': 'p' }, 'panel'),
       ...(withSelf ? { self: () => h('div', { 'data-testid': 's' }, 'self') } : {}),
     },
@@ -43,7 +42,6 @@ describe('CallStage', () => {
     const layout = wrapper.get('[data-slot="call-layout"]')
 
     expect(layout.find('[data-slot="avatar-layer"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="q"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="p"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="s"]').exists()).toBe(false)
     // Not live: no box of its own, so the layer lays out exactly as it did without the stage.
@@ -53,7 +51,6 @@ describe('CallStage', () => {
 
     expect(layout.classes()).toContain('grid')
     expect(layout.classes()).not.toContain('contents')
-    expect(wrapper.find('[data-testid="q"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="p"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="s"]').exists()).toBe(true)
   })
@@ -64,7 +61,7 @@ describe('CallStage', () => {
     const layer = layout.querySelector('[data-slot="avatar-layer"]')!
 
     expect(layer.parentElement).toBe(layout)
-    for (const id of ['q', 'p', 's']) {
+    for (const id of ['p', 's']) {
       expect(wrapper.get(`[data-testid="${id}"]`).element.parentElement!.parentElement).toBe(layout)
     }
   })
@@ -80,6 +77,21 @@ describe('CallStage', () => {
     await wrapper.setProps({ live: false })
     expect(wrapper.get('[data-slot="avatar-layer"]').element).toBe(before)
     expect(mounts).toBe(1)
+  })
+
+  it('has no question slot or grid area: the captions are an overlay inside the layer', () => {
+    const wrapper = mount(CallStage, {
+      props: { live: true },
+      slots: {
+        layer: () => h('div', { 'data-slot': 'avatar-layer' }),
+        question: () => h('div', { 'data-testid': 'q' }, 'question'),
+        panel: () => h('div', { 'data-testid': 'p' }, 'panel'),
+      },
+    })
+
+    expect(wrapper.find('[data-testid="q"]').exists()).toBe(false)
+    expect(wrapper.find('[data-slot="call-stage-question"]').exists()).toBe(false)
+    expect(wrapper.get('[data-slot="call-layout"]').attributes('class')).not.toMatch(/question/)
   })
 
   it('draws no own-camera cell when no self slot is given', () => {

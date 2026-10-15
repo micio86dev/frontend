@@ -53,6 +53,10 @@ describe('main.css — brand token reconciliation (D9)', () => {
     expect(cssSource).not.toContain('#2d5282')
   })
 
+  it('--color-primary-caption is #CB43DA (the light shade lifted to 4.5:1 on the avatar panel)', () => {
+    expectToken(cssSource, '--color-primary-caption', '#[Cc][Bb]43[Dd][Aa]')
+  })
+
   it('--color-primary-dark is #431695 (15% darker than the prior #4F1AAF)', () => {
     expectToken(cssSource, '--color-primary-dark', '#431695')
     expect(cssSource).not.toContain('#132740')

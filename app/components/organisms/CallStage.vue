@@ -8,9 +8,9 @@
     won a handover.
 
     Not live it has no box of its own (`contents`), so the layer lays out exactly as
-    it did before the stage existed. Live it is a grid: the layer and the question
-    band stacked in the first column, the panel beside them from `xl`, under the
-    question band as a strip below it.
+    it did before the stage existed. Live it is a grid: the layer in the first column
+    (the captions overlay sits INSIDE it), the panel beside it from `xl` and under it
+    as a strip below.
   -->
   <div
     data-slot="call-layout"
@@ -21,9 +21,6 @@
     <slot name="layer" :live="live" />
 
     <template v-if="live">
-      <div data-slot="call-stage-question" class="min-w-0 [grid-area:question]">
-        <slot name="question" />
-      </div>
       <div data-slot="call-stage-panel" class="min-w-0 [grid-area:panel] xl:self-start">
         <slot name="panel" />
       </div>
@@ -52,8 +49,8 @@
  * Presentational: it places what it is given and owns no signal.
  *
  * Props:
- *   live     — the interview is live and its avatar is mounted. The question band,
- *              the side panel and the own tile exist only then.
+ *   live     — the interview is live and its avatar is mounted. The side panel and
+ *              the own tile exist only then.
  *   embedded — rendered inside the host's iframe. The stage is then width-driven
  *              only: no viewport-height unit (`vh`, `dvh`, `svh`) appears anywhere,
  *              because the host sizes the iframe from the height we report, and a
@@ -62,7 +59,8 @@
  * Slots:
  *   layer    — the player mount layer, scoped with `{ live }` so the layer can swap
  *              its classes. It MUST be rendered into this slot in every state.
- *   question, panel, self — the stage parts, rendered while `live`.
+ *   panel, self — the stage parts, rendered while `live`. There is no question slot:
+ *              the written question is the captions overlay inside the layer.
  *
  * Hosted, the stage's width is capped so the whole stage fits the viewport height
  * (no vertical scroll at 1280x800, 1440x900 or 1920x1080): the tile is 16:9, so its
@@ -88,9 +86,9 @@ const HOSTED_HEIGHT_CAP = [
 
 const LIVE_GRID = [
   'mx-auto grid w-full gap-x-6 gap-y-4',
-  "grid-cols-[minmax(0,1fr)] [grid-template-areas:'layer'_'question'_'panel']",
-  'xl:grid-cols-[minmax(0,1fr)_var(--spacing-call-panel)] xl:grid-rows-[auto_auto_1fr]',
-  "xl:[grid-template-areas:'layer_panel'_'question_panel'_'rest_panel']",
+  "grid-cols-[minmax(0,1fr)] [grid-template-areas:'layer'_'panel']",
+  'xl:grid-cols-[minmax(0,1fr)_var(--spacing-call-panel)] xl:grid-rows-[auto_1fr]',
+  "xl:[grid-template-areas:'layer_panel'_'rest_panel']",
 ]
 
 const layoutClasses = computed(() =>
