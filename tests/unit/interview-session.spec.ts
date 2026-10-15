@@ -16,8 +16,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { INTERVIEW_CLOSING_GRACE_MS } from '~/app/utils/interview-budget'
 import { mount, flushPromises } from '@vue/test-utils'
-import { ref, defineComponent, h, markRaw, onBeforeUnmount, onMounted, onUnmounted } from 'vue'
+import {
+  computed,
+  ref,
+  defineComponent,
+  h,
+  markRaw,
+  onBeforeUnmount,
+  onMounted,
+  onUnmounted,
+} from 'vue'
 import type { InterviewProvider } from '~/app/types/interview-provider'
+import { useCandidateBranding } from '~/app/composables/useCandidateBranding'
 
 vi.setConfig({ testTimeout: 30000 })
 
@@ -102,9 +112,9 @@ vi.mock('~/composables/useInterviewSession', async (importOriginal) => {
       const boundary = ref(false)
       const session = {
         ...real.useInterviewSession(...args),
-        handoverInFlight: handover,
+        // The real definition: a boundary is a forced mute exactly like a handover.
+        handoverInFlight: computed(() => handover.value || boundary.value),
         boundaryInFlight: boundary,
-        micMuted: ref(false),
       }
       captured.handover = handover
       captured.boundary = boundary
@@ -388,7 +398,11 @@ beforeEach(() => {
   vi.stubGlobal('useHead', vi.fn())
   vi.stubGlobal(
     'useI18n',
-    vi.fn(() => ({ t: (key: string) => key, locale: ref('it') }))
+    vi.fn(() => ({
+      t: (key: string, params?: Record<string, unknown>) =>
+        params ? `${key}|${JSON.stringify(params)}` : key,
+      locale: ref('it'),
+    }))
   )
   vi.stubGlobal(
     'useRuntimeConfig',
@@ -761,6 +775,220 @@ describe('InterviewSession — Exit', () => {
 
 type Mounted = Awaited<ReturnType<typeof mountLive>>['wrapper']
 
+// ---------------------------------------------------------------------------
+// live-interview-call-chrome C1a — the live header, the outline and the microphone.
+// ---------------------------------------------------------------------------
+
+const OUTLINE_PATH = '/candidate/interview/outline'
+
+const outlineOf = (over: Record<string, unknown> = {}) => ({
+  assessment_type: 'standard',
+  role_name: 'Responsabile Vendite',
+  avatar_name: 'Giulia',
+  candidate_name: 'Marta',
+  primary_total_all: 6,
+  competencies: [{ name: 'Problem solving', ordinal: 1, status: 'current', primary_total: 3 }],
+  ...over,
+})
+
+/** Answers the outline GET with `value` (or rejects with it); everything else resolves undefined. */
+function serveOutline(value: unknown) {
+  mockCandidateFetch.mockImplementation(async (path: string) => {
+    if (path !== OUTLINE_PATH) return undefined
+    if (value instanceof Error) throw value
+    return value
+  })
+}
+
+const outlineCalls = () =>
+  mockCandidateFetch.mock.calls.filter((c: unknown[]) => c[0] === OUTLINE_PATH)
+const endCalls = () =>
+  mockCandidateFetch.mock.calls.filter((c: unknown[]) => c[0] === '/candidate/interview/end')
+
+const headerOf = (wrapper: Mounted) => wrapper.get('[data-testid="call-header"]')
+const headerCaptions = (wrapper: Mounted) => wrapper.get('[data-testid="call-header-captions"]')
+const headerMic = (wrapper: Mounted) => wrapper.get('[data-testid="call-header-mic"]')
+
+describe('InterviewSession — the live header', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    serveOutline(outlineOf())
+  })
+
+  it('renders the header while live, with the three controls, and not before', async () => {
+    const before = await mountLive({ begin: false })
+    expect(before.wrapper.find('[data-testid="call-header"]').exists()).toBe(false)
+
+    const { wrapper } = await mountLive({ attach: true })
+    const labels = headerOf(wrapper)
+      .findAll('button')
+      .map((b) => b.attributes('data-testid'))
+
+    expect(labels).toEqual(['call-header-captions', 'call-header-mic', 'call-exit'])
+  })
+
+  it('draws the logo without the plate while live and with it on the consent screen', async () => {
+    useCandidateBranding().prime({
+      primary_color: '#771aaf',
+      logo_url: 'https://cdn.test/acme.png',
+      name: null,
+    })
+    const consent = await mountLive({ begin: false })
+    const plated = consent.wrapper.get('[data-testid="brand-canvas-logo"]').element.parentElement
+    expect(plated?.className).toContain('bg-card')
+
+    const { wrapper } = await mountLive()
+    expect(wrapper.get('[data-testid="brand-canvas-logo"]').element.parentElement?.tagName).toBe(
+      'HEADER'
+    )
+  })
+
+  it('titles a standard assessment with the role name from the outline', async () => {
+    const { wrapper } = await mountLive()
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="call-header-title"]').text()).toBe(
+      'interview.call.header.title_with_subject|{"subject":"Responsabile Vendite"}'
+    )
+  })
+
+  it('titles a potential assessment with its type', async () => {
+    serveOutline(outlineOf({ assessment_type: 'potential', role_name: null }))
+    const { wrapper } = await mountLive()
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="call-header-title"]').text()).toBe(
+      'interview.call.header.title_with_subject|{"subject":"interview.call.header.potential"}'
+    )
+  })
+
+  it.each([
+    ['a null role name', outlineOf({ role_name: null })],
+    ['a blank role name', outlineOf({ role_name: '   ' })],
+    ['a failed outline', new Error('network')],
+    ['an empty answer', undefined],
+  ])('shows the bare title and no error for %s', async (_label, served) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    serveOutline(served)
+    const { wrapper } = await mountLive()
+    await flushPromises()
+
+    const title = wrapper.get('[data-testid="call-header-title"]').text()
+    expect(title).toBe('interview.call.header.title')
+    expect(title).not.toMatch(/·|null|undefined/)
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+  })
+
+  it('fetches the outline once on live, again on a session change, never per utterance', async () => {
+    const { wrapper, session } = await mountLive()
+    await flushPromises()
+    expect(outlineCalls()).toHaveLength(1)
+
+    providers[0]!._emit('transcript', { role: 'avatar', text: 'Una domanda', ts: 1 })
+    providers[0]!._emit('transcript', { role: 'candidate', text: 'Una risposta', ts: 2 })
+    await flushPromises()
+    expect(outlineCalls()).toHaveLength(1)
+
+    session.advanceAttribution(NEXT)
+    await flushPromises()
+    expect(outlineCalls()).toHaveLength(2)
+    expect(wrapper.find('[data-testid="call-header"]').exists()).toBe(true)
+  })
+
+  it('does not fetch the outline again when the same session resumes live', async () => {
+    const { session } = await mountLive()
+    await flushPromises()
+
+    session.state.value = 'paused'
+    await flushPromises()
+    session.state.value = 'live'
+    await flushPromises()
+
+    expect(outlineCalls()).toHaveLength(1)
+  })
+
+  it('toggles captions through the stored preference, never calling /end', async () => {
+    const { wrapper } = await mountLive()
+    expect(headerCaptions(wrapper).attributes('aria-pressed')).toBe('true')
+
+    await headerCaptions(wrapper).trigger('click')
+    await flushPromises()
+    expect(headerCaptions(wrapper).attributes('aria-pressed')).toBe('false')
+    expect(localStorage.getItem('beai:interview:captions')).toBe('false')
+
+    await headerCaptions(wrapper).trigger('click')
+    await flushPromises()
+    expect(headerCaptions(wrapper).attributes('aria-pressed')).toBe('true')
+    expect(endCalls()).toHaveLength(0)
+  })
+
+  it('mutes and unmutes the provider from the microphone control, never calling /end', async () => {
+    const { wrapper } = await mountLive()
+    expect(headerMic(wrapper).attributes('aria-pressed')).toBe('true')
+
+    await headerMic(wrapper).trigger('click')
+    await flushPromises()
+    expect(providers[0]!.setMicMuted).toHaveBeenLastCalledWith(true)
+    expect(headerMic(wrapper).attributes('aria-pressed')).toBe('false')
+
+    await headerMic(wrapper).trigger('click')
+    await flushPromises()
+    expect(providers[0]!.setMicMuted).toHaveBeenLastCalledWith(false)
+    expect(headerMic(wrapper).attributes('aria-pressed')).toBe('true')
+    expect(endCalls()).toHaveLength(0)
+  })
+
+  it.each([
+    ['a competency boundary', () => captured.boundary!],
+    ['a handover', () => captured.handover!],
+  ])(
+    'disables the microphone and shows it muted during %s, then restores the choice',
+    async (_l, flag) => {
+      const { wrapper } = await mountLive()
+      const toggle = flag()
+
+      toggle.value = true
+      await flushPromises()
+      expect(headerMic(wrapper).attributes('aria-disabled')).toBe('true')
+      expect(headerMic(wrapper).attributes('aria-pressed')).toBe('false')
+      expect(headerMic(wrapper).find('[data-icon]').attributes('data-icon')).toBe('mic-off')
+
+      await headerMic(wrapper).trigger('click')
+      expect(providers[0]!.setMicMuted).not.toHaveBeenCalled()
+
+      toggle.value = false
+      await flushPromises()
+      expect(headerMic(wrapper).attributes('aria-disabled')).toBeUndefined()
+      expect(headerMic(wrapper).attributes('aria-pressed')).toBe('true')
+    }
+  )
+
+  it.each([
+    ['a competency boundary', () => captured.boundary!],
+    ['a handover', () => captured.handover!],
+  ])("keeps a candidate's own mute through %s", async (_l, flag) => {
+    const { wrapper } = await mountLive()
+    await headerMic(wrapper).trigger('click')
+    await flushPromises()
+    expect(headerMic(wrapper).attributes('aria-pressed')).toBe('false')
+
+    const toggle = flag()
+    toggle.value = true
+    await flushPromises()
+    toggle.value = false
+    await flushPromises()
+
+    expect(headerMic(wrapper).attributes('aria-pressed')).toBe('false')
+    expect(headerMic(wrapper).attributes('aria-disabled')).toBeUndefined()
+  })
+
+  it('mounts the same header when embedded', async () => {
+    const { wrapper } = await mountLive({ props: { embedded: true } })
+
+    expect(wrapper.find('[data-testid="call-header"]').exists()).toBe(true)
+  })
+})
+
 const layer = (wrapper: Mounted) => wrapper.get('[data-slot="avatar-layer"]').element
 const layout = (wrapper: Mounted) => wrapper.get('[data-slot="call-layout"]').element
 
@@ -802,16 +1030,18 @@ describe('InterviewSession — the stage', () => {
     }
   })
 
-  it('puts Exit and then the help link in the panel, and the timer in the panel only', async () => {
+  it('puts the help link in the panel and the timer in the panel only; Exit is in the header', async () => {
     const { wrapper } = await mountLive({
       attach: true,
       stubs: { InterviewTimer: InterviewTimerCounterStub },
     })
 
     const panel = wrapper.get('[data-testid="call-panel"]').element
-    const exit = panel.querySelector('[data-testid="call-exit"]')!
-    const help = panel.querySelector('[data-testid="call-help-link"]')!
-    expect(exit.compareDocumentPosition(help) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(panel.querySelector('[data-testid="call-exit"]')).toBeNull()
+    expect(panel.querySelector('[data-testid="call-help-link"]')).not.toBeNull()
+    expect(
+      wrapper.get('[data-testid="call-header"]').element.querySelector('[data-testid="call-exit"]')
+    ).not.toBeNull()
     expect(wrapper.findAll('[data-testid="question-timer"]')).toHaveLength(1)
     expect(panel.querySelector('[data-testid="question-timer"]')).not.toBeNull()
   })

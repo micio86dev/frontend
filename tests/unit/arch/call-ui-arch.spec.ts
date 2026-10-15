@@ -16,6 +16,9 @@
  *     which competency is being assessed.
  *  3. No literal user-visible string: every word on the call screen is an i18n key,
  *     so `it` and `en` can never drift from what is drawn.
+ *  4. (live-interview-call-chrome) The live header is handed exactly the bindings it
+ *     documents, Exit no longer reaches the panel, and the page has ONE timer role:
+ *     the interview-time-remaining countdown. The header clock is a plain <time>.
  */
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -114,6 +117,15 @@ describe('call screen: the side panel never receives or reads a competency', () 
     )
   })
 
+  it('the page gives the panel no exit slot: Exit moved to the call header', () => {
+    const page = stripComments(read(join(APP_ROOT, 'components/InterviewSession.vue')))
+    const block = page.match(/<CallPanel\b[\s\S]*?<\/CallPanel>/)
+
+    expect(block).not.toBeNull()
+    expect(block![0]).not.toMatch(/#exit|v-slot:exit|CallExitDialog/)
+    expect(panelSource).not.toMatch(/<slot name="exit"/)
+  })
+
   it('the page binds the panel to numbers and the counter only', () => {
     const page = stripComments(read(join(APP_ROOT, 'components/InterviewSession.vue')))
     const tag = page.match(/<CallPanel\b[^>]*?(?:\/>|>)(?=[\s\S]*<\/CallPanel>)/)
@@ -134,6 +146,55 @@ describe('call screen: the side panel never receives or reads a competency', () 
         'total',
       ].sort()
     )
+  })
+})
+
+describe('call screen: the live header', () => {
+  const page = stripComments(read(join(APP_ROOT, 'components/InterviewSession.vue')))
+
+  it('the page binds <CallHeader> to exactly its documented props and events', () => {
+    const tag = page.match(/<CallHeader\b[^>]*>/)
+
+    expect(tag).not.toBeNull()
+    const bound = [...tag![0].matchAll(/(?::|@)([a-z-]+)=/g)].map((m) => m[1]).sort()
+    expect(bound).toEqual(
+      [
+        'captions-enabled',
+        'elapsed-seconds',
+        'mic-disabled',
+        'mic-muted',
+        'title',
+        'toggle-captions',
+        'toggle-mic',
+      ].sort()
+    )
+  })
+
+  it('hands the header the VISUAL microphone state and disables it for any forced mute', () => {
+    const tag = page.match(/<CallHeader\b[^>]*>/)![0]
+
+    expect(tag).toMatch(
+      /:mic-muted="session\.micMuted\.value \|\| session\.handoverInFlight\.value"/
+    )
+    expect(tag).toMatch(/:mic-disabled="session\.handoverInFlight\.value"/)
+  })
+
+  it('has exactly one role="timer" under app/components, in InterviewTimer', () => {
+    const withRole = collect(join(APP_ROOT, 'components')).filter((file) =>
+      /\brole=["']timer["']/.test(stripComments(read(file)))
+    )
+
+    expect(withRole.map(name)).toEqual(['components/InterviewTimer.vue'])
+    expect(
+      stripComments(read(join(APP_ROOT, 'components/InterviewTimer.vue'))).match(/role="timer"/g)
+    ).toHaveLength(1)
+  })
+
+  it('draws the clock with a plain <time>, never a timer role or a live region', () => {
+    const header = stripComments(read(join(APP_ROOT, 'components/organisms/CallHeader.vue')))
+
+    expect(header).toMatch(/<time>/)
+    expect(header).not.toMatch(/role=|aria-live/)
   })
 })
 
