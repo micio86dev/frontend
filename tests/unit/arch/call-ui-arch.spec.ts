@@ -11,11 +11,14 @@
  *     height (`vh`, `dvh`, `svh`) never settles. The only viewport-height rule is
  *     the hosted cap in `CallStage`, and the embedded branch must not be able to
  *     reach it.
- *  2. The side panel is handed progress NUMBERS. It imports no session and reads no
- *     competency field, and the page gives it none: a candidate must not learn
- *     which competency is being assessed.
+ *  2. (live-interview-call-chrome) The side panel names competencies - the "Percorso"
+ *     storyboard shows the outline's NAMES - but never carries a competency CODE. It
+ *     imports no session and reads no code field. (Reversed from "names no competency".)
  *  3. No literal user-visible string: every word on the call screen is an i18n key,
  *     so `it` and `en` can never drift from what is drawn.
+ *  4. (live-interview-call-chrome) The live header is handed exactly the bindings it
+ *     documents, Exit no longer reaches the panel, and the page has ONE timer role:
+ *     the interview-time-remaining countdown. The header clock is a plain <time>.
  */
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -53,11 +56,14 @@ describe('the call screen: the components under guard', () => {
   it('finds every call component, so no rule below passes by checking nothing', () => {
     expect(CALL_COMPONENTS.map(name).sort()).toEqual(
       [
+        'components/molecules/CallAnswerTimer.vue',
         'components/molecules/CallExitDialog.vue',
         'components/molecules/CallHelpLink.vue',
         'components/molecules/CallQuestion.vue',
         'components/molecules/CallSelfView.client.vue',
+        'components/molecules/CallStoryboard.vue',
         'components/molecules/CallTile.vue',
+        'components/organisms/CallHeader.vue',
         'components/organisms/CallPanel.vue',
         'components/organisms/CallStage.vue',
       ].sort()
@@ -92,47 +98,253 @@ describe('call screen: no viewport-height unit in the embedded branch', () => {
   })
 })
 
-describe('call screen: the side panel never receives or reads a competency', () => {
+describe('call screen: the side panel names competencies but never carries a code', () => {
   const panelSource = stripComments(read(join(APP_ROOT, 'components/organisms/CallPanel.vue')))
+  const storyboardSource = stripComments(
+    read(join(APP_ROOT, 'components/molecules/CallStoryboard.vue'))
+  )
 
-  it('CallPanel names no competency field and imports no session', () => {
-    expect(panelSource).not.toMatch(/competency/i)
-    expect(panelSource).not.toMatch(/useInterviewSession|useCandidateSession|session\./)
+  it.each([
+    ['CallPanel', panelSource],
+    ['CallStoryboard', storyboardSource],
+  ])('%s has no code field and imports no session', (_name, source) => {
+    expect(source).not.toMatch(/\bcode\b|competency_?code/i)
+    expect(source).not.toMatch(/useInterviewSession|useCandidateSession|session\./)
+  })
+
+  it('the guard can fail: it recognises a code field in a source', () => {
+    expect('const x = item.competency_code').toMatch(/\bcode\b|competency_?code/i)
+    expect('<p>{{ row.code }}</p>').toMatch(/\bcode\b|competency_?code/i)
   })
 
   it('CallPanel only imports presentational pieces and the clock formatter', () => {
-    const imports = [...panelSource.matchAll(/^import .* from '([^']+)'/gm)].map((m) => m[1])
+    // `[\s\S]*?` so a Prettier-wrapped, multi-line import is still seen: a guard that read only
+    // one-line imports would let a wrapped one through.
+    const imports = [...panelSource.matchAll(/^import [\s\S]*?from '([^']+)'/gm)].map((m) => m[1])
 
     expect(imports.sort()).toEqual(
       [
         'vue',
-        '~/app/components/InterviewTimer.vue',
-        '~/app/components/ProgressBar.vue',
+        '~/components/InterviewTimer.vue',
+        '~/components/ProgressBar.vue',
+        '~/components/molecules/CallAnswerTimer.vue',
+        '~/components/molecules/CallStoryboard.vue',
         '~/app/composables/useInterviewClock',
       ].sort()
     )
   })
 
-  it('the page binds the panel to numbers and the counter only', () => {
+  it('the page gives the panel no exit slot: Exit moved to the call header', () => {
+    const page = stripComments(read(join(APP_ROOT, 'components/InterviewSession.vue')))
+    const block = page.match(/<CallPanel\b[\s\S]*?<\/CallPanel>/)
+
+    expect(block).not.toBeNull()
+    expect(block![0]).not.toMatch(/#exit|v-slot:exit|CallExitDialog/)
+    expect(panelSource).not.toMatch(/<slot name="exit"/)
+  })
+
+  it('the page binds the panel to exactly its documented props and events, none a competency', () => {
     const page = stripComments(read(join(APP_ROOT, 'components/InterviewSession.vue')))
     const tag = page.match(/<CallPanel\b[^>]*?(?:\/>|>)(?=[\s\S]*<\/CallPanel>)/)
 
     expect(tag).not.toBeNull()
-    // `endedCompetencies` / `totalCompetencies` are COUNTS; a competency's code or name is not.
-    expect(tag![0]).not.toMatch(/competency/i)
+    // `endedCompetencies` / `totalCompetencies` are COUNTS; a competency's code is not.
+    expect(tag![0]).not.toMatch(/competency|\bcode\b/i)
     const bound = [...tag![0].matchAll(/(?::|@)([a-z-]+)=/g)].map((m) => m[1]).sort()
     expect(bound).toEqual(
       [
         'elapsed-seconds',
+        'answer-phase',
+        'answer-seconds',
+        'budget',
         'ended',
         'expired',
         'max-seconds',
+        'mic-muted',
+        'primary-index',
         'question-seconds',
+        'storyboard',
         'tick',
         'timer-key',
         'total',
       ].sort()
     )
+  })
+
+  /**
+   * The one sanctioned reader: the exit dialog states the resume deadline, and
+   * `useCandidateSession().read()` is the only place that value may come from. It reads
+   * nothing about a competency. No other call component may import it.
+   */
+  const CANDIDATE_SESSION_READER = 'components/molecules/CallExitDialog.vue'
+
+  it.each(CALL_COMPONENTS.map((file) => [name(file), file]))(
+    '%s imports no interview session or outline composable',
+    (_name, file) => {
+      expect(stripComments(read(file))).not.toMatch(/useInterviewSession|useInterviewOutline/)
+    }
+  )
+
+  it.each(CALL_COMPONENTS.map((file) => [name(file), file]))(
+    '%s imports the candidate session only if it is the exit dialog',
+    (fileName, file) => {
+      const imports = /useCandidateSession/.test(stripComments(read(file)))
+
+      expect(imports).toBe(fileName === CANDIDATE_SESSION_READER)
+    }
+  )
+})
+
+describe('call screen: the live header', () => {
+  const page = stripComments(read(join(APP_ROOT, 'components/InterviewSession.vue')))
+
+  it('the page binds <CallHeader> to exactly its documented props and events', () => {
+    const tag = page.match(/<CallHeader\b[^>]*>/)
+
+    expect(tag).not.toBeNull()
+    const bound = [...tag![0].matchAll(/(?::|@)([a-z-]+)=/g)].map((m) => m[1]).sort()
+    expect(bound).toEqual(
+      [
+        'captions-enabled',
+        'elapsed-seconds',
+        'mic-disabled',
+        'mic-muted',
+        'title',
+        'toggle-captions',
+        'toggle-mic',
+      ].sort()
+    )
+  })
+
+  it('hands the header the VISUAL microphone state and disables it for any forced mute', () => {
+    const tag = page.match(/<CallHeader\b[^>]*>/)![0]
+
+    expect(tag).toMatch(
+      /:mic-muted="session\.micMuted\.value \|\| session\.handoverInFlight\.value"/
+    )
+    expect(tag).toMatch(/:mic-disabled="session\.handoverInFlight\.value"/)
+  })
+
+  it('has exactly one role="timer" under app/components, in InterviewTimer', () => {
+    const withRole = collect(join(APP_ROOT, 'components')).filter((file) =>
+      /\brole=["']timer["']/.test(stripComments(read(file)))
+    )
+
+    expect(withRole.map(name)).toEqual(['components/InterviewTimer.vue'])
+    expect(
+      stripComments(read(join(APP_ROOT, 'components/InterviewTimer.vue'))).match(/role="timer"/g)
+    ).toHaveLength(1)
+  })
+
+  it('draws the clock with a plain <time>, never a timer role or a live region', () => {
+    const header = stripComments(read(join(APP_ROOT, 'components/organisms/CallHeader.vue')))
+
+    expect(header).toMatch(/<time>/)
+    expect(header).not.toMatch(/role=|aria-live/)
+  })
+})
+
+describe('call screen: the answer timer', () => {
+  const page = stripComments(read(join(APP_ROOT, 'components/InterviewSession.vue')))
+  const answerTimer = stripComments(
+    read(join(APP_ROOT, 'components/molecules/CallAnswerTimer.vue'))
+  )
+
+  it('draws its figure with a plain <time>, never a timer role, status role or live region', () => {
+    expect(answerTimer).toMatch(/<time\b/)
+    expect(answerTimer).not.toMatch(/role="(?:timer|status|alert|log)"|aria-live/)
+  })
+
+  it('the page hands the panel the candidate INTENT, not the visual state, for the muted hint', () => {
+    const tag = page.match(/<CallPanel\b[^>]*?(?:\/>|>)(?=[\s\S]*<\/CallPanel>)/)![0]
+
+    expect(tag).toMatch(/:mic-muted="session\.micMuted\.value"/)
+    expect(tag).not.toMatch(/handoverInFlight/)
+  })
+
+  it('the page, not a call component, owns the timer: none of them calls useAnswerTimer or answerBudget', () => {
+    expect(page).toMatch(/useAnswerTimer\(/)
+    for (const file of CALL_COMPONENTS) {
+      expect(stripComments(read(file))).not.toMatch(/\b(?:useAnswerTimer|answerBudget)\(/)
+    }
+  })
+
+  it('the answer timer and the budget never reach /end: the page wires them to the panel only', () => {
+    const timerBlock = page.match(/const answerTimer = useAnswerTimer\([\s\S]*?\n\}\)/)![0]
+    const budgetBlock = page.match(/const budget = computed\([\s\S]*?\n\)/)![0]
+
+    expect(timerBlock + budgetBlock).not.toMatch(/endInterview|\/end|onTimerExpired|timeout/)
+  })
+})
+
+describe('call screen: the captions overlay lives inside the avatar layer', () => {
+  /** A minimal view of a template AST node: elements have `tag`, `props` and `children`. */
+  type Node = {
+    type: number
+    tag?: string
+    props?: Array<{ type: number; name: string; value?: { content: string } }>
+    children?: Node[]
+  }
+
+  const walk = (
+    node: Node,
+    visit: (n: Node, ancestors: Node[]) => void,
+    ancestors: Node[] = []
+  ) => {
+    visit(node, ancestors)
+    for (const child of node.children ?? []) walk(child, visit, [...ancestors, node])
+  }
+
+  const root = () => {
+    const { descriptor } = parse(read(join(APP_ROOT, 'components/InterviewSession.vue')))
+    return descriptor.template!.ast as unknown as Node
+  }
+
+  const isAvatarLayer = (n: Node) =>
+    n.tag === 'div' &&
+    (n.props ?? []).some(
+      (p) => p.type === 6 && p.name === 'data-slot' && p.value?.content === 'avatar-layer'
+    )
+
+  it('renders <CallQuestion> exactly once, inside the avatar-layer element, and nowhere else', () => {
+    const found: Node[][] = []
+    walk(root(), (n, ancestors) => {
+      if (n.tag === 'CallQuestion') found.push(ancestors)
+    })
+
+    expect(found).toHaveLength(1)
+    expect(found[0]!.some(isAvatarLayer)).toBe(true)
+  })
+
+  it('has the layer itself inside the CallStage layer slot, so the captions cannot leave the video', () => {
+    let layerAncestors: Node[] = []
+    walk(root(), (n, ancestors) => {
+      if (isAvatarLayer(n)) layerAncestors = ancestors
+    })
+
+    expect(layerAncestors.some((n) => n.tag === 'CallStage')).toBe(true)
+  })
+
+  it('no #question slot remains: not in the page, not in the stage', () => {
+    const page = stripComments(read(join(APP_ROOT, 'components/InterviewSession.vue')))
+    const stage = stripComments(read(join(APP_ROOT, 'components/organisms/CallStage.vue')))
+
+    expect(page).not.toMatch(/#question\b|v-slot:question\b/)
+    expect(stage).not.toMatch(/name="question"|\[grid-area:question\]|call-stage-question/)
+    expect(stage).not.toMatch(/'question/)
+  })
+
+  it('the guard can fail: it recognises the avatar-layer element in a template', () => {
+    const { descriptor } = parse(
+      '<template><div data-slot="avatar-layer"><CallQuestion /></div></template>'
+    )
+    const ast = descriptor.template!.ast as unknown as Node
+    const hits: boolean[] = []
+    walk(ast, (n) => {
+      if (isAvatarLayer(n)) hits.push(true)
+    })
+
+    expect(hits).toEqual([true])
   })
 })
 

@@ -310,6 +310,20 @@ describe('ProgressBar.vue — additive props (UI-06)', () => {
     expect(wrapper.text()).toBe('')
     expect(wrapper.find('[role="progressbar"]').exists()).toBe(true)
   })
+
+  it('names the bar with `label` when one is given, so two bars on a screen differ by name', async () => {
+    const { default: ProgressBar } = await import('../../app/components/ProgressBar.vue')
+    const named = mount(ProgressBar, {
+      props: { current: 2, total: 5, label: 'Durata' },
+      global: { mocks },
+    })
+    const unnamed = mount(ProgressBar, { props: { current: 2, total: 5 }, global: { mocks } })
+
+    expect(named.get('[role="progressbar"]').attributes('aria-label')).toBe('Durata')
+    expect(unnamed.get('[role="progressbar"]').attributes('aria-label')).toBe(
+      'interview.progress.label'
+    )
+  })
 })
 
 describe('InterviewTimer.vue — additive label and the unchanged threshold (UI-06)', () => {

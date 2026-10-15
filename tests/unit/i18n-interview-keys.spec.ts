@@ -56,11 +56,13 @@ const REQUIRED_KEYS = [
   // landmark name, the duration maximum (visual + screen-reader text), and the
   // longer per-question timer caption.
   'interview.call.panel_label',
-  'interview.call.progress',
-  'interview.call.duration_label',
-  'interview.call.duration_value',
-  'interview.call.duration_sr',
-  'interview.call.question_timer_label',
+  'interview.call.path.label',
+  'interview.call.path.progress',
+  'interview.call.duration.label',
+  'interview.call.duration.value',
+  'interview.call.duration.sr',
+  'interview.call.duration.remaining',
+  'interview.call.remaining_label',
   // candidate-interview-call-ui UI-08 — the audio/video help link and its
   // visually hidden new-tab note.
   'interview.call.help.label',
@@ -147,6 +149,14 @@ const REQUIRED_KEYS = [
   // suspended screen. The two `_no_deadline` bodies exist because the deadline is
   // dropped, not guessed, when the stored session cannot be read.
   'interview.call.exit.label',
+  // live-interview-call-chrome — the live header, and Exit's short visible word.
+  'interview.call.exit.short',
+  'interview.call.header.title',
+  'interview.call.header.title_with_subject',
+  'interview.call.header.potential',
+  'interview.call.header.elapsed_sr',
+  'interview.call.header.captions',
+  'interview.call.header.microphone',
   'interview.call.exit.title',
   'interview.call.exit.body',
   'interview.call.exit.body_no_deadline',

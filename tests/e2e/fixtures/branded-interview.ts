@@ -33,6 +33,9 @@ const START_RESPONSE = {
   provider: 'heygen',
   provider_token: 'heygen-token-xyz',
   audio_only: false,
+  // The real API always states the interview limit; the countdown and the duration section
+  // stay hidden until it does (live-interview-call-chrome M3).
+  interview_max_seconds: 1200,
   question_context: {
     question_index: 0,
     total_questions: 3,
@@ -40,6 +43,23 @@ const START_RESPONSE = {
     final_phrase: 'Thank you for your time.',
     competency_code: 'COM',
   },
+}
+
+/**
+ * `GET /candidate/interview/outline` (live-interview-call-chrome): what the live header
+ * names. Without a route the request would reach no API at all.
+ */
+export const OUTLINE_RESPONSE = {
+  assessment_type: 'standard',
+  role_name: 'Sales Manager',
+  avatar_name: null,
+  candidate_name: null,
+  primary_total_all: 6,
+  competencies: [
+    { name: 'Communication', ordinal: 1, status: 'current', primary_total: 3 },
+    { name: 'Teamwork', ordinal: 2, status: 'upcoming', primary_total: 3 },
+    { name: 'Planning', ordinal: 3, status: 'upcoming', primary_total: 0 },
+  ],
 }
 
 export async function mockBrandedInterview(page: Page, primaryColor: string | null): Promise<void> {
@@ -67,6 +87,13 @@ export async function mockBrandedInterview(page: Page, primaryColor: string | nu
       status: 201,
       contentType: 'application/json',
       body: JSON.stringify(START_RESPONSE),
+    })
+  )
+  await page.route('**/api/candidate/interview/outline', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(OUTLINE_RESPONSE),
     })
   )
   for (const path of ['utterance', 'integrity', 'snapshot']) {

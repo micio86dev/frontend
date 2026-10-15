@@ -45,8 +45,8 @@ describe('the ring tokens are literals in the stylesheet', () => {
     expect(PANEL?.toLowerCase()).toBe('#0f172a')
   })
 
-  it('declares --spacing-call-panel as 18rem', () => {
-    expect(CSS).toMatch(/^\s*--spacing-call-panel:\s*18rem;/m)
+  it('declares --spacing-call-panel as 22rem (352 px)', () => {
+    expect(CSS).toMatch(/^\s*--spacing-call-panel:\s*22rem;/m)
   })
 })
 
@@ -106,5 +106,36 @@ describe('forced colours', () => {
 
     expect(body).toContain("[data-slot='call-tile'][data-speaking='true']")
     expect(body).toMatch(/outline:\s*4px solid Highlight;/)
+  })
+})
+
+describe('the name chip (live-interview-call-chrome, D16)', () => {
+  const CHIP_BACKGROUND = 'bg-black/60'
+
+  /** The chip's background composited over a video pixel, channel by channel (black at `alpha`). */
+  const composite = (frame: number, alpha: number) => Math.round(frame * (1 - alpha))
+  const hex = (channel: number) => `#${channel.toString(16).padStart(2, '0').repeat(3)}`
+
+  it('is white on black at 60%, and no longer the 80% avatar panel', () => {
+    const source = componentSource()
+
+    expect(source).toContain(CHIP_BACKGROUND)
+    expect(source).toMatch(/(^|\s)text-white(\s|")/m)
+    expect(source).not.toContain('bg-avatar-bg/80')
+  })
+
+  it('clears 4.5:1 for white text over a white video frame (composited #666666, about 5.7:1)', () => {
+    const backing = hex(composite(255, 0.6))
+
+    expect(backing).toBe('#666666')
+    expect(contrastRatio('#ffffff', backing)).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio('#ffffff', backing)).toBeCloseTo(5.74, 1)
+  })
+
+  it('only gets better over a darker frame', () => {
+    expect(contrastRatio('#ffffff', hex(composite(128, 0.6)))).toBeGreaterThan(
+      contrastRatio('#ffffff', hex(composite(255, 0.6)))
+    )
+    expect(contrastRatio('#ffffff', hex(composite(0, 0.6)))).toBeCloseTo(21, 0)
   })
 })

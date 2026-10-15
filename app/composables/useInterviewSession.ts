@@ -98,7 +98,7 @@
  * `handle.providerName === 'heygen'`.
  */
 
-import { ref, shallowRef, computed, readonly, type ComputedRef, type Ref } from 'vue'
+import { ref, shallowRef, computed, readonly, watch, type ComputedRef, type Ref } from 'vue'
 import { createProvider } from '~/app/providers/factory'
 import { effectiveViewportWidth } from '~/app/utils/browser-gate'
 import { interviewMaxSecondsFrom } from '~/app/utils/interview-max-seconds'
@@ -291,10 +291,18 @@ export interface UseInterviewSessionReturn {
   terminalReason: Ref<TerminalReason | null>
   /** DB session id from the latest /start response — null until the first /start succeeds. */
   sessionId: Ref<number | null>
+  /**
+   * Distinct scripted primary questions asked in the current competency session, from the latest
+   * /utterance 202 of the current session. Null until one is answered, and again after a new /start
+   * or a session change.
+   */
+  primaryIndex: Readonly<Ref<number | null>>
   /** Competencies ended so far, from the /end directive. Null until the first /end. */
   endedCompetencies: Ref<number | null>
-  /** Total competencies in the project, from the /end directive. */
+  /** Total competencies in the project: seeded by /start, then confirmed by every /end directive. */
   totalCompetencies: Ref<number | null>
+  /** 1-based position of the competency now being interviewed, from /start. Null until one names it. */
+  competencyOrdinal: Readonly<Ref<number | null>>
   /** The interview's total time limit from the active template, once a start response has named it. */
   interviewMaxSeconds: Ref<number | null>
   /** Set once the whole interview's time is spent: the question in progress finishes, and the server settles the interview. */
@@ -327,6 +335,15 @@ export interface UseInterviewSessionReturn {
    * `finally`, so it cannot stay set.
    */
   boundaryInFlight: Readonly<Ref<boolean>>
+  /**
+   * The candidate's own microphone choice (D9). Lives as long as this instance:
+   * a boundary, a handover, a new competency or a resume never reset it, only a
+   * page reload does. A mute forced by the boundary or the handover wins while
+   * it is in effect and the choice is reapplied afterwards.
+   */
+  micMuted: Readonly<Ref<boolean>>
+  /** Record the candidate's choice; reaches the provider unless a forced mute is in effect. */
+  setMicMuted: (muted: boolean) => void
   acceptConsent: () => void
   /** @param audioDeviceId Microphone from device check; remembered for later competencies. */
   confirmDevices: (audioDeviceId?: string) => void
@@ -598,9 +615,13 @@ export function useInterviewSession(
   const currentCompetencyIndex = ref(0)
   const terminalReason = ref<TerminalReason | null>(null)
   const sessionId = ref<number | null>(null)
+  const primaryIndex = ref<number | null>(null)
+  // Sync, so a 202 landing right after the swap cannot be wiped by a watcher that flushes late.
+  watch(sessionId, () => (primaryIndex.value = null), { flush: 'sync' })
   /** Server-fed progress (D6/D7). Never derived here — deriving it is the defect. */
   const endedCompetencies = ref<number | null>(null)
   const totalCompetencies = ref<number | null>(null)
+  const competencyOrdinal = ref<number | null>(null)
   /** The interview's total time limit from the active template, once a start response has named it. */
   const interviewMaxSeconds = ref<number | null>(null)
   /** Set once the whole interview's time is spent: the question in progress finishes, and nothing after it starts. */
@@ -636,6 +657,41 @@ export function useInterviewSession(
   const activeProvider = computed(() => activeSession.value?.provider ?? null)
   const activeConfig = computed(() => activeSession.value?.config ?? null)
   const handoverInFlight = computed(() => handoverActive.value || boundaryInFlight.value)
+
+  const micMuted = ref(false)
+
+  /**
+   * True when the candidate toggled while a forced mute owned the uplink: the choice was
+   * recorded but not sent. A restore clears it as it sends the current value; a toggle made
+   * while that restore is awaited sets it again, and the end of the window re-applies it.
+   */
+  let micChoicePending = false
+
+  /** Reopen the uplink after a forced mute, to the candidate's own choice (never unconditionally). */
+  function restoreMic(handle: ProviderSession) {
+    micChoicePending = false
+    return handle.provider.setMicMuted(micMuted.value).catch(() => {})
+  }
+
+  function setMicMuted(muted: boolean) {
+    micMuted.value = muted
+    if (handoverInFlight.value) {
+      micChoicePending = true // a forced mute owns the uplink; the end of the window applies this
+      return
+    }
+    activeSession.value?.provider.setMicMuted(muted).catch(() => {})
+  }
+
+  // The forced-mute window ended with a choice nobody sent (a toggle during the restore await).
+  watch(
+    handoverInFlight,
+    (inFlight) => {
+      if (inFlight || !micChoicePending) return
+      micChoicePending = false
+      activeSession.value?.provider.setMicMuted(micMuted.value).catch(() => {})
+    },
+    { flush: 'sync' }
+  )
 
   const players = computed<SessionPlayer[]>(() => {
     const list: SessionPlayer[] = []
@@ -872,6 +928,48 @@ export function useInterviewSession(
     }
   }
 
+  /**
+   * Keeps the 202's `primary_index` only for a line that belongs to the session now current: a
+   * late answer for the outgoing row must not overwrite the incoming one's count. A response
+   * missing the field leaves the value alone.
+   */
+  type CompetencyProgress = { total: number | null; ordinal: number | null }
+
+  /** Progress named by a /start response; an invalid or absent field leaves the old value. */
+  function progressOf(response: StartResponse): CompetencyProgress {
+    const { competency_ordinal, total_competencies } = response.question_context
+    return {
+      total: isPositiveNumber(total_competencies) ? total_competencies : null,
+      ordinal: isPositiveNumber(competency_ordinal) ? competency_ordinal : null,
+    }
+  }
+
+  /**
+   * Moves "competency n of N" with the session id it describes. Called wherever the id
+   * swaps, never at an incoming /start that is still waiting for its crossfade: the panel
+   * pairs this with the id and the primary index, which belong to the outgoing competency
+   * until then.
+   */
+  function applyProgress(progress: CompetencyProgress | null) {
+    if (!progress) return
+    if (progress.total !== null) totalCompetencies.value = progress.total
+    if (progress.ordinal !== null) competencyOrdinal.value = progress.ordinal
+  }
+
+  /** The crossfade target's progress, applied at `promote()` together with the id swap. */
+  let incomingProgress: CompetencyProgress | null = null
+
+  function recordPrimaryIndex(dbSessionId: number, body: UtteranceResponse | undefined) {
+    if (dbSessionId === sessionId.value && typeof body?.primary_index === 'number') {
+      primaryIndex.value = body.primary_index
+    }
+  }
+
+  /** A count the server stated: a finite number above zero. Anything else is treated as not stated. */
+  function isPositiveNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0
+  }
+
   /** A send that failed for a reason worth trying again: no response at all, a 5xx, or a 429. */
   function isRetryableUtteranceError(err: unknown): boolean {
     const status =
@@ -890,6 +988,7 @@ export function useInterviewSession(
         method: 'POST',
         body: { session_id: dbSessionId, speaker, text, ts },
       })
+      recordPrimaryIndex(dbSessionId, body)
       // The server says the competency's turn budget is met: close it, but only for the live session.
       if (body?.boundary_due === true && activeSession.value?.attribution.current === dbSessionId) {
         void assertBoundary('completed')
@@ -989,6 +1088,7 @@ export function useInterviewSession(
         method: 'POST',
         body: { session_id: dbSessionId, speaker, text, ts: item.ts },
       })
+      recordPrimaryIndex(dbSessionId, body)
       return body?.boundary_due === true
     } catch (err) {
       // 401 → the stored session has already expired or been cleared (candidateFetch clears it
@@ -1239,6 +1339,7 @@ export function useInterviewSession(
    */
   function abandonIncomingAttempt() {
     logHandoverEvent('incoming-attempt-abandoned')
+    incomingProgress = null
     incomingSession.value = null
     incomingEntering.value = false
   }
@@ -1277,8 +1378,10 @@ export function useInterviewSession(
     // ever governs the VIDEO element) — unmuting the mic at `entering`
     // instead of here would reopen a smaller-scoped version of B1 for the
     // ~200ms crossfade window, with two unmuted mics again.
-    incoming.provider.setMicMuted(false).catch(() => {})
+    void restoreMic(incoming)
     activeSession.value = incoming
+    applyProgress(incomingProgress)
+    incomingProgress = null
     sessionId.value = incoming.attribution.current
     armAgeTimer(incoming)
     // The machine stays `live` for the whole handover (D2); this also covers
@@ -1503,7 +1606,7 @@ export function useInterviewSession(
       // Lost the /end race — undo the handover prep: nothing is actually
       // advancing, so the mic mute and the bound timer must not stick.
       endHandover()
-      handle.provider.setMicMuted(false).catch(() => {})
+      void restoreMic(handle)
       return
     }
 
@@ -1515,7 +1618,7 @@ export function useInterviewSession(
     // pause/done/unrecognised: no next competency. Abandon the handover prep
     // — transitionTo() below unmounts this handle's player anyway.
     endHandover()
-    handle.provider.setMicMuted(false).catch(() => {})
+    void restoreMic(handle)
     transitionTo(directive === 'done' ? 'done' : 'end_of_question')
   }
 
@@ -1579,7 +1682,7 @@ export function useInterviewSession(
       handle.provider.stop().catch(() => {})
       advanceAfterQuestion(directive)
     } finally {
-      if (!micHandedOff) await handle.provider.setMicMuted(false).catch(() => {})
+      if (!micHandedOff) await restoreMic(handle)
       boundaryInFlight.value = false
     }
   }
@@ -1597,7 +1700,8 @@ export function useInterviewSession(
   async function applyContinuation(
     handle: ProviderSession,
     dbSessionId: number,
-    continuation: ParsedContinuation
+    continuation: ParsedContinuation,
+    progress: CompetencyProgress
   ): Promise<void> {
     if (handle !== activeSession.value) return
     if (!isSteerable(handle) || continuation.conversationId !== handle.conversationId) {
@@ -1610,14 +1714,15 @@ export function useInterviewSession(
     advanceAttribution(dbSessionId, () => {
       steering = handle.provider.sendBoundary(ticket)
     })
+    applyProgress(progress)
 
     let result = await steering
     if (result.ok) {
-      await handle.provider.setMicMuted(false).catch(() => {})
+      await restoreMic(handle)
       return
     }
 
-    await handle.provider.setMicMuted(false).catch(() => {})
+    await restoreMic(handle)
     if (isJoinedFailure(result)) result = await handle.provider.sendBoundary(ticket)
     if (result.ok) return
 
@@ -1757,7 +1862,12 @@ export function useInterviewSession(
         // `confirmDevices()`, which the latch would otherwise refuse.
         isResuming = false
         if (target === 'boundary' && joined) {
-          await applyContinuation(joined, Number(response.session_id), continuation)
+          await applyContinuation(
+            joined,
+            Number(response.session_id),
+            continuation,
+            progressOf(response)
+          )
         } else {
           // A continuation to a caller that holds no handle cannot be honoured.
           transitionTo('error')
@@ -1779,13 +1889,19 @@ export function useInterviewSession(
       // D4: end_phrase and final_phrase come from NESTED question_context — NOT top-level
       const { end_phrase, final_phrase } = response.question_context
       const dbSessionId = Number(response.session_id)
+      // A new /start opens a competency session whose primaries have not been asked yet.
+      primaryIndex.value = null
       const providerName = response.provider as ProviderName
       // `question_index` is deliberately NOT stored: it was only ever read to
       // derive last-competency detection, which the server owns now. It also
       // carries a pre-existing off-by-one (-1 on the first competency of every
       // project, because `position` is written 0-based while the query subtracts
       // one), so keeping it around invites someone to compute progress from it.
-      // `competency_ordinal` is the field to trust.
+      // `competency_ordinal` is the field to trust, and it is stored now (with the
+      // total) so the panel can read "competency n of N" from the first competency.
+      // `endedCompetencies` is NOT touched here: it stays /end-only, because it also
+      // decides whether a competency has run.
+      const progress = progressOf(response)
 
       const startConfig: StartConfig = {
         dbSessionId,
@@ -1829,6 +1945,7 @@ export function useInterviewSession(
       wireProviderEvents(handle)
 
       if (crossfade) {
+        incomingProgress = progress
         incomingSession.value = handle
         // Tavus cannot arm the bound at `complete` like HeyGen does: the ceiling is
         // only known from this response. Armed at publish, unless a HeyGen handover
@@ -1838,6 +1955,7 @@ export function useInterviewSession(
           armHandoverBound()
         }
       } else {
+        applyProgress(progress) // in place when the id first appears (the embed reads it then)
         sessionId.value = handle.attribution.current
         activeSession.value = handle
         armAgeTimer(handle)
@@ -2144,8 +2262,10 @@ export function useInterviewSession(
     currentCompetencyIndex,
     terminalReason,
     sessionId,
+    primaryIndex: readonly(primaryIndex),
     endedCompetencies,
     totalCompetencies,
+    competencyOrdinal: readonly(competencyOrdinal),
     interviewMaxSeconds,
     interviewBudgetSpent,
     pendingUtterances,
@@ -2154,6 +2274,8 @@ export function useInterviewSession(
     players,
     handoverInFlight,
     boundaryInFlight: readonly(boundaryInFlight),
+    micMuted: readonly(micMuted),
+    setMicMuted,
     acceptConsent,
     confirmDevices,
     pause,

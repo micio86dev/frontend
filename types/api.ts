@@ -1504,6 +1504,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/candidate/interview/outline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The candidate's interview path
+         * @description Returns the interview as the candidate sees it while it runs: the assessment type, the role, the
+         *     interviewer's and the candidate's own display names, and the competencies in order, each with its
+         *     name, its 1-based position, how many scripted questions it holds and whether it is done, current,
+         *     upcoming or queued to be repeated. Names are in the project language. No competency code or
+         *     identifier is returned. `422 assessment_type_not_supported` means the project's assessment type is
+         *     not supported, and `422 project_not_found` means the project no longer exists.
+         */
+        get: operations["outline.show"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/participants": {
         parameters: {
             query?: never;
@@ -3090,6 +3115,9 @@ export interface components {
                 code: string | null;
                 synced_at: string | null;
             };
+            persona: {
+                display_name: string | null;
+            };
         };
         /**
          * AvatarTemplateScope
@@ -3544,6 +3572,9 @@ export interface components {
                 status: string | null;
                 code: string | null;
                 synced_at: string | null;
+            };
+            persona: {
+                display_name: string | null;
             };
             usage: {
                 organization_count: number;
@@ -5213,6 +5244,9 @@ export interface operations {
                     /** @description Bind a language model to the template. `llm_model_id` and `llm_credential_id` are both set or both null. */
                     llm_model_id?: number | null;
                     llm_credential_id?: number | null;
+                    persona?: {
+                        display_name?: string | null;
+                    };
                 };
             };
         };
@@ -5323,6 +5357,9 @@ export interface operations {
                     /** @description Bind a language model to the template. `llm_model_id` and `llm_credential_id` are both set or both null; sending both as null clears the binding. */
                     llm_model_id?: number | null;
                     llm_credential_id?: number | null;
+                    persona?: {
+                        display_name?: string | null;
+                    };
                 };
             };
         };
@@ -7972,6 +8009,64 @@ export interface operations {
             404: components["responses"]["ModelNotFoundException"];
         };
     };
+    "outline.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The interview outline. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        assessment_type: "standard" | "potential";
+                        role_name: string | null;
+                        avatar_name: string | null;
+                        candidate_name: string | null;
+                        primary_total_all: number;
+                        competencies: {
+                            name: string | null;
+                            ordinal: number;
+                            /** @enum {string} */
+                            status: "done" | "current" | "upcoming" | "retry";
+                            primary_total: number;
+                        }[];
+                    };
+                };
+            };
+            401: components["responses"]["AuthenticationException"];
+            /** @description The participant is no longer in an active interview (completed or errored). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            /** @description The project no longer exists (`project_not_found`) or its assessment type is not supported (`assessment_type_not_supported`). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        error: "project_not_found" | "assessment_type_not_supported";
+                    };
+                };
+            };
+        };
+    };
     "participant.index": {
         parameters: {
             query?: never;
@@ -8534,6 +8629,9 @@ export interface operations {
                     /** @description Bind a language model to the template. `llm_model_id` and `llm_credential_id` are both set or both null. */
                     llm_model_id?: number | null;
                     llm_credential_id?: number | null;
+                    persona?: {
+                        display_name?: string | null;
+                    };
                 };
             };
         };
@@ -8637,6 +8735,9 @@ export interface operations {
                     /** @description Bind a language model to the template. `llm_model_id` and `llm_credential_id` are both set or both null; sending both as null clears the binding. */
                     llm_model_id?: number | null;
                     llm_credential_id?: number | null;
+                    persona?: {
+                        display_name?: string | null;
+                    };
                 };
             };
         };
@@ -11113,7 +11214,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Utterance persisted. `boundary_due` is true once the competency has met its turn budget. */
+            /** @description Utterance persisted. `boundary_due` is true once the competency has met its turn budget. `primary_index` is how many distinct scripted questions of this competency have been asked so far. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -11121,6 +11222,7 @@ export interface operations {
                 content: {
                     "application/json": {
                         boundary_due: boolean;
+                        primary_index: number;
                     };
                 };
             };
