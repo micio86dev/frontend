@@ -601,8 +601,96 @@ for (const [label, colour] of [
       await expect(page.getByRole('heading', { name: /interview suspended/i })).toBeVisible()
       await checkA11y(page)
     })
+
+    test('live screen with a caption, then with captions off', async ({ page }) => {
+      await mockCallApi(page, colour)
+      await goLive(page)
+      await say(page, 'Tell me about a time you led a change.')
+      await expect(page.getByTestId('call-question-speaker')).toBeVisible()
+      await checkA11y(page)
+
+      await page.getByTestId('call-header-captions').click()
+      await checkA11y(page)
+    })
   })
 }
+
+/** The captions overlay (live-interview-call-chrome D8, D17): off hides every visible word. */
+test.describe('captions', () => {
+  const FIRST_QUESTION = 'Tell me about a change you led.'
+
+  test('the overlay sits on the interviewer tile, clear of the name chip and the own tile', async ({
+    page,
+  }) => {
+    await mockCallApi(page)
+    await goLive(page)
+    await say(page, FIRST_QUESTION)
+
+    const layer = await boxOf(page.locator('[data-slot="avatar-layer"]'))
+    const overlay = await boxOf(page.getByTestId('call-question'))
+    const own = await boxOf(page.locator('[data-slot="call-stage-self"]'))
+    const chip = await boxOf(
+      page.locator('[data-slot="avatar-layer"] [data-slot="call-tile-name"]')
+    )
+
+    expect(overlay.left).toBeGreaterThanOrEqual(layer.left)
+    expect(overlay.bottom).toBeLessThanOrEqual(layer.bottom)
+    expect(overlay.right, 'clear of the own tile').toBeLessThanOrEqual(own.left)
+    expect(overlay.bottom, 'above the name chip').toBeLessThanOrEqual(chip.top)
+    await expect(page.getByTestId('call-question-speaker')).toHaveText('AI interviewer:')
+  })
+
+  test('off hides every visible word but keeps the live region, and the choice is remembered', async ({
+    page,
+    context,
+  }) => {
+    await mockCallApi(page)
+    await goLive(page)
+    await say(page, FIRST_QUESTION)
+    const region = page.getByRole('region', { name: 'Current question' })
+    await expect(region).toContainText(FIRST_QUESTION)
+
+    await page.getByTestId('call-header-captions').click()
+    await expect(page.getByTestId('call-header-captions')).toHaveAttribute('aria-pressed', 'false')
+
+    // Still in the accessibility tree and still written to, but nothing is drawn.
+    await expect(region).toHaveCount(1)
+    await expect(region).toContainText(FIRST_QUESTION)
+    const box = await boxOf(page.getByTestId('call-question'))
+    expect(box.right - box.left).toBeLessThanOrEqual(1)
+    expect(box.bottom - box.top).toBeLessThanOrEqual(1)
+    await expect(page.getByTestId('call-question')).not.toHaveAttribute('tabindex', /.*/)
+    await say(page, 'A follow-up question.')
+    await expect(region).toContainText('A follow-up question.')
+    await expect(page.locator('[aria-live="polite"][aria-atomic="true"]')).toHaveCount(1)
+
+    // A fresh page of the same browser context starts with captions off.
+    const again = await context.newPage()
+    await mockCallApi(again)
+    await goLive(again)
+    await expect(again.getByTestId('call-header-captions')).toHaveAttribute('aria-pressed', 'false')
+    const hidden = await boxOf(again.getByTestId('call-question'))
+    expect(hidden.right - hidden.left).toBeLessThanOrEqual(1)
+
+    // And turning them back on shows the overlay again.
+    await again.getByTestId('call-header-captions').click()
+    const shown = await boxOf(again.getByTestId('call-question'))
+    expect(shown.right - shown.left).toBeGreaterThan(100)
+  })
+
+  test('off does not move focus to the captions at a competency boundary', async ({ page }) => {
+    const api = await mockCallApi(page)
+    await goLive(page)
+    await page.getByTestId('call-header-captions').click()
+
+    api.startNextWith(2, 'COL')
+    await drive(page, 'emitEndPhrase')
+    await expect.poll(() => api.starts(), { timeout: 15000 }).toBe(2)
+    await expect(page.getByTestId('call-panel-progress')).toBeVisible({ timeout: 15000 })
+
+    await expect(page.getByTestId('call-question')).not.toBeFocused()
+  })
+})
 
 // Served by the playwright.config.ts instance wired to the frame-policy stub: framing
 // needs a CSP middleware that can resolve an allowed host.
@@ -860,7 +948,7 @@ test.describe('the call stage fits the viewport', () => {
     await expect(page.getByTestId('call-panel').getByTestId('call-exit')).toHaveCount(0)
   })
 
-  test('1100x800: one column, the panel is a strip under the question band', async ({ page }) => {
+  test('1100x800: one column, the panel is a strip under the tile', async ({ page }) => {
     await page.setViewportSize({ width: 1100, height: 800 })
     const api = await mockCallApi(page)
     await goLiveFullPanel(page, api)
@@ -915,7 +1003,7 @@ test.describe('the call stage fits the viewport', () => {
 })
 
 /**
- * One column, the panel under the question band and as wide as the column. `rows`
+ * One column, the panel under the interviewer tile and as wide as the column. `rows`
  * adds what makes it a strip rather than a card: the sections are laid out in rows
  * (the duration shares a row with the progress) instead of one per line, which is
  * what the two-column panel does.
@@ -928,12 +1016,13 @@ async function expectSingleColumn(
   const layer = await boxOf(root.locator('[data-slot="avatar-layer"]'))
   const question = await boxOf(root.getByTestId('call-question'))
   const panel = await boxOf(root.getByTestId('call-panel'))
-  expect(panel.top, 'the panel is under the question band').toBeGreaterThanOrEqual(question.bottom)
-  expect(Math.abs(panel.left - question.left), 'same column').toBeLessThanOrEqual(1)
-  expect(Math.abs(panel.width - question.width), 'as wide as the column').toBeLessThanOrEqual(1)
-  expect(Math.abs(question.width - layer.width), 'the tile is in that column').toBeLessThanOrEqual(
-    1
-  )
+  expect(panel.top, 'the panel is under the tile').toBeGreaterThanOrEqual(layer.bottom)
+  expect(Math.abs(panel.left - layer.left), 'same column').toBeLessThanOrEqual(1)
+  expect(Math.abs(panel.width - layer.width), 'as wide as the column').toBeLessThanOrEqual(1)
+  // The captions are an overlay on the tile: inside it, never outside.
+  expect(question.left, 'the captions sit inside the tile').toBeGreaterThanOrEqual(layer.left)
+  expect(question.right, 'the captions sit inside the tile').toBeLessThanOrEqual(layer.right)
+  expect(question.bottom, 'the captions sit inside the tile').toBeLessThanOrEqual(layer.bottom)
 
   if (!rows) return
   const progress = await boxOf(root.getByTestId('call-panel-progress'))

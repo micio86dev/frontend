@@ -250,10 +250,12 @@ const CallSelfViewStub = defineComponent({
     stream: { type: Object, required: true },
     speaking: { type: Boolean, default: false },
     speakingLabel: { type: String, default: '' },
+    name: { type: String, default: undefined },
   },
   setup: (props) => () =>
     h('div', {
       'data-testid': 'call-self-view',
+      'data-name': props.name ?? '',
       'data-speaking': String(props.speaking),
       'data-speaking-label': props.speakingLabel,
     }),
@@ -1012,6 +1014,86 @@ async function beginHandover(session: { state: { value: string } }) {
   await settle()
   expect(session.state.value).toBe('live')
 }
+
+describe('InterviewSession — the tile names and the candidate ring', () => {
+  const ownTile = (wrapper: Mounted) => wrapper.get('[data-testid="call-self-view"]')
+  const interviewerChip = (wrapper: Mounted) =>
+    layer(wrapper).querySelector('[data-slot="call-tile-name"]')!
+
+  beforeEach(() => {
+    localStorage.clear()
+    serveOutline(outlineOf())
+  })
+
+  it("names the own tile from the outline's candidate name", async () => {
+    const { wrapper } = await mountLive({ stream: fakeStream() })
+    await flushPromises()
+
+    expect(ownTile(wrapper).attributes('data-name')).toBe('Marta')
+  })
+
+  it.each([
+    ['a blank name', outlineOf({ candidate_name: '   ' })],
+    ['no name', outlineOf({ candidate_name: null })],
+    ['a failed outline', new Error('network')],
+  ])('leaves the own tile to its generic label with %s', async (_l, served) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    serveOutline(served)
+    const { wrapper } = await mountLive({ stream: fakeStream() })
+    await flushPromises()
+
+    expect(ownTile(wrapper).attributes('data-name')).toBe('')
+  })
+
+  it('falls back to "You" on the real own tile when the name is missing', async () => {
+    serveOutline(outlineOf({ candidate_name: null }))
+    const { wrapper } = await mountLive({ stream: fakeStream(), stubs: { CallSelfView: false } })
+    await flushPromises()
+
+    expect(
+      wrapper.get('[data-slot="call-stage-self"] [data-slot="call-tile-name"]').text()
+    ).toContain('interview.call.you')
+  })
+
+  it.each([
+    ['the persona name', outlineOf({ avatar_name: 'Giulia' }), 'Giulia'],
+    [
+      'the generic label without one',
+      outlineOf({ avatar_name: null }),
+      'interview.call.interviewer_name',
+    ],
+    [
+      'the generic label for a blank one',
+      outlineOf({ avatar_name: '  ' }),
+      'interview.call.interviewer_name',
+    ],
+  ])('names the interviewer chip with %s', async (_l, served, expected) => {
+    serveOutline(served)
+    const { wrapper } = await mountLive()
+    await flushPromises()
+
+    expect(interviewerChip(wrapper).textContent).toContain(expected)
+  })
+
+  it('lights the own ring only while the candidate speaks AND the microphone is open', async () => {
+    const { wrapper } = await mountLive({ stream: fakeStream() })
+    speakerTurn.speaker!.value = 'candidate'
+    await flushPromises()
+    expect(ownTile(wrapper).attributes('data-speaking')).toBe('true')
+
+    await headerMic(wrapper).trigger('click')
+    await flushPromises()
+    expect(ownTile(wrapper).attributes('data-speaking')).toBe('false')
+
+    await headerMic(wrapper).trigger('click')
+    await flushPromises()
+    expect(ownTile(wrapper).attributes('data-speaking')).toBe('true')
+
+    speakerTurn.speaker!.value = 'avatar'
+    await flushPromises()
+    expect(ownTile(wrapper).attributes('data-speaking')).toBe('false')
+  })
+})
 
 describe('InterviewSession — the captions overlay', () => {
   const region = (wrapper: Mounted) => wrapper.get('[data-testid="call-question"]')

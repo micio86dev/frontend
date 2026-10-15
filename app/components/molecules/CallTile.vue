@@ -3,7 +3,11 @@
     <slot />
 
     <!--
-      The name chip. When the tile is lit it adds two cues that are not colour:
+      The name chip: white on black at 60%. Over a white video frame that composites to
+      #666666, 5.7:1, so the name stays legible whatever the video shows (a dark avatar
+      panel at 80% was not, over a bright frame). Text only and non-interactive.
+
+      When the tile is lit it adds two cues that are not colour:
       the microphone glyph and visually hidden text. The hidden text is
       deliberately NOT a live region: announcing every turn would bury the
       question, the same argument DESIGN.md §7.3.1 makes for the voice
@@ -11,7 +15,7 @@
     -->
     <div
       data-slot="call-tile-name"
-      class="absolute bottom-2 left-2 inline-flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded-md bg-avatar-bg/80 px-2 py-1 text-xs font-medium text-white"
+      class="absolute bottom-2 left-2 inline-flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded-md bg-black/60 px-2 py-1 text-xs font-medium text-white"
     >
       <!-- Inline rather than an icon package, as NoticeShell does (D37). -->
       <svg

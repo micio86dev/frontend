@@ -134,3 +134,30 @@ describe('CallTile motion', () => {
     expect(bare).toEqual([])
   })
 })
+
+describe('CallTile name chip', () => {
+  it('is white on a semi-transparent black backing', () => {
+    const chip = mountTile().get('[data-slot="call-tile-name"]')
+
+    expect(chip.classes()).toContain('bg-black/60')
+    expect(chip.classes()).toContain('text-white')
+    expect(chip.classes()).not.toContain('bg-avatar-bg/80')
+  })
+
+  it('is neither focusable nor interactive', () => {
+    const chip = mountTile({ speaking: true }).get('[data-slot="call-tile-name"]')
+
+    expect(chip.element.tagName).toBe('DIV')
+    expect(chip.attributes('tabindex')).toBeUndefined()
+    expect(chip.attributes('role')).toBeUndefined()
+    expect(chip.find('a, button, input, [tabindex], [role]').exists()).toBe(false)
+  })
+
+  it('renders a name containing markup as text only', () => {
+    const wrapper = mountTile({ name: '<b>x</b>' })
+    const chip = wrapper.get('[data-slot="call-tile-name"]')
+
+    expect(chip.find('b').exists()).toBe(false)
+    expect(chip.text()).toContain('<b>x</b>')
+  })
+})

@@ -198,6 +198,77 @@ describe('call screen: the live header', () => {
   })
 })
 
+describe('call screen: the captions overlay lives inside the avatar layer', () => {
+  /** A minimal view of a template AST node: elements have `tag`, `props` and `children`. */
+  type Node = {
+    type: number
+    tag?: string
+    props?: Array<{ type: number; name: string; value?: { content: string } }>
+    children?: Node[]
+  }
+
+  const walk = (
+    node: Node,
+    visit: (n: Node, ancestors: Node[]) => void,
+    ancestors: Node[] = []
+  ) => {
+    visit(node, ancestors)
+    for (const child of node.children ?? []) walk(child, visit, [...ancestors, node])
+  }
+
+  const root = () => {
+    const { descriptor } = parse(read(join(APP_ROOT, 'components/InterviewSession.vue')))
+    return descriptor.template!.ast as unknown as Node
+  }
+
+  const isAvatarLayer = (n: Node) =>
+    n.tag === 'div' &&
+    (n.props ?? []).some(
+      (p) => p.type === 6 && p.name === 'data-slot' && p.value?.content === 'avatar-layer'
+    )
+
+  it('renders <CallQuestion> exactly once, inside the avatar-layer element, and nowhere else', () => {
+    const found: Node[][] = []
+    walk(root(), (n, ancestors) => {
+      if (n.tag === 'CallQuestion') found.push(ancestors)
+    })
+
+    expect(found).toHaveLength(1)
+    expect(found[0]!.some(isAvatarLayer)).toBe(true)
+  })
+
+  it('has the layer itself inside the CallStage layer slot, so the captions cannot leave the video', () => {
+    let layerAncestors: Node[] = []
+    walk(root(), (n, ancestors) => {
+      if (isAvatarLayer(n)) layerAncestors = ancestors
+    })
+
+    expect(layerAncestors.some((n) => n.tag === 'CallStage')).toBe(true)
+  })
+
+  it('no #question slot remains: not in the page, not in the stage', () => {
+    const page = stripComments(read(join(APP_ROOT, 'components/InterviewSession.vue')))
+    const stage = stripComments(read(join(APP_ROOT, 'components/organisms/CallStage.vue')))
+
+    expect(page).not.toMatch(/#question\b|v-slot:question\b/)
+    expect(stage).not.toMatch(/name="question"|\[grid-area:question\]|call-stage-question/)
+    expect(stage).not.toMatch(/'question/)
+  })
+
+  it('the guard can fail: it recognises the avatar-layer element in a template', () => {
+    const { descriptor } = parse(
+      '<template><div data-slot="avatar-layer"><CallQuestion /></div></template>'
+    )
+    const ast = descriptor.template!.ast as unknown as Node
+    const hits: boolean[] = []
+    walk(ast, (n) => {
+      if (isAvatarLayer(n)) hits.push(true)
+    })
+
+    expect(hits).toEqual([true])
+  })
+})
+
 describe('call screen: no literal user-visible string', () => {
   /** Attributes a screen reader or a tooltip turns into words. */
   const SPOKEN_ATTRIBUTES = new Set([

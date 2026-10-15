@@ -101,7 +101,7 @@
           ]"
         >
           <CallTile
-            :name="$t('interview.call.interviewer_name')"
+            :name="interviewerName"
             :speaking-label="$t('interview.call.avatar_speaking')"
             :speaking="speaker === 'avatar' || session.boundaryInFlight.value"
           >
@@ -160,7 +160,8 @@
           <CallSelfView
             :stream="confirmedStream"
             :speaking-label="$t('interview.call.candidate_speaking')"
-            :speaking="speaker === 'candidate'"
+            :name="candidateName"
+            :speaking="speaker === 'candidate' && !session.micMuted.value"
           />
         </ClientOnly>
       </template>
@@ -857,6 +858,9 @@ watch(
     void outlineApi.refresh()
   }
 )
+
+/** The candidate's own name for the self tile; blank or an outline that never loaded leaves its generic label. */
+const candidateName = computed(() => outlineApi.outline.value?.candidate_name?.trim() || undefined)
 
 /** The persona name the admin configured, or the generic label: never a technology provider's name. */
 const interviewerName = computed(
