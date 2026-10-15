@@ -67,6 +67,14 @@
         "captions": "Sottotitoli",
         "microphone": "Microfono"
       },
+      "storyboard": {
+        "label": "Percorso del colloquio",
+        "done": "Completata",
+        "retry": "Da ripetere",
+        "current": "In corso",
+        "current_counted": "In corso · domanda {k} di {n}",
+        "unnamed": "Competenza {ordinal}"
+      },
       "progress": "Domanda {n} di {total}",
       "duration_label": "Durata",
       "duration_value": "{elapsed} / {total}",
