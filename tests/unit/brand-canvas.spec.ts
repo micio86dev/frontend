@@ -389,52 +389,28 @@ describe("BrandCanvas — the organization's mark, or ours, but never nothing", 
     expect(wrapper.find('[data-testid="brand-canvas-org"]').exists()).toBe(false)
   })
 
-  describe('the plate opt-out (live-interview-call-chrome, D13)', () => {
+  describe('the logo is always plated (one BrandLogo on every candidate page)', () => {
     const PRIMED = {
       primary_color: '#771aaf',
       logo_url: 'https://cdn.test/acme.png',
       name: null,
     }
 
-    it('renders the logo bare, with no plate element, when plate is false', async () => {
-      useCandidateBranding().prime(PRIMED)
-      const wrapper = mountCanvas({ plate: false })
-      await flushPromises()
-
-      const logo = wrapper.get('[data-testid="brand-canvas-logo"]')
-
-      expect(logo.attributes('src')).toBe('https://cdn.test/acme.png')
-      expect(logo.attributes('alt')).toBe('')
-      // The image sits straight in the header: no wrapper carries the white plate.
-      expect(logo.element.parentElement?.tagName).toBe('HEADER')
-      expect(wrapper.find('header span.bg-card').exists()).toBe(false)
-    })
-
-    it('keeps the plate by default and when plate is explicitly true', async () => {
-      useCandidateBranding().prime(PRIMED)
-
-      for (const props of [{}, { plate: true }]) {
+    it.each([{}, { wide: true }, { surface: false }, { wide: true, surface: false }])(
+      'seats the logo on the white plate with %j',
+      async (props) => {
+        useCandidateBranding().prime(PRIMED)
         const wrapper = mountCanvas(props)
         await flushPromises()
 
         const logo = wrapper.get('[data-testid="brand-canvas-logo"]')
+        expect(logo.attributes('alt')).toBe('')
         expect(logo.element.parentElement?.className).toContain('bg-card')
       }
-    })
+    )
 
-    it('does not compensate a bare logo that shares the canvas colour', async () => {
-      useCandidateBranding().prime({ ...PRIMED, primary_color: '#ffd400' })
-      const wrapper = mountCanvas({ plate: false })
-      await flushPromises()
-
-      const logo = wrapper.get('[data-testid="brand-canvas-logo"]')
-
-      // Shown as supplied: no filter, background or outline invented around it.
-      expect(logo.classes().join(' ')).not.toMatch(/bg-|filter|drop-shadow|outline|ring|border/)
-    })
-
-    it('leaves the BEAI wordmark alone when there is no logo', async () => {
-      const wrapper = mountCanvas({ plate: false })
+    it('keeps the BEAI wordmark when there is no logo', async () => {
+      const wrapper = mountCanvas({ wide: true })
       await flushPromises()
 
       expect(wrapper.get('header').text()).toContain('BEAI')

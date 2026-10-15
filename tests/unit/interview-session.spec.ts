@@ -835,7 +835,7 @@ describe('InterviewSession — the live header', () => {
     expect(labels).toEqual(['call-header-captions', 'call-header-mic', 'call-exit'])
   })
 
-  it('draws the logo without the plate while live and with it on the consent screen', async () => {
+  it('draws the logo on the same plate on the consent screen and while live', async () => {
     useCandidateBranding().prime({
       primary_color: '#771aaf',
       logo_url: 'https://cdn.test/acme.png',
@@ -846,9 +846,9 @@ describe('InterviewSession — the live header', () => {
     expect(plated?.className).toContain('bg-card')
 
     const { wrapper } = await mountLive()
-    expect(wrapper.get('[data-testid="brand-canvas-logo"]').element.parentElement?.tagName).toBe(
-      'HEADER'
-    )
+    expect(
+      wrapper.get('[data-testid="brand-canvas-logo"]').element.parentElement?.className
+    ).toContain('bg-card')
   })
 
   it('titles a standard assessment with the role name from the outline', async () => {

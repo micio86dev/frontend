@@ -6,7 +6,6 @@
     :footer="false"
     :load-branding="false"
     :wide="callStageLive"
-    :plate="!callStageLive"
   >
     <!--
       The whole interview sits on the brand canvas the candidate arrived on
@@ -19,8 +18,8 @@
 
       The header carries the where-am-I chrome: the three steps on the two
       pre-interview screens, the live call header (title, clock, captions,
-      microphone, Exit) while live. The logo loses its white plate only while
-      live (`plate`), so every other screen is unchanged.
+      microphone, Exit) while live. The logo is the same plated `BrandLogo` on every
+      screen, the live call included.
     -->
     <template v-if="preInterviewStep" #header-end>
       <InterviewSteps :current="preInterviewStep" />

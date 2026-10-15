@@ -232,8 +232,8 @@ test.describe('the call stage (the default live interview)', () => {
     await expect(page.getByRole('timer')).toHaveCount(1)
     await expect(page.getByTestId('call-header-captions')).toHaveAttribute('aria-pressed', 'true')
     await expect(page.getByTestId('call-header-mic')).toHaveAttribute('aria-pressed', 'true')
-    // The logo sits bare on the canvas while live: no white plate around it.
-    await expect(page.locator('header .bg-card [data-testid="brand-canvas-logo"]')).toHaveCount(0)
+    // The logo keeps the same white plate while live as on every other page.
+    await expect(page.locator('header .bg-card [data-testid="brand-canvas-logo"]')).toHaveCount(1)
   })
 
   test('the question is the avatar transcript, and a user transcript never appears', async ({
