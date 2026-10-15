@@ -67,6 +67,19 @@
         "captions": "Captions",
         "microphone": "Microphone"
       },
+      "answer": {
+        "label": "Answer time",
+        "status": {
+          "listening": "The interviewer is speaking",
+          "waiting": "Waiting for your answer",
+          "answering": "You are answering"
+        },
+        "muted_hint": "Microphone off: the interviewer cannot hear you",
+        "budget_labels": "{min} min · ideal {from}–{to} · {max} max",
+        "budget_note": "Suggested times, not binding",
+        "budget_label": "Suggested answer length",
+        "budget_sr": "{elapsed} of a suggested maximum of {max}"
+      },
       "storyboard": {
         "label": "Interview path",
         "done": "Completed",

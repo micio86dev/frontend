@@ -67,6 +67,19 @@
         "captions": "Sottotitoli",
         "microphone": "Microfono"
       },
+      "answer": {
+        "label": "Tempo di risposta",
+        "status": {
+          "listening": "L'intervistatore sta parlando",
+          "waiting": "In attesa della tua risposta",
+          "answering": "Stai rispondendo"
+        },
+        "muted_hint": "Microfono disattivato: l'intervistatore non ti sente",
+        "budget_labels": "{min} min · ideale {from}–{to} · {max} max",
+        "budget_note": "Tempi suggeriti, non vincolanti",
+        "budget_label": "Durata suggerita della risposta",
+        "budget_sr": "{elapsed} su un massimo suggerito di {max}"
+      },
       "storyboard": {
         "label": "Percorso del colloquio",
         "done": "Completata",

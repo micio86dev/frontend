@@ -41,3 +41,13 @@ export function answerBudget(
     max,
   }
 }
+
+/**
+ * `m:ss` for the suggested-length labels ("1:00 min · ideale 1:30–3:00 · 4:00 max"): minutes
+ * unpadded and never wrapped at 60, a fraction dropped, anything negative or non-finite 0:00.
+ */
+export function formatBudgetTime(totalSeconds: number): string {
+  const whole = Number.isFinite(totalSeconds) ? Math.max(0, Math.floor(totalSeconds)) : 0
+
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`
+}
