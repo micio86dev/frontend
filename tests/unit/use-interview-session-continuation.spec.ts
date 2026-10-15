@@ -256,6 +256,28 @@ describe('single-session continuation flow', () => {
     ])
   })
 
+  it('moves the ordinal and total with the cursor on a granted continuation', async () => {
+    const withProgress = (response: ReturnType<typeof baseResponse>, ordinal: number) => ({
+      ...response,
+      question_context: {
+        ...response.question_context,
+        competency_ordinal: ordinal,
+        total_competencies: 3,
+      },
+    })
+    const session = await liveSession(withProgress(fresh(), 1) as ReturnType<typeof fresh>)
+    expect(session.competencyOrdinal.value).toBe(1)
+    queue('/candidate/interview/end', END_CONTINUE)
+    queue('/candidate/interview/start', withProgress(continuation(B), 2))
+
+    providers[0]!._emit('state', 'complete')
+    await flush()
+
+    expect(session.sessionId.value).toBe(B)
+    expect(session.competencyOrdinal.value).toBe(2)
+    expect(session.totalCompetencies.value).toBe(3)
+  })
+
   it('asserts the live conversation on /start only from the boundary', async () => {
     await liveSession()
     queue('/candidate/interview/end', END_CONTINUE)

@@ -2875,6 +2875,34 @@ describe('competency total and ordinal from /start', () => {
     expect(session.endedCompetencies.value).toBe(1)
   })
 
+  it('moves the ordinal and total together with the session id at the swap, not at the incoming /start', async () => {
+    const session = await startWith({ total_competencies: 5, competency_ordinal: 1 })
+    const outgoing = mockProviderRegistry[0]!
+    mockCandidateFetch.mockResolvedValueOnce({
+      ended_competencies: 1,
+      total_competencies: 5,
+      next_action: 'continue',
+    })
+    mockCandidateFetch.mockResolvedValueOnce(
+      makeStartResponse({ session_id: 99, total_competencies: 6, competency_ordinal: 2 })
+    )
+    outgoing._emit('state', 'complete')
+    await flushPromises()
+
+    // The incoming /start has landed, the outgoing competency is still the one playing.
+    expect(session.sessionId.value).toBe(42)
+    expect(session.competencyOrdinal.value).toBe(1)
+    expect(session.totalCompetencies.value).toBe(5)
+
+    session.notifyPainted(99)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await flushPromises()
+
+    expect(session.sessionId.value).toBe(99)
+    expect(session.competencyOrdinal.value).toBe(2)
+    expect(session.totalCompetencies.value).toBe(6)
+  })
+
   it('keeps the total and moves the ordinal across competencies', async () => {
     const session = await startWith({ total_competencies: 5, competency_ordinal: 1 })
     const outgoing = mockProviderRegistry[0]!
