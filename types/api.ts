@@ -4247,7 +4247,7 @@ export interface components {
             };
             /**
              * @description The spoken introduction per locale. A map REPLACES the stored one and `null` clears it;
-             *     `en` is required, `it` optional, each at most 600 characters.
+             *     `en` is required, `it` optional, each at most 3600 characters.
              */
             interview_intro_phrase?: {
                 en: string;
