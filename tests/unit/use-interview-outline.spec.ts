@@ -151,4 +151,19 @@ describe('useInterviewOutline', () => {
     expect(one.outline.value?.candidate_name).toBe('One')
     expect(two.outline.value?.candidate_name).toBe('Other')
   })
+
+  it('re-runs a refresh issued after the final dirty check but before the flight settles', async () => {
+    const first = deferred<Outline>()
+    mockCandidateFetch.mockReturnValueOnce(first.promise).mockResolvedValueOnce(outlineOf('Second'))
+    const { outline, refresh } = useInterviewOutline()
+
+    const flight = refresh()
+    // Queued before the fetch continuation runs, so it lands right after the last dirty
+    // check and before the flight's own settle handlers.
+    first.resolve(outlineOf('First'))
+    queueMicrotask(() => void refresh())
+    await flight
+    await vi.waitFor(() => expect(mockCandidateFetch).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(outline.value?.candidate_name).toBe('Second'))
+  })
 })

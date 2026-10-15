@@ -19,6 +19,9 @@ export type Outline = operations['outline.show']['responses'][200]['content']['a
 export function useInterviewOutline() {
   const outline = ref<Outline | null>(null)
   let inFlight: Promise<void> | null = null
+  // Cleared synchronously with the last dirty check, not in a settle handler: a refresh()
+  // that lands between the two would otherwise be marked dirty after nobody reads it.
+  let running = false
   let dirty = false
 
   async function load(): Promise<void> {
@@ -30,16 +33,16 @@ export function useInterviewOutline() {
         console.warn('[useInterviewOutline] outline fetch failed, keeping the previous value:', err)
       }
     } while (dirty)
+    running = false
   }
 
   function refresh(): Promise<void> {
-    if (inFlight) {
+    if (running && inFlight) {
       dirty = true
       return inFlight
     }
-    inFlight = load().finally(() => {
-      inFlight = null
-    })
+    running = true
+    inFlight = load()
     return inFlight
   }
 
