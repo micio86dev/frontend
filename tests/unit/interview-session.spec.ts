@@ -1253,7 +1253,7 @@ describe('InterviewSession — the stage', () => {
       totalCompetencies: { value: number | null }
     }
     expect(wrapper.get('[data-testid="call-panel"]').text()).not.toContain(
-      'interview.call.progress'
+      'interview.call.path.progress'
     )
 
     store.endedCompetencies.value = 1
@@ -1262,7 +1262,7 @@ describe('InterviewSession — the stage', () => {
 
     const panel = wrapper.get('[data-testid="call-panel"]')
     expect(panel.get('[data-testid="call-panel-progress-text"]').text()).toBe(
-      `interview.call.progress|${JSON.stringify({ n: 2, total: 3 })}`
+      `interview.call.path.progress|${JSON.stringify({ n: 2, total: 3 })}`
     )
     // The start response carried the code `PRS`; nothing on the stage may reveal it.
     expect(wrapper.html()).not.toContain('PRS')

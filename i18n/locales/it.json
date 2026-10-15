@@ -58,7 +58,7 @@
     },
     "call": {
       "question_region": "Domanda corrente",
-      "panel_label": "Avanzamento del colloquio",
+      "panel_label": "Intervista",
       "header": {
         "title": "Colloquio di assessment",
         "title_with_subject": "Colloquio di assessment · {subject}",
@@ -75,7 +75,10 @@
         "current_counted": "In corso · domanda {k} di {n}",
         "unnamed": "Competenza {ordinal}"
       },
-      "progress": "Domanda {n} di {total}",
+      "path": {
+        "label": "Percorso",
+        "progress": "Competenza {n} di {total}"
+      },
       "duration_label": "Durata",
       "duration_value": "{elapsed} / {total}",
       "duration_sr": "{elapsed} trascorsi su un massimo di {total}",

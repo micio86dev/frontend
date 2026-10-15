@@ -11,9 +11,9 @@
  *     height (`vh`, `dvh`, `svh`) never settles. The only viewport-height rule is
  *     the hosted cap in `CallStage`, and the embedded branch must not be able to
  *     reach it.
- *  2. The side panel is handed progress NUMBERS. It imports no session and reads no
- *     competency field, and the page gives it none: a candidate must not learn
- *     which competency is being assessed.
+ *  2. (live-interview-call-chrome) The side panel names competencies - the "Percorso"
+ *     storyboard shows the outline's NAMES - but never carries a competency CODE. It
+ *     imports no session and reads no code field. (Reversed from "names no competency".)
  *  3. No literal user-visible string: every word on the call screen is an i18n key,
  *     so `it` and `en` can never drift from what is drawn.
  *  4. (live-interview-call-chrome) The live header is handed exactly the bindings it
@@ -97,12 +97,23 @@ describe('call screen: no viewport-height unit in the embedded branch', () => {
   })
 })
 
-describe('call screen: the side panel never receives or reads a competency', () => {
+describe('call screen: the side panel names competencies but never carries a code', () => {
   const panelSource = stripComments(read(join(APP_ROOT, 'components/organisms/CallPanel.vue')))
+  const storyboardSource = stripComments(
+    read(join(APP_ROOT, 'components/molecules/CallStoryboard.vue'))
+  )
 
-  it('CallPanel names no competency field and imports no session', () => {
-    expect(panelSource).not.toMatch(/competency/i)
-    expect(panelSource).not.toMatch(/useInterviewSession|useCandidateSession|session\./)
+  it.each([
+    ['CallPanel', panelSource],
+    ['CallStoryboard', storyboardSource],
+  ])('%s has no code field and imports no session', (_name, source) => {
+    expect(source).not.toMatch(/\bcode\b|competency_?code/i)
+    expect(source).not.toMatch(/useInterviewSession|useCandidateSession|session\./)
+  })
+
+  it('the guard can fail: it recognises a code field in a source', () => {
+    expect('const x = item.competency_code').toMatch(/\bcode\b|competency_?code/i)
+    expect('<p>{{ row.code }}</p>').toMatch(/\bcode\b|competency_?code/i)
   })
 
   it('CallPanel only imports presentational pieces and the clock formatter', () => {
@@ -113,6 +124,7 @@ describe('call screen: the side panel never receives or reads a competency', () 
         'vue',
         '~/app/components/InterviewTimer.vue',
         '~/app/components/ProgressBar.vue',
+        '~/app/components/molecules/CallStoryboard.vue',
         '~/app/composables/useInterviewClock',
       ].sort()
     )
