@@ -220,3 +220,34 @@ describe('CallSelfView never asks for the camera', () => {
     expect(getUserMedia).not.toHaveBeenCalled()
   })
 })
+
+describe('CallSelfView — the candidate name chip', () => {
+  const chip = (wrapper: ReturnType<typeof mountView>) =>
+    wrapper.get('[data-slot="call-tile-name"]')
+
+  it('shows the name it is given', () => {
+    const wrapper = mountView(fakeStream([fakeTrack()]), { name: 'Marta Rossi' })
+
+    expect(chip(wrapper).text()).toContain('Marta Rossi')
+    expect(chip(wrapper).text()).not.toContain('interview.call.you')
+  })
+
+  it.each([
+    ['missing', {}],
+    ['blank', { name: '   ' }],
+    ['empty', { name: '' }],
+  ])('falls back to the generic "You" label when the name is %s', (_l, props) => {
+    const wrapper = mountView(fakeStream([fakeTrack()]), props)
+
+    expect(chip(wrapper).text()).toContain('interview.call.you')
+  })
+
+  it('renders a name containing markup as text only, in a non-interactive chip', () => {
+    const wrapper = mountView(fakeStream([fakeTrack()]), { name: '<b>x</b>' })
+
+    expect(chip(wrapper).find('b').exists()).toBe(false)
+    expect(chip(wrapper).text()).toContain('<b>x</b>')
+    expect(chip(wrapper).attributes('tabindex')).toBeUndefined()
+    expect(chip(wrapper).find('a, button, [tabindex], [role]').exists()).toBe(false)
+  })
+})

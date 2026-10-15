@@ -29,7 +29,9 @@ import {
   brandColorRevision,
   deriveOnPrimaryTokens,
 } from '../../app/composables/useBrandTheme'
-import { contrastRatio, readableForeground } from '../../app/utils/brand-color'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { contrastRatio, ensureContrast, readableForeground } from '../../app/utils/brand-color'
 
 function read(token: string): string {
   return document.documentElement.style.getPropertyValue(token)
@@ -127,6 +129,62 @@ describe('applyBrandColor', () => {
     for (const token of BRAND_DERIVED_TOKENS) {
       expect(read(token)).toBe('')
     }
+  })
+})
+
+describe('the caption prefix colour (live-interview-call-chrome, D8)', () => {
+  // The speaker prefix of the captions overlay is normal-size text on the opaque
+  // `--color-avatar-bg` backing, so it needs 4.5:1, not the 3:1 graphical-object
+  // floor `--color-primary-light` is held to. A separate token, so the ribbon edge
+  // is never raised for a requirement only the caption has.
+  const PANEL = '#0f172a'
+  const TOKEN = '--color-primary-caption'
+  const CSS = readFileSync(resolve(__dirname, '../../app/assets/css/main.css'), 'utf-8')
+  const authored = (token: string) =>
+    new RegExp(`${token}:\\s*(#[0-9a-fA-F]{6})`).exec(CSS)?.[1]?.toLowerCase()
+
+  it('is one of the derived tokens, so it is painted and cleared with the others', () => {
+    expect(BRAND_DERIVED_TOKENS).toContain(TOKEN)
+  })
+
+  it.each(['#12203a', '#000000', '#771aaf', '#e45526', '#ffd400', '#ffffff', '#ffff00'])(
+    'reads at 4.5:1 or better on the avatar panel for the brand colour %s',
+    (colour) => {
+      applyBrandColor(colour)
+
+      expect(contrastRatio(read(TOKEN), PANEL)).toBeGreaterThanOrEqual(4.5)
+    }
+  )
+
+  it('keeps the brand hue and is lifted only as far as 4.5:1 needs (#771aaf gives #ae77cf)', () => {
+    applyBrandColor('#771aaf')
+
+    expect(read(TOKEN)).toBe('#ae77cf')
+    expect(contrastRatio(read(TOKEN), PANEL)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('differs from the ribbon edge, which keeps its own 3:1 derivation', () => {
+    applyBrandColor('#12203a')
+
+    expect(read(TOKEN)).not.toBe(read('--color-primary-light'))
+    expect(contrastRatio(read('--color-primary-light'), PANEL)).toBeGreaterThanOrEqual(3)
+  })
+
+  it('leaves --color-primary-light at its measured values', () => {
+    applyBrandColor('#e45526')
+    expect(read('--color-primary-light')).toBe('#ec8867')
+
+    expect(authored('--color-primary-light')).toBe('#c222d3')
+  })
+
+  it('has a Quint default in main.css equal to the product light shade lifted to 4.5:1', () => {
+    const lifted = ensureContrast('#c222d3', PANEL, 4.5)
+
+    expect(authored(TOKEN)).toBe(lifted)
+    // Pinned with its ratio: 4.55:1.
+    expect(authored(TOKEN)).toBe('#cb43da')
+    expect(contrastRatio(authored(TOKEN)!, PANEL)).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(authored(TOKEN)!, PANEL)).toBeLessThan(4.6)
   })
 })
 

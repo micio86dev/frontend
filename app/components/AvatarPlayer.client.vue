@@ -121,6 +121,8 @@
  *                `entering` role) only ever affect the video element below;
  *                the incoming's mic is unmuted explicitly and exactly once,
  *                by `promote()`, never by this prop reacting.
+ *   micMuted   — the candidate's own microphone choice (D9). Uplink only: it is
+ *                OR-ed into the same one-time seed and never affects the video.
  *
  * Emits:
  *   state      — provider state changes
@@ -160,6 +162,12 @@ const props = withDefaults(
     overlay?: boolean
     muted?: boolean
     /**
+     * The candidate's own microphone choice. UPLINK ONLY: it joins `muted` in the
+     * one-time seed after `start()` and never touches the interviewer's video, so
+     * a muted candidate is not reopened at every new competency (D9).
+     */
+    micMuted?: boolean
+    /**
      * The project's template runs voice-only, as `/start` reports it.
      *
      * Defaults to FALSE so a client that has not been told renders the avatar
@@ -169,7 +177,7 @@ const props = withDefaults(
      */
     audioOnly?: boolean
   }>(),
-  { overlay: false, muted: false, audioOnly: false }
+  { overlay: false, muted: false, micMuted: false, audioOnly: false }
 )
 
 const emit = defineEmits<{
@@ -255,7 +263,7 @@ onMounted(async () => {
   // B1: one-time mic-uplink seed — see the `muted` prop doc above. Fire-and-
   // forget, like every other setMicMuted() call site in this codebase; a
   // rejection here must not block the player from finishing its mount.
-  props.provider.setMicMuted(props.muted).catch(() => {})
+  props.provider.setMicMuted(props.muted || props.micMuted).catch(() => {})
 })
 
 // Before the provider is stopped, so a listener never holds a stream whose

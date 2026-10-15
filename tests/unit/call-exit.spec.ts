@@ -16,6 +16,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { ref } from 'vue'
+import en from '../../i18n/locales/en.json'
+import it_ from '../../i18n/locales/it.json'
 import CallExitDialog from '../../app/components/molecules/CallExitDialog.vue'
 import { formatDeadline } from '../../app/utils/call-deadline'
 
@@ -80,12 +82,28 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+describe('CallExitDialog — the accessible name keeps the visible word first', () => {
+  it.each([
+    ['it', it_, 'Esci', 'riprenderai dopo'],
+    ['en', en, 'Exit', 'resume later'],
+  ])('%s: the name starts with "%s" and carries the resume hint', (_l, messages, word, hint) => {
+    const call = (messages as { interview: { call: { exit: { short: string; label: string } } } })
+      .interview.call.exit
+
+    expect(call.short).toBe(word)
+    expect(call.label.startsWith(call.short)).toBe(true)
+    expect(call.label).toContain(hint)
+  })
+})
+
 describe('CallExitDialog — the button', () => {
-  it('is labelled with the owner-fixed Exit label and opens nothing by itself', async () => {
+  it('shows the short visible label and keeps the resume hint as its accessible name', async () => {
     mountDialog()
     await settle()
 
-    expect(button().textContent).toContain('interview.call.exit.label')
+    // Label in Name (WCAG 2.5.3): the accessible name starts with the visible text.
+    expect(button().textContent?.trim()).toBe('interview.call.exit.short')
+    expect(button().getAttribute('aria-label')).toBe('interview.call.exit.label')
     expect(dialog()).toBeNull()
   })
 

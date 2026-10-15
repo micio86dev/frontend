@@ -16,8 +16,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { INTERVIEW_CLOSING_GRACE_MS } from '~/app/utils/interview-budget'
 import { mount, flushPromises } from '@vue/test-utils'
-import { ref, defineComponent, h, markRaw, onBeforeUnmount, onMounted, onUnmounted } from 'vue'
+import {
+  computed,
+  ref,
+  defineComponent,
+  h,
+  markRaw,
+  onBeforeUnmount,
+  onMounted,
+  onUnmounted,
+} from 'vue'
 import type { InterviewProvider } from '~/app/types/interview-provider'
+import { useCandidateBranding } from '~/app/composables/useCandidateBranding'
 
 vi.setConfig({ testTimeout: 30000 })
 
@@ -34,6 +44,7 @@ const {
   captured: {
     session: null as null | Record<string, unknown>,
     handover: null as null | { value: boolean },
+    boundary: null as null | { value: boolean },
   },
   // The options each guard was built with, so a test can fire its callbacks.
   guards: {
@@ -98,8 +109,15 @@ vi.mock('~/composables/useInterviewSession', async (importOriginal) => {
       // `handoverInFlight` is swapped for a ref the test owns: the real one only
       // flips inside a HeyGen handover, which this spec does not stage.
       const handover = ref(false)
-      const session = { ...real.useInterviewSession(...args), handoverInFlight: handover }
+      const boundary = ref(false)
+      const session = {
+        ...real.useInterviewSession(...args),
+        // The real definition: a boundary is a forced mute exactly like a handover.
+        handoverInFlight: computed(() => handover.value || boundary.value),
+        boundaryInFlight: boundary,
+      }
       captured.handover = handover
+      captured.boundary = boundary
       captured.session = session as unknown as Record<string, unknown>
       return session
     },
@@ -134,6 +152,9 @@ let providers: ReturnType<typeof createMockProvider>[] = []
 const FIRST = 42
 const NEXT = 77
 
+/** Extra `question_context` fields the next /start answers with (`competency_ordinal`, `total_competencies`); reset before each test. */
+let questionContextExtras: Record<string, unknown> = {}
+
 function startResponse(sessionId: number, provider = 'tavus', interviewMaxSeconds = 1200) {
   return {
     session_id: sessionId,
@@ -147,6 +168,7 @@ function startResponse(sessionId: number, provider = 'tavus', interviewMaxSecond
       question_index: 0,
       end_phrase: 'Passiamo alla prossima domanda.',
       final_phrase: 'Grazie.',
+      ...questionContextExtras,
     },
   }
 }
@@ -232,10 +254,12 @@ const CallSelfViewStub = defineComponent({
     stream: { type: Object, required: true },
     speaking: { type: Boolean, default: false },
     speakingLabel: { type: String, default: '' },
+    name: { type: String, default: undefined },
   },
   setup: (props) => () =>
     h('div', {
       'data-testid': 'call-self-view',
+      'data-name': props.name ?? '',
       'data-speaking': String(props.speaking),
       'data-speaking-label': props.speakingLabel,
     }),
@@ -337,9 +361,9 @@ function utterances() {
     .map((call: unknown[]) => (call[1] as { body: Record<string, unknown> }).body)
 }
 
-/** What the candidate reads: the written question band. */
+/** What the candidate reads: the question text of the captions overlay (without the speaker prefix). */
 const caption = (wrapper: Awaited<ReturnType<typeof mountLive>>['wrapper']) => {
-  const question = wrapper.find('[data-testid="call-question"] p:not([data-testid])')
+  const question = wrapper.find('[data-testid="call-question-text"]')
   return question.exists() ? question.text() : ''
 }
 
@@ -348,6 +372,7 @@ const hint = (wrapper: Awaited<ReturnType<typeof mountLive>>['wrapper']) =>
 
 beforeEach(() => {
   vi.clearAllMocks()
+  questionContextExtras = {}
   playerLifecycle.mounted = 0
   playerLifecycle.unmounted = 0
   realPlayer.emitNullOnUnmount = false
@@ -380,7 +405,11 @@ beforeEach(() => {
   vi.stubGlobal('useHead', vi.fn())
   vi.stubGlobal(
     'useI18n',
-    vi.fn(() => ({ t: (key: string) => key, locale: ref('it') }))
+    vi.fn(() => ({
+      t: (key: string, params?: Record<string, unknown>) =>
+        params ? `${key}|${JSON.stringify(params)}` : key,
+      locale: ref('it'),
+    }))
   )
   vi.stubGlobal(
     'useRuntimeConfig',
@@ -417,12 +446,13 @@ describe('InterviewSession — the written question', () => {
     expect(wrapper.find('[data-testid="network-pending-notice"]').exists()).toBe(false)
   })
 
-  it('renders the question band', async () => {
+  it('renders the question as the captions overlay', async () => {
     const { wrapper } = await mountLive()
     providers[0]!._emit('transcript', { role: 'avatar', text: 'First question', ts: 1 })
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="call-question"]').text()).toBe('First question')
+    expect(wrapper.get('[data-testid="call-question"]').text()).toContain('First question')
+    expect(caption(wrapper)).toBe('First question')
   })
 
   it("shows the avatar's utterance and replaces it with the next one", async () => {
@@ -753,6 +783,220 @@ describe('InterviewSession — Exit', () => {
 
 type Mounted = Awaited<ReturnType<typeof mountLive>>['wrapper']
 
+// ---------------------------------------------------------------------------
+// live-interview-call-chrome C1a — the live header, the outline and the microphone.
+// ---------------------------------------------------------------------------
+
+const OUTLINE_PATH = '/candidate/interview/outline'
+
+const outlineOf = (over: Record<string, unknown> = {}) => ({
+  assessment_type: 'standard',
+  role_name: 'Responsabile Vendite',
+  avatar_name: 'Giulia',
+  candidate_name: 'Marta',
+  primary_total_all: 6,
+  competencies: [{ name: 'Problem solving', ordinal: 1, status: 'current', primary_total: 3 }],
+  ...over,
+})
+
+/** Answers the outline GET with `value` (or rejects with it); everything else resolves undefined. */
+function serveOutline(value: unknown) {
+  mockCandidateFetch.mockImplementation(async (path: string) => {
+    if (path !== OUTLINE_PATH) return undefined
+    if (value instanceof Error) throw value
+    return value
+  })
+}
+
+const outlineCalls = () =>
+  mockCandidateFetch.mock.calls.filter((c: unknown[]) => c[0] === OUTLINE_PATH)
+const endCalls = () =>
+  mockCandidateFetch.mock.calls.filter((c: unknown[]) => c[0] === '/candidate/interview/end')
+
+const headerOf = (wrapper: Mounted) => wrapper.get('[data-testid="call-header"]')
+const headerCaptions = (wrapper: Mounted) => wrapper.get('[data-testid="call-header-captions"]')
+const headerMic = (wrapper: Mounted) => wrapper.get('[data-testid="call-header-mic"]')
+
+describe('InterviewSession — the live header', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    serveOutline(outlineOf())
+  })
+
+  it('renders the header while live, with the three controls, and not before', async () => {
+    const before = await mountLive({ begin: false })
+    expect(before.wrapper.find('[data-testid="call-header"]').exists()).toBe(false)
+
+    const { wrapper } = await mountLive({ attach: true })
+    const labels = headerOf(wrapper)
+      .findAll('button')
+      .map((b) => b.attributes('data-testid'))
+
+    expect(labels).toEqual(['call-header-captions', 'call-header-mic', 'call-exit'])
+  })
+
+  it('draws the logo without the plate while live and with it on the consent screen', async () => {
+    useCandidateBranding().prime({
+      primary_color: '#771aaf',
+      logo_url: 'https://cdn.test/acme.png',
+      name: null,
+    })
+    const consent = await mountLive({ begin: false })
+    const plated = consent.wrapper.get('[data-testid="brand-canvas-logo"]').element.parentElement
+    expect(plated?.className).toContain('bg-card')
+
+    const { wrapper } = await mountLive()
+    expect(wrapper.get('[data-testid="brand-canvas-logo"]').element.parentElement?.tagName).toBe(
+      'HEADER'
+    )
+  })
+
+  it('titles a standard assessment with the role name from the outline', async () => {
+    const { wrapper } = await mountLive()
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="call-header-title"]').text()).toBe(
+      'interview.call.header.title_with_subject|{"subject":"Responsabile Vendite"}'
+    )
+  })
+
+  it('titles a potential assessment with its type', async () => {
+    serveOutline(outlineOf({ assessment_type: 'potential', role_name: null }))
+    const { wrapper } = await mountLive()
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="call-header-title"]').text()).toBe(
+      'interview.call.header.title_with_subject|{"subject":"interview.call.header.potential"}'
+    )
+  })
+
+  it.each([
+    ['a null role name', outlineOf({ role_name: null })],
+    ['a blank role name', outlineOf({ role_name: '   ' })],
+    ['a failed outline', new Error('network')],
+    ['an empty answer', undefined],
+  ])('shows the bare title and no error for %s', async (_label, served) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    serveOutline(served)
+    const { wrapper } = await mountLive()
+    await flushPromises()
+
+    const title = wrapper.get('[data-testid="call-header-title"]').text()
+    expect(title).toBe('interview.call.header.title')
+    expect(title).not.toMatch(/·|null|undefined/)
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+  })
+
+  it('fetches the outline once on live, again on a session change, never per utterance', async () => {
+    const { wrapper, session } = await mountLive()
+    await flushPromises()
+    expect(outlineCalls()).toHaveLength(1)
+
+    providers[0]!._emit('transcript', { role: 'avatar', text: 'Una domanda', ts: 1 })
+    providers[0]!._emit('transcript', { role: 'candidate', text: 'Una risposta', ts: 2 })
+    await flushPromises()
+    expect(outlineCalls()).toHaveLength(1)
+
+    session.advanceAttribution(NEXT)
+    await flushPromises()
+    expect(outlineCalls()).toHaveLength(2)
+    expect(wrapper.find('[data-testid="call-header"]').exists()).toBe(true)
+  })
+
+  it('does not fetch the outline again when the same session resumes live', async () => {
+    const { session } = await mountLive()
+    await flushPromises()
+
+    session.state.value = 'paused'
+    await flushPromises()
+    session.state.value = 'live'
+    await flushPromises()
+
+    expect(outlineCalls()).toHaveLength(1)
+  })
+
+  it('toggles captions through the stored preference, never calling /end', async () => {
+    const { wrapper } = await mountLive()
+    expect(headerCaptions(wrapper).attributes('aria-pressed')).toBe('true')
+
+    await headerCaptions(wrapper).trigger('click')
+    await flushPromises()
+    expect(headerCaptions(wrapper).attributes('aria-pressed')).toBe('false')
+    expect(localStorage.getItem('beai:interview:captions')).toBe('false')
+
+    await headerCaptions(wrapper).trigger('click')
+    await flushPromises()
+    expect(headerCaptions(wrapper).attributes('aria-pressed')).toBe('true')
+    expect(endCalls()).toHaveLength(0)
+  })
+
+  it('mutes and unmutes the provider from the microphone control, never calling /end', async () => {
+    const { wrapper } = await mountLive()
+    expect(headerMic(wrapper).attributes('aria-pressed')).toBe('true')
+
+    await headerMic(wrapper).trigger('click')
+    await flushPromises()
+    expect(providers[0]!.setMicMuted).toHaveBeenLastCalledWith(true)
+    expect(headerMic(wrapper).attributes('aria-pressed')).toBe('false')
+
+    await headerMic(wrapper).trigger('click')
+    await flushPromises()
+    expect(providers[0]!.setMicMuted).toHaveBeenLastCalledWith(false)
+    expect(headerMic(wrapper).attributes('aria-pressed')).toBe('true')
+    expect(endCalls()).toHaveLength(0)
+  })
+
+  it.each([
+    ['a competency boundary', () => captured.boundary!],
+    ['a handover', () => captured.handover!],
+  ])(
+    'disables the microphone and shows it muted during %s, then restores the choice',
+    async (_l, flag) => {
+      const { wrapper } = await mountLive()
+      const toggle = flag()
+
+      toggle.value = true
+      await flushPromises()
+      expect(headerMic(wrapper).attributes('aria-disabled')).toBe('true')
+      expect(headerMic(wrapper).attributes('aria-pressed')).toBe('false')
+      expect(headerMic(wrapper).find('[data-icon]').attributes('data-icon')).toBe('mic-off')
+
+      await headerMic(wrapper).trigger('click')
+      expect(providers[0]!.setMicMuted).not.toHaveBeenCalled()
+
+      toggle.value = false
+      await flushPromises()
+      expect(headerMic(wrapper).attributes('aria-disabled')).toBeUndefined()
+      expect(headerMic(wrapper).attributes('aria-pressed')).toBe('true')
+    }
+  )
+
+  it.each([
+    ['a competency boundary', () => captured.boundary!],
+    ['a handover', () => captured.handover!],
+  ])("keeps a candidate's own mute through %s", async (_l, flag) => {
+    const { wrapper } = await mountLive()
+    await headerMic(wrapper).trigger('click')
+    await flushPromises()
+    expect(headerMic(wrapper).attributes('aria-pressed')).toBe('false')
+
+    const toggle = flag()
+    toggle.value = true
+    await flushPromises()
+    toggle.value = false
+    await flushPromises()
+
+    expect(headerMic(wrapper).attributes('aria-pressed')).toBe('false')
+    expect(headerMic(wrapper).attributes('aria-disabled')).toBeUndefined()
+  })
+
+  it('mounts the same header when embedded', async () => {
+    const { wrapper } = await mountLive({ props: { embedded: true } })
+
+    expect(wrapper.find('[data-testid="call-header"]').exists()).toBe(true)
+  })
+})
+
 const layer = (wrapper: Mounted) => wrapper.get('[data-slot="avatar-layer"]').element
 const layout = (wrapper: Mounted) => wrapper.get('[data-slot="call-layout"]').element
 
@@ -776,12 +1020,202 @@ async function beginHandover(session: { state: { value: string } }) {
   expect(session.state.value).toBe('live')
 }
 
+describe('InterviewSession — the tile names and the candidate ring', () => {
+  const ownTile = (wrapper: Mounted) => wrapper.get('[data-testid="call-self-view"]')
+  const interviewerChip = (wrapper: Mounted) =>
+    layer(wrapper).querySelector('[data-slot="call-tile-name"]')!
+
+  beforeEach(() => {
+    localStorage.clear()
+    serveOutline(outlineOf())
+  })
+
+  it("names the own tile from the outline's candidate name", async () => {
+    const { wrapper } = await mountLive({ stream: fakeStream() })
+    await flushPromises()
+
+    expect(ownTile(wrapper).attributes('data-name')).toBe('Marta')
+  })
+
+  it.each([
+    ['a blank name', outlineOf({ candidate_name: '   ' })],
+    ['no name', outlineOf({ candidate_name: null })],
+    ['a failed outline', new Error('network')],
+  ])('leaves the own tile to its generic label with %s', async (_l, served) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    serveOutline(served)
+    const { wrapper } = await mountLive({ stream: fakeStream() })
+    await flushPromises()
+
+    expect(ownTile(wrapper).attributes('data-name')).toBe('')
+  })
+
+  it('falls back to "You" on the real own tile when the name is missing', async () => {
+    serveOutline(outlineOf({ candidate_name: null }))
+    const { wrapper } = await mountLive({ stream: fakeStream(), stubs: { CallSelfView: false } })
+    await flushPromises()
+
+    expect(
+      wrapper.get('[data-slot="call-stage-self"] [data-slot="call-tile-name"]').text()
+    ).toContain('interview.call.you')
+  })
+
+  it.each([
+    ['the persona name', outlineOf({ avatar_name: 'Giulia' }), 'Giulia'],
+    [
+      'the generic label without one',
+      outlineOf({ avatar_name: null }),
+      'interview.call.interviewer_name',
+    ],
+    [
+      'the generic label for a blank one',
+      outlineOf({ avatar_name: '  ' }),
+      'interview.call.interviewer_name',
+    ],
+  ])('names the interviewer chip with %s', async (_l, served, expected) => {
+    serveOutline(served)
+    const { wrapper } = await mountLive()
+    await flushPromises()
+
+    expect(interviewerChip(wrapper).textContent).toContain(expected)
+  })
+
+  it('lights the own ring only while the candidate speaks AND the microphone is open', async () => {
+    const { wrapper } = await mountLive({ stream: fakeStream() })
+    speakerTurn.speaker!.value = 'candidate'
+    await flushPromises()
+    expect(ownTile(wrapper).attributes('data-speaking')).toBe('true')
+
+    await headerMic(wrapper).trigger('click')
+    await flushPromises()
+    expect(ownTile(wrapper).attributes('data-speaking')).toBe('false')
+
+    await headerMic(wrapper).trigger('click')
+    await flushPromises()
+    expect(ownTile(wrapper).attributes('data-speaking')).toBe('true')
+
+    speakerTurn.speaker!.value = 'avatar'
+    await flushPromises()
+    expect(ownTile(wrapper).attributes('data-speaking')).toBe('false')
+  })
+})
+
+describe('InterviewSession — the captions overlay', () => {
+  const region = (wrapper: Mounted) => wrapper.get('[data-testid="call-question"]')
+  const speaker = (wrapper: Mounted) => wrapper.find('[data-testid="call-question-speaker"]')
+
+  async function say(text: string) {
+    providers[0]!._emit('transcript', { role: 'avatar', text, ts: Date.now() })
+    await flushPromises()
+  }
+
+  beforeEach(() => {
+    localStorage.clear()
+    serveOutline(outlineOf())
+  })
+
+  it('is rendered once, inside the avatar layer after the interviewer tile, and nowhere else', async () => {
+    const { wrapper } = await mountLive()
+    await say('A question')
+
+    const overlays = wrapper.findAll('[data-testid="call-question"]')
+    expect(overlays).toHaveLength(1)
+    expect(layer(wrapper).contains(overlays[0]!.element)).toBe(true)
+    const tile = layer(wrapper).querySelector('[data-slot="call-tile"]')!
+    expect(
+      tile.compareDocumentPosition(overlays[0]!.element) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(wrapper.findAll('[aria-live="polite"][aria-atomic="true"]')).toHaveLength(1)
+  })
+
+  it('is not mounted before the interview is live', async () => {
+    const { wrapper } = await mountLive({ ready: false })
+
+    expect(wrapper.find('[data-testid="call-question"]').exists()).toBe(false)
+  })
+
+  it('prefixes the caption with the persona name from the outline', async () => {
+    const { wrapper } = await mountLive()
+    await say('A question')
+
+    expect(speaker(wrapper).text()).toBe('Giulia:')
+  })
+
+  it.each([
+    ['no persona name', outlineOf({ avatar_name: null })],
+    ['a failed outline', new Error('network')],
+  ])('falls back to the generic interviewer name with %s', async (_l, served) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    serveOutline(served)
+    const { wrapper } = await mountLive()
+    await say('A question')
+
+    expect(speaker(wrapper).text()).toBe('interview.call.interviewer_name:')
+  })
+
+  it('keeps the hint, with no prefix, before the first question', async () => {
+    const { wrapper } = await mountLive()
+
+    expect(hint(wrapper).exists()).toBe(true)
+    expect(speaker(wrapper).exists()).toBe(false)
+  })
+
+  it('hides every visible word when captions are turned off, keeping the live region written to', async () => {
+    const { wrapper } = await mountLive()
+    await say('First question')
+
+    await headerCaptions(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(region(wrapper).classes()).toContain('sr-only')
+    expect(region(wrapper).attributes('tabindex')).toBeUndefined()
+    expect(region(wrapper).text()).toContain('First question')
+
+    await say('A follow-up')
+    expect(region(wrapper).classes()).toContain('sr-only')
+    expect(caption(wrapper)).toBe('A follow-up')
+    expect(wrapper.findAll('[aria-live="polite"][aria-atomic="true"]')).toHaveLength(1)
+  })
+
+  it('shows the latest question at once when captions are turned back on', async () => {
+    const { wrapper } = await mountLive()
+    await headerCaptions(wrapper).trigger('click')
+    await say('Said while off')
+
+    await headerCaptions(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(region(wrapper).classes()).not.toContain('sr-only')
+    expect(caption(wrapper)).toBe('Said while off')
+  })
+
+  it('restores an off preference on a fresh load', async () => {
+    localStorage.setItem('beai:interview:captions', 'false')
+    const { wrapper } = await mountLive()
+    await say('A question')
+
+    expect(region(wrapper).classes()).toContain('sr-only')
+    expect(headerCaptions(wrapper).attributes('aria-pressed')).toBe('false')
+  })
+
+  it('does not move focus at a competency boundary while captions are off', async () => {
+    const { wrapper, session } = await mountLive({ attach: true })
+    await headerCaptions(wrapper).trigger('click')
+    await flushPromises()
+
+    session.advanceAttribution(NEXT)
+    await flushPromises()
+
+    expect(document.activeElement).not.toBe(region(wrapper).element)
+  })
+})
+
 describe('InterviewSession — the stage', () => {
-  it('renders the four stage parts', async () => {
+  it('renders the stage parts, with the captions overlay inside the player layer', async () => {
     const { wrapper } = await mountLive({ stream: fakeStream() })
 
+    expect(layer(wrapper).contains(wrapper.get('[data-testid="call-question"]').element)).toBe(true)
     const parts = {
-      question: wrapper.get('[data-testid="call-question"]').element,
       panel: wrapper.get('[data-testid="call-panel"]').element,
       own: wrapper.get('[data-testid="call-self-view"]').element,
     }
@@ -794,16 +1228,18 @@ describe('InterviewSession — the stage', () => {
     }
   })
 
-  it('puts Exit and then the help link in the panel, and the timer in the panel only', async () => {
+  it('puts the help link in the panel and the timer in the panel only; Exit is in the header', async () => {
     const { wrapper } = await mountLive({
       attach: true,
       stubs: { InterviewTimer: InterviewTimerCounterStub },
     })
 
     const panel = wrapper.get('[data-testid="call-panel"]').element
-    const exit = panel.querySelector('[data-testid="call-exit"]')!
-    const help = panel.querySelector('[data-testid="call-help-link"]')!
-    expect(exit.compareDocumentPosition(help) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(panel.querySelector('[data-testid="call-exit"]')).toBeNull()
+    expect(panel.querySelector('[data-testid="call-help-link"]')).not.toBeNull()
+    expect(
+      wrapper.get('[data-testid="call-header"]').element.querySelector('[data-testid="call-exit"]')
+    ).not.toBeNull()
     expect(wrapper.findAll('[data-testid="question-timer"]')).toHaveLength(1)
     expect(panel.querySelector('[data-testid="question-timer"]')).not.toBeNull()
   })
@@ -822,7 +1258,7 @@ describe('InterviewSession — the stage', () => {
       totalCompetencies: { value: number | null }
     }
     expect(wrapper.get('[data-testid="call-panel"]').text()).not.toContain(
-      'interview.call.progress'
+      'interview.call.path.progress'
     )
 
     store.endedCompetencies.value = 1
@@ -831,7 +1267,7 @@ describe('InterviewSession — the stage', () => {
 
     const panel = wrapper.get('[data-testid="call-panel"]')
     expect(panel.get('[data-testid="call-panel-progress-text"]').text()).toBe(
-      `interview.call.progress|${JSON.stringify({ n: 2, total: 3 })}`
+      `interview.call.path.progress|${JSON.stringify({ n: 2, total: 3 })}`
     )
     // The start response carried the code `PRS`; nothing on the stage may reveal it.
     expect(wrapper.html()).not.toContain('PRS')
@@ -854,6 +1290,21 @@ describe('InterviewSession — the stage', () => {
     expect(tile().attributes('data-speaking')).toBe('false')
     expect(own().attributes('data-speaking')).toBe('true')
     expect(own().attributes('data-speaking-label')).toBe('interview.call.candidate_speaking')
+  })
+
+  it('keeps the interviewer ring lit across a boundary even when the avatar is silent', async () => {
+    const { wrapper } = await mountLive({ stream: fakeStream() })
+    const tile = () => wrapper.get('[data-slot="avatar-layer"] [data-slot="call-tile"]')
+    const own = () => wrapper.get('[data-testid="call-self-view"]')
+
+    captured.boundary!.value = true
+    await flushPromises()
+    expect(tile().attributes('data-speaking')).toBe('true')
+    expect(own().attributes('data-speaking')).toBe('false')
+
+    captured.boundary!.value = false
+    await flushPromises()
+    expect(tile().attributes('data-speaking')).toBe('false')
   })
 
   it('feeds the speaker signal the session state, the live provider state, the avatar stream and the mic', async () => {
@@ -883,7 +1334,7 @@ describe('InterviewSession — the stage', () => {
       await flushPromises()
       const duration = () => wrapper.get('[data-testid="call-panel-duration-value"]').text()
       const shown = (elapsed: string) =>
-        `interview.call.duration_value|${JSON.stringify({ elapsed, total: '20:00' })}`
+        `interview.call.duration.value|${JSON.stringify({ elapsed, total: '20:00' })}`
       expect(duration()).toBe(shown('00:00'))
 
       await vi.advanceTimersByTimeAsync(65_000)
@@ -1154,5 +1605,358 @@ describe('InterviewSession — the player layer is never re-parented (R1)', () =
     expect(playerLifecycle.unmounted).toBe(1)
     expect(maps.playerStates.size).toBe(0)
     expect(maps.playerStreams.size).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// live-interview-call-chrome C2a.1 — the panel's named path, fed by the outline.
+// ---------------------------------------------------------------------------
+
+const THREE_COMPETENCIES = [
+  { name: 'Pensiero strategico', ordinal: 1, status: 'done', primary_total: 3 },
+  { name: 'Orientamento al risultato', ordinal: 2, status: 'current', primary_total: 3 },
+  { name: 'Collaborazione', ordinal: 3, status: 'upcoming', primary_total: 2 },
+]
+
+describe('InterviewSession — the panel path (Percorso)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    serveOutline(outlineOf({ competencies: THREE_COMPETENCIES }))
+  })
+
+  const itemsOf = (wrapper: Mounted) => wrapper.findAll('[data-testid="call-storyboard-item"]')
+
+  it('lists the outline competencies by name, in order, in the panel', async () => {
+    const { wrapper } = await mountLive()
+    await flushPromises()
+
+    expect(
+      itemsOf(wrapper).map((row) => row.get('[data-testid="call-storyboard-name"]').text())
+    ).toEqual(['Pensiero strategico', 'Orientamento al risultato', 'Collaborazione'])
+    expect(wrapper.get('[data-testid="call-panel"]').find('ol').exists()).toBe(true)
+    expect(wrapper.get('[aria-current="step"]').text()).toContain('Orientamento al risultato')
+  })
+
+  it('hands the latest primary_index to the current item, and clears it with the session', async () => {
+    let primaryIndex = 2
+    mockCandidateFetch.mockImplementation(async (path: string) => {
+      if (path === OUTLINE_PATH) return outlineOf({ competencies: THREE_COMPETENCIES })
+      if (path === '/candidate/interview/utterance') return { primary_index: primaryIndex }
+      return undefined
+    })
+    const { wrapper, session } = await mountLive()
+    await flushPromises()
+    const line = () => wrapper.get('[aria-current="step"] [data-testid="call-storyboard-line"]')
+    expect(line().text()).toBe('interview.call.storyboard.current')
+
+    providers[0]!._emit('transcript', { role: 'avatar', text: 'Una domanda', ts: 1 })
+    await flushPromises()
+    expect(line().text()).toBe(
+      `interview.call.storyboard.current_counted|${JSON.stringify({ k: 2, n: 3 })}`
+    )
+
+    primaryIndex = 3
+    providers[0]!._emit('transcript', { role: 'avatar', text: "Un'altra", ts: 2 })
+    await flushPromises()
+    expect(line().text()).toBe(
+      `interview.call.storyboard.current_counted|${JSON.stringify({ k: 3, n: 3 })}`
+    )
+
+    session.advanceAttribution(NEXT)
+    await flushPromises()
+    expect(line().text()).toBe('interview.call.storyboard.current')
+  })
+
+  it.each([
+    ['a null name', null],
+    ['a blank name', '   '],
+  ])('gives %s the generic "Competenza {ordinal}", never a code', async (_label, name) => {
+    serveOutline(
+      outlineOf({
+        competencies: [
+          { name: 'Prima', ordinal: 1, status: 'done', primary_total: 1 },
+          { name, ordinal: 2, status: 'current', primary_total: 1 },
+        ],
+      })
+    )
+    const { wrapper } = await mountLive()
+    await flushPromises()
+
+    expect(itemsOf(wrapper)[1]!.get('[data-testid="call-storyboard-name"]').text()).toBe(
+      `interview.call.storyboard.unnamed|${JSON.stringify({ ordinal: 2 })}`
+    )
+  })
+
+  it('renders no competency code anywhere on the live screen, even one the outline or store carries', async () => {
+    serveOutline(
+      outlineOf({
+        competencies: THREE_COMPETENCIES.map((c) => ({
+          ...c,
+          code: 'COL',
+          competency_code: 'COL',
+        })),
+      })
+    )
+    const { wrapper } = await mountLive({ attach: true })
+    await flushPromises()
+
+    // The start response carried `PRS`; the outline entries carry `COL`.
+    expect(wrapper.html()).not.toMatch(/COL|PRS/)
+    expect(document.body.textContent).not.toMatch(/COL|PRS/)
+  })
+
+  it('omits the storyboard when the outline fails, and the rest of the panel still renders', async () => {
+    serveOutline(new Error('network'))
+    const { wrapper, session } = await mountLive()
+    ;(session as unknown as { totalCompetencies: { value: number } }).totalCompetencies.value = 5
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="call-storyboard"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="call-panel-progress-text"]').text()).toContain('"total":5')
+    expect(wrapper.find('[data-testid="call-panel-duration-value"]').exists()).toBe(true)
+  })
+
+  describe('"Competenza n di N" numerator', () => {
+    const progressText = (wrapper: Mounted) =>
+      wrapper.get('[data-testid="call-panel-progress-text"]').text()
+    const reads = (n: number, total: number) =>
+      `interview.call.path.progress|${JSON.stringify({ n, total })}`
+
+    it('counts from the /end tally when there is one', async () => {
+      questionContextExtras = { total_competencies: 5, competency_ordinal: 4 }
+      const { wrapper, session } = await mountLive()
+      ;(
+        session as unknown as { endedCompetencies: { value: number | null } }
+      ).endedCompetencies.value = 1
+      await flushPromises()
+
+      expect(progressText(wrapper)).toBe(reads(2, 5))
+    })
+
+    it('falls back to the /start ordinal before any /end, so a resumed run does not read 1', async () => {
+      questionContextExtras = { total_competencies: 5, competency_ordinal: 3 }
+      const { wrapper } = await mountLive()
+      await flushPromises()
+
+      expect(progressText(wrapper)).toBe(reads(3, 5))
+    })
+
+    it('reads "1 of N" on the first competency, from the /start total', async () => {
+      questionContextExtras = { total_competencies: 5, competency_ordinal: 1 }
+      const { wrapper } = await mountLive()
+      await flushPromises()
+
+      expect(progressText(wrapper)).toBe(reads(1, 5))
+    })
+
+    it('shows no sentence while the /start response named neither total nor ordinal', async () => {
+      const { wrapper } = await mountLive()
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="call-panel-progress-text"]').exists()).toBe(false)
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// live-interview-call-chrome C2a.2 — the "Tempo di risposta" section and its wiring.
+// ---------------------------------------------------------------------------
+
+describe('InterviewSession — the answer time section', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    serveOutline(outlineOf())
+  })
+
+  /** Fake clock for the intervals only; always restored. */
+  async function withClock<T>(run: () => Promise<T>): Promise<T> {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    try {
+      return await run()
+    } finally {
+      vi.useRealTimers()
+    }
+  }
+
+  const answerTime = (wrapper: Mounted) =>
+    wrapper.get('[data-testid="call-panel-answer"] time').text()
+  const chip = (wrapper: Mounted) => wrapper.find('[data-testid="call-answer-chip"]')
+  const hint = (wrapper: Mounted) => wrapper.find('[data-testid="call-answer-muted"]')
+  const setSpeaker = async (value: 'avatar' | 'candidate' | 'none') => {
+    speakerTurn.speaker!.value = value
+    await flushPromises()
+  }
+  const toSeconds = (clock: string) => {
+    const [m, s] = clock.split(':').map(Number)
+    return m! * 60 + s!
+  }
+  const STATUS = (phase: string) => `interview.call.answer.status.${phase}`
+
+  it('reads 00:12 and "waiting" after 12 s of silence once the interviewer has stopped', async () => {
+    await withClock(async () => {
+      const { wrapper } = await mountLive()
+      expect(answerTime(wrapper)).toBe('00:00')
+      expect(chip(wrapper).exists()).toBe(false)
+
+      await setSpeaker('avatar')
+      expect(chip(wrapper).text()).toBe(STATUS('listening'))
+      await setSpeaker('none')
+      await vi.advanceTimersByTimeAsync(12_000)
+
+      expect(answerTime(wrapper)).toBe('00:12')
+      expect(chip(wrapper).text()).toBe(STATUS('waiting'))
+    })
+  })
+
+  it('keeps counting through the answer and resets only when the interviewer speaks again', async () => {
+    await withClock(async () => {
+      const { wrapper } = await mountLive()
+      await setSpeaker('avatar')
+      await setSpeaker('none')
+      await vi.advanceTimersByTimeAsync(12_000)
+
+      await setSpeaker('candidate')
+      expect(answerTime(wrapper)).toBe('00:12')
+      expect(chip(wrapper).text()).toBe(STATUS('answering'))
+      await vi.advanceTimersByTimeAsync(5_000)
+      await setSpeaker('none') // a pause in speech
+      await vi.advanceTimersByTimeAsync(3_000)
+      expect(answerTime(wrapper)).toBe('00:20')
+      expect(chip(wrapper).text()).toBe(STATUS('answering'))
+
+      await setSpeaker('avatar')
+      expect(answerTime(wrapper)).toBe('00:00')
+      expect(chip(wrapper).text()).toBe(STATUS('listening'))
+    })
+  })
+
+  it('muting for 10 s leaves the answer timer AND the countdown advancing, and shows the hint', async () => {
+    await withClock(async () => {
+      const { wrapper } = await mountLive({ stubs: { InterviewTimer: false } })
+      await setSpeaker('candidate')
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(answerTime(wrapper)).toBe('00:20')
+      expect(hint(wrapper).exists()).toBe(false)
+      const countdownBefore = toSeconds(wrapper.get('[role="timer"]').text())
+
+      await headerMic(wrapper).trigger('click')
+      await flushPromises()
+      expect(hint(wrapper).exists()).toBe(true)
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      expect(answerTime(wrapper)).toBe('00:30')
+      expect(countdownBefore - toSeconds(wrapper.get('[role="timer"]').text())).toBe(10)
+    })
+  })
+
+  it('the "about N minutes left" sentence tracks the countdown as time passes', async () => {
+    await withClock(async () => {
+      const { wrapper } = await mountLive({ stubs: { InterviewTimer: false } })
+      const remaining = () => wrapper.get('[data-testid="call-panel-remaining"]').text()
+      const sentence = (minutes: number) => `interview.call.duration.remaining|${minutes}`
+
+      expect(remaining()).toBe(sentence(20)) // 1200 s from the server maximum
+      await vi.advanceTimersByTimeAsync(61_000)
+      expect(toSeconds(wrapper.get('[role="timer"]').text())).toBe(1139)
+      expect(remaining()).toBe(sentence(19))
+
+      await vi.advanceTimersByTimeAsync(600_000)
+      expect(toSeconds(wrapper.get('[role="timer"]').text())).toBe(539)
+      expect(remaining()).toBe(sentence(9))
+    })
+  })
+
+  it('hands the panel the candidate INTENT: a forced boundary mute is not a hint to unmute', async () => {
+    const { wrapper } = await mountLive()
+    captured.boundary!.value = true
+    await flushPromises()
+
+    expect(headerMic(wrapper).attributes('aria-pressed')).toBe('false')
+    expect(hint(wrapper).exists()).toBe(false)
+  })
+
+  it('an answer past the suggested maximum sends no /end and leaves the countdown alone', async () => {
+    await withClock(async () => {
+      const { wrapper } = await mountLive({ stubs: { InterviewTimer: false } })
+      await flushPromises()
+      await setSpeaker('candidate')
+      const countdownBefore = toSeconds(wrapper.get('[role="timer"]').text())
+      await vi.advanceTimersByTimeAsync(260_000)
+
+      // 1200 s over the 6 primaries of the outline: a 200 s maximum, long passed.
+      expect(answerTime(wrapper)).toBe('04:20')
+      expect(endCalls()).toHaveLength(0)
+      expect(countdownBefore - toSeconds(wrapper.get('[role="timer"]').text())).toBe(260)
+    })
+  })
+
+  it('resets when the live screen is left and does not count while it is gone', async () => {
+    await withClock(async () => {
+      const { wrapper, session } = await mountLive()
+      await setSpeaker('avatar')
+      await setSpeaker('none')
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(answerTime(wrapper)).toBe('00:15')
+
+      session.state.value = 'paused'
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(30_000)
+      session.state.value = 'live'
+      await flushPromises()
+
+      expect(answerTime(wrapper)).toBe('00:00')
+      expect(chip(wrapper).exists()).toBe(false)
+    })
+  })
+
+  describe('the suggested-length bar', () => {
+    const labels = (wrapper: Mounted) => wrapper.find('[data-testid="call-answer-labels"]')
+
+    it('reads the arithmetic of the server limit and the outline total: 1200 s over 6 is 3:20', async () => {
+      const { wrapper } = await mountLive()
+      await flushPromises()
+
+      expect(labels(wrapper).text()).toBe(
+        `interview.call.answer.budget_labels|${JSON.stringify({
+          min: '0:50',
+          from: '1:15',
+          to: '2:30',
+          max: '3:20',
+        })}`
+      )
+    })
+
+    it('stays hidden until the outline has supplied its total, then appears', async () => {
+      let release!: (value: unknown) => void
+      const pending = new Promise((resolve) => (release = resolve))
+      mockCandidateFetch.mockImplementation(async (path: string) =>
+        path === OUTLINE_PATH ? pending : undefined
+      )
+      const { wrapper } = await mountLive()
+      await flushPromises()
+      expect(labels(wrapper).exists()).toBe(false)
+      expect(wrapper.find('[data-testid="call-answer-bar"]').exists()).toBe(false)
+
+      release(outlineOf({ primary_total_all: 4 }))
+      await flushPromises()
+
+      expect(labels(wrapper).text()).toContain('"max":"5:00"')
+    })
+
+    it.each([
+      ['a failed outline', new Error('network')],
+      ['a zero primary total', outlineOf({ primary_total_all: 0 })],
+    ])(
+      'has no bar for %s, and the timer, chip and duration still render',
+      async (_label, value) => {
+        serveOutline(value)
+        const { wrapper } = await mountLive()
+        await flushPromises()
+
+        expect(labels(wrapper).exists()).toBe(false)
+        expect(wrapper.find('[data-testid="call-panel-answer"] time').exists()).toBe(true)
+        expect(wrapper.find('[data-testid="call-panel-duration-value"]').exists()).toBe(true)
+      }
+    )
   })
 })

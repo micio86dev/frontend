@@ -458,6 +458,18 @@ describe('embed/[token].vue — progress and permission events', () => {
     expect(mockPost).not.toHaveBeenCalledWith('question:changed', expect.anything())
   })
 
+  it('reports the real total from the first competency while the index stays on the /end tally', async () => {
+    // /start now seeds the total, so a first competency reads 0 of N, never 0 of 0.
+    const session = holder.session as ReturnType<typeof makeSession>
+    await mountPage()
+
+    session.totalCompetencies.value = 5
+    session.sessionId.value = 11
+    await flushPromises()
+
+    expect(mockPost).toHaveBeenCalledWith('question:changed', { index: 0, total: 5 })
+  })
+
   it('reports zero progress while the counts are still unknown', async () => {
     const session = holder.session as ReturnType<typeof makeSession>
     await mountPage()

@@ -58,12 +58,47 @@
     },
     "call": {
       "question_region": "Current question",
-      "panel_label": "Interview progress",
-      "progress": "Question {n} of {total}",
-      "duration_label": "Duration",
-      "duration_value": "{elapsed} / {total}",
-      "duration_sr": "{elapsed} elapsed out of a maximum of {total}",
-      "question_timer_label": "Time left for this question",
+      "panel_label": "Interview",
+      "header": {
+        "title": "Assessment interview",
+        "title_with_subject": "Assessment interview · {subject}",
+        "potential": "Potential",
+        "elapsed_sr": "Elapsed time",
+        "captions": "Captions",
+        "microphone": "Microphone"
+      },
+      "answer": {
+        "label": "Answer time",
+        "status": {
+          "listening": "The interviewer is speaking",
+          "waiting": "Waiting for your answer",
+          "answering": "You are answering"
+        },
+        "muted_hint": "Microphone off: the interviewer cannot hear you",
+        "budget_labels": "{min} min · ideal {from}–{to} · {max} max",
+        "budget_note": "Suggested times, not binding",
+        "budget_label": "Suggested answer length",
+        "budget_sr": "{elapsed} of a suggested maximum of {max}"
+      },
+      "storyboard": {
+        "label": "Interview path",
+        "done": "Completed",
+        "retry": "To repeat",
+        "current": "In progress",
+        "current_counted": "In progress · question {k} of {n}",
+        "unnamed": "Competency {ordinal}"
+      },
+      "path": {
+        "label": "Path",
+        "progress": "Competency {n} of {total}"
+      },
+      "duration": {
+        "label": "Interview duration",
+        "value": "{elapsed} / {total}",
+        "sr": "{elapsed} elapsed out of a maximum of {total}",
+        "remaining": "About {n} minute left | About {n} minutes left"
+      },
+      "remaining_label": "Time remaining",
       "interviewer_name": "AI interviewer",
       "you": "You",
       "avatar_speaking": "The interviewer is speaking",
@@ -72,6 +107,7 @@
       "self_view_off": "Camera unavailable",
       "network_pending": "Connection is unstable. Your answers are sent as soon as it returns.",
       "exit": {
+        "short": "Exit",
         "label": "Exit, you can resume later",
         "title": "Leave the interview?",
         "body": "The interview will be suspended and nothing is recorded. You can resume at the same question by reopening your invitation link in this browser, until {time}.",

@@ -6,6 +6,7 @@
     :footer="false"
     :load-branding="false"
     :wide="callStageLive"
+    :plate="!callStageLive"
   >
     <!--
       The whole interview sits on the brand canvas the candidate arrived on
@@ -17,10 +18,27 @@
       the avatar, which already fill a 1440x900 viewport.
 
       The header carries the where-am-I chrome: the three steps on the two
-      pre-interview screens, the question, progress and timer while live.
+      pre-interview screens, the live call header (title, clock, captions,
+      microphone, Exit) while live. The logo loses its white plate only while
+      live (`plate`), so every other screen is unchanged.
     -->
     <template v-if="preInterviewStep" #header-end>
       <InterviewSteps :current="preInterviewStep" />
+    </template>
+    <template v-else-if="callStageLive" #header-end>
+      <CallHeader
+        :title="callTitle"
+        :elapsed-seconds="elapsedSeconds"
+        :captions-enabled="captionsEnabled"
+        :mic-muted="session.micMuted.value || session.handoverInFlight.value"
+        :mic-disabled="session.handoverInFlight.value"
+        @toggle-captions="captionsEnabled = !captionsEnabled"
+        @toggle-mic="session.setMicMuted(!session.micMuted.value)"
+      >
+        <template #exit>
+          <CallExitDialog :loading="session.handoverInFlight.value" @confirm="onExitConfirmed" />
+        </template>
+      </CallHeader>
     </template>
 
     <!--
@@ -83,9 +101,9 @@
           ]"
         >
           <CallTile
-            :name="$t('interview.call.interviewer_name')"
+            :name="interviewerName"
             :speaking-label="$t('interview.call.avatar_speaking')"
-            :speaking="speaker === 'avatar'"
+            :speaking="speaker === 'avatar' || session.boundaryInFlight.value"
           >
             <template v-for="p in session.players.value" :key="p.key">
               <ClientOnly>
@@ -93,6 +111,7 @@
                   :provider="p.provider"
                   :config="p.config"
                   :muted="p.muted"
+                  :mic-muted="session.micMuted.value"
                   :audio-only="p.audioOnly"
                   :overlay="p.role !== 'live'"
                   @state="onPlayerState(p.key, $event)"
@@ -104,27 +123,38 @@
               </ClientOnly>
             </template>
           </CallTile>
+          <!--
+            The captions overlay (live-interview-call-chrome D8): a SIBLING of the tile inside the
+            layer, so the keyed players are never re-parented. Rendered only while live; when the
+            candidate turns captions off it stays mounted as the screen-reader region.
+          -->
+          <CallQuestion
+            v-if="live"
+            ref="callQuestion"
+            :text="currentCaption"
+            :speaker-name="interviewerName"
+            :visible="captionsEnabled"
+          />
         </div>
-      </template>
-
-      <template #question>
-        <CallQuestion ref="callQuestion" :text="currentCaption" />
       </template>
 
       <template #panel>
         <CallPanel
-          :ended="session.endedCompetencies.value ?? null"
+          :ended="panelEnded"
           :total="session.totalCompetencies.value ?? null"
           :elapsed-seconds="elapsedSeconds"
           :question-seconds="interviewRemaining"
           :timer-key="session.sessionId.value ?? null"
           :max-seconds="session.interviewMaxSeconds.value"
+          :storyboard="storyboard"
+          :primary-index="session.primaryIndex.value"
+          :answer-seconds="answerTimer.seconds.value"
+          :answer-phase="answerTimer.phase.value"
+          :mic-muted="session.micMuted.value"
+          :budget="budget"
           @tick="interviewRemaining = $event"
           @expired="onTimerExpired"
         >
-          <template #exit>
-            <CallExitDialog :loading="session.handoverInFlight.value" @confirm="onExitConfirmed" />
-          </template>
           <template #help>
             <CallHelpLink />
           </template>
@@ -136,7 +166,8 @@
           <CallSelfView
             :stream="confirmedStream"
             :speaking-label="$t('interview.call.candidate_speaking')"
-            :speaking="speaker === 'candidate'"
+            :name="candidateName"
+            :speaking="speaker === 'candidate' && !session.micMuted.value"
           />
         </ClientOnly>
       </template>
@@ -546,7 +577,12 @@ import { interviewRemainingSeconds } from '~/app/utils/interview-max-seconds'
 import { INTERVIEW_CLOSING_GRACE_MS } from '~/app/utils/interview-budget'
 import CallSelfView from '~/components/molecules/CallSelfView.client.vue'
 import CallTile from '~/components/molecules/CallTile.vue'
+import CallHeader from '~/components/organisms/CallHeader.vue'
 import CallPanel from '~/components/organisms/CallPanel.vue'
+import { useInterviewOutline } from '~/composables/useInterviewOutline'
+import { useAnswerTimer } from '~/composables/useAnswerTimer'
+import { answerBudget } from '~/app/utils/answer-budget'
+import { useCaptionsPreference } from '~/composables/useCaptionsPreference'
 import CallStage from '~/components/organisms/CallStage.vue'
 import InterviewGuide from '~/components/molecules/InterviewGuide.vue'
 import { Separator } from '~/components/ui/separator'
@@ -808,6 +844,100 @@ const speakerTurn = useSpeakerTurn({
   micStream: confirmedStream,
 })
 const speaker = speakerTurn.speaker
+
+// ---------------------------------------------------------------------------
+// Live header (live-interview-call-chrome D12, D13, D17).
+// ---------------------------------------------------------------------------
+
+const outlineApi = useInterviewOutline()
+const captionsEnabled = useCaptionsPreference()
+
+/**
+ * Refetch the outline when the live screen first shows and whenever the session id moves
+ * while it does (a boundary, a continuation, a re-offer) - never per utterance, and not
+ * again when the SAME session resumes after a pause. A failed fetch keeps the bare title.
+ */
+let outlineSessionId: number | null = null
+watch(
+  () => (callStageLive.value ? session.sessionId.value : null),
+  (id) => {
+    if (id === null || id === outlineSessionId) return
+    outlineSessionId = id
+    void outlineApi.refresh()
+  }
+)
+
+/** The candidate's own name for the self tile; blank or an outline that never loaded leaves its generic label. */
+const candidateName = computed(() => outlineApi.outline.value?.candidate_name?.trim() || undefined)
+
+/** The persona name the admin configured, or the generic label: never a technology provider's name. */
+const interviewerName = computed(
+  () => outlineApi.outline.value?.avatar_name?.trim() || t('interview.call.interviewer_name')
+)
+
+/**
+ * The panel's named path, one item per outline entry. A name that is missing or blank gets the
+ * generic "Competenza {ordinal}": the panel is never handed, and never shows, a competency code.
+ * `null` (no outline, or it failed) omits the storyboard; the rest of the panel renders.
+ */
+const storyboard = computed(
+  () =>
+    outlineApi.outline.value?.competencies.map((competency) => ({
+      name:
+        competency.name?.trim() ||
+        t('interview.call.storyboard.unnamed', { ordinal: competency.ordinal }),
+      ordinal: competency.ordinal,
+      status: competency.status,
+      primaryTotal: competency.primary_total,
+    })) ?? null
+)
+
+/**
+ * Competencies already ended, for "Competenza n di N": the `/end` tally when there is one, else
+ * the position the `/start` response named minus one, so a run resumed on its third competency
+ * does not read "1 of N" until its first `/end`.
+ */
+const panelEnded = computed(
+  () =>
+    session.endedCompetencies.value ??
+    (session.competencyOrdinal.value === null ? null : session.competencyOrdinal.value - 1)
+)
+
+/**
+ * "Colloquio di assessment · {role}" for a standard assessment, "... · Potenziale" for a
+ * potential one, the bare title when the role is unknown: no separator, no placeholder.
+ */
+const callTitle = computed(() => {
+  const outline = outlineApi.outline.value
+  const subject =
+    outline?.assessment_type === 'potential'
+      ? t('interview.call.header.potential')
+      : outline?.role_name?.trim()
+
+  return subject
+    ? t('interview.call.header.title_with_subject', { subject })
+    : t('interview.call.header.title')
+})
+
+/**
+ * The answer timer: counts from the moment the interviewer stops speaking and runs through the
+ * candidate's answer (D10). It reads the speaker signal only, never the microphone, so muting
+ * changes nothing here, and it never drives `/end`.
+ */
+const answerTimer = useAnswerTimer({
+  speaker,
+  sessionId: computed(() => session.sessionId.value ?? null),
+  live: () => session.state.value === 'live',
+})
+
+/**
+ * The suggested answer length: the server's interview limit split across every scripted primary
+ * question. `null` (no bar) until BOTH inputs exist; the client's 300 s countdown seed is never
+ * an input.
+ */
+const budget = computed(() =>
+  answerBudget(session.interviewMaxSeconds.value, outlineApi.outline.value?.primary_total_all)
+)
 
 /** Whole seconds of live interview time, for "03:12 / 25:00". It stops while suspended. */
 const interviewClock = useInterviewClock({ isRunning: () => session.state.value === 'live' })

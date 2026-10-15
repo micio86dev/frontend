@@ -4,10 +4,11 @@
       <Button
         data-testid="call-exit"
         variant="outline"
-        class="h-(--spacing-control) px-5"
+        class="h-(--spacing-control) bg-card px-5 text-card-foreground"
         :loading="loading"
+        :aria-label="$t('interview.call.exit.label')"
       >
-        {{ $t('interview.call.exit.label') }}
+        {{ $t('interview.call.exit.short') }}
       </Button>
     </DialogTrigger>
 
@@ -39,7 +40,11 @@
 <script setup lang="ts">
 /**
  * CallExitDialog — the call screen's Exit button and its confirmation
- * (candidate-interview-call-ui D9; DESIGN.md §7.3, §9).
+ * (candidate-interview-call-ui D9; live-interview-call-chrome D13; DESIGN.md §7.3, §9).
+ *
+ * It lives in the call header. The button SHOWS the short word ("Esci" / "Exit") and its
+ * accessible name is the longer `exit.label`, which starts with that word (Label in Name)
+ * and keeps the hint that the interview can be resumed.
  *
  * The label says "Exit" and the action tears down a live conversation, so a
  * click opens a confirmation first. The dialog traps focus, closes on Escape or

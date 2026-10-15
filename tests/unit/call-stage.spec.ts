@@ -30,7 +30,6 @@ function mountStage(props: { live: boolean; embedded?: boolean }, withSelf = tru
     props,
     slots: {
       layer: ({ live }: { live: boolean }) => h(Layer, { live }),
-      question: () => h('div', { 'data-testid': 'q' }, 'question'),
       panel: () => h('div', { 'data-testid': 'p' }, 'panel'),
       ...(withSelf ? { self: () => h('div', { 'data-testid': 's' }, 'self') } : {}),
     },
@@ -43,7 +42,6 @@ describe('CallStage', () => {
     const layout = wrapper.get('[data-slot="call-layout"]')
 
     expect(layout.find('[data-slot="avatar-layer"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="q"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="p"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="s"]').exists()).toBe(false)
     // Not live: no box of its own, so the layer lays out exactly as it did without the stage.
@@ -53,7 +51,6 @@ describe('CallStage', () => {
 
     expect(layout.classes()).toContain('grid')
     expect(layout.classes()).not.toContain('contents')
-    expect(wrapper.find('[data-testid="q"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="p"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="s"]').exists()).toBe(true)
   })
@@ -64,7 +61,7 @@ describe('CallStage', () => {
     const layer = layout.querySelector('[data-slot="avatar-layer"]')!
 
     expect(layer.parentElement).toBe(layout)
-    for (const id of ['q', 'p', 's']) {
+    for (const id of ['p', 's']) {
       expect(wrapper.get(`[data-testid="${id}"]`).element.parentElement!.parentElement).toBe(layout)
     }
   })
@@ -80,6 +77,21 @@ describe('CallStage', () => {
     await wrapper.setProps({ live: false })
     expect(wrapper.get('[data-slot="avatar-layer"]').element).toBe(before)
     expect(mounts).toBe(1)
+  })
+
+  it('has no question slot or grid area: the captions are an overlay inside the layer', () => {
+    const wrapper = mount(CallStage, {
+      props: { live: true },
+      slots: {
+        layer: () => h('div', { 'data-slot': 'avatar-layer' }),
+        question: () => h('div', { 'data-testid': 'q' }, 'question'),
+        panel: () => h('div', { 'data-testid': 'p' }, 'panel'),
+      },
+    })
+
+    expect(wrapper.find('[data-testid="q"]').exists()).toBe(false)
+    expect(wrapper.find('[data-slot="call-stage-question"]').exists()).toBe(false)
+    expect(wrapper.get('[data-slot="call-layout"]').attributes('class')).not.toMatch(/question/)
   })
 
   it('draws no own-camera cell when no self slot is given', () => {
@@ -101,5 +113,76 @@ describe('CallStage', () => {
 
     expect(wrapper.html()).not.toMatch(VIEWPORT_HEIGHT_UNIT)
     expect(wrapper.get('[data-slot="call-layout"]').attributes('data-embedded')).toBe('true')
+  })
+})
+
+// live-interview-call-chrome D15: one row at `xl`, the wider 22 rem panel beside the video that
+// takes the row's height without ever setting it, a one-column strip below `xl`.
+describe('CallStage - the grid and the panel cell', () => {
+  const layoutClasses = (props: { live: boolean; embedded?: boolean }) =>
+    mountStage(props).get('[data-slot="call-layout"]').classes()
+  const panelCell = () => mountStage({ live: true }).get('[data-slot="call-stage-panel"]')
+
+  it('is ONE row at xl: the layer, then the panel column of --spacing-call-panel', () => {
+    const classes = layoutClasses({ live: true })
+
+    expect(classes).toContain('xl:grid-cols-[minmax(0,1fr)_var(--spacing-call-panel)]')
+    expect(classes).toContain("xl:[grid-template-areas:'layer_panel']")
+    // The old second row ("rest") existed only to let the panel run under the question band.
+    expect(classes.join(' ')).not.toMatch(/rest_panel|grid-rows-\[auto_1fr\]/)
+  })
+
+  it("is one column below xl: 'layer' then 'panel'", () => {
+    const classes = layoutClasses({ live: true })
+
+    expect(classes).toContain('grid-cols-[minmax(0,1fr)]')
+    expect(classes).toContain("[grid-template-areas:'layer'_'panel']")
+  })
+
+  it('lets the panel cell fill the row without setting its height (h-0 plus min-h-full)', () => {
+    const classes = panelCell().classes()
+
+    expect(classes).toEqual(
+      expect.arrayContaining(['xl:h-0', 'xl:min-h-full', '[grid-area:panel]'])
+    )
+    // `self-start` would size the cell to its content and let the panel set the row height.
+    expect(classes).not.toContain('xl:self-start')
+  })
+
+  it('stacks the panel in a column so the Percorso section can take the leftover height', () => {
+    expect(panelCell().classes()).toEqual(expect.arrayContaining(['xl:flex', 'xl:flex-col']))
+  })
+
+  it('does not reserve panel height below xl: the strip sizes to its content', () => {
+    const classes = panelCell().classes()
+
+    expect(classes.filter((c) => /^(?:h-|min-h-)/.test(c))).toEqual([])
+  })
+})
+
+describe('CallStage - the hosted height cap', () => {
+  const classes = () =>
+    mountStage({ live: true, embedded: false }).get('[data-slot="call-layout"]').classes()
+
+  it('subtracts 9rem of chrome beside the panel and 22rem when the panel is a strip', () => {
+    const cap = classes().filter((c) => c.includes('100dvh'))
+
+    expect(cap).toContain('max-w-[min(100%,max(30rem,calc((100dvh_-_22rem)*16/9)))]')
+    expect(cap).toContain(
+      'xl:max-w-[min(100%,max(30rem,calc((100dvh_-_9rem)*16/9_+_var(--spacing-call-panel)_+_1.5rem)))]'
+    )
+  })
+
+  it('gives the panel the viewport height even when the 16:9 tile is width-limited', () => {
+    expect(classes()).toContain('xl:min-h-[calc(100dvh_-_9rem)]')
+  })
+
+  it('embedded: neither the cap nor the min-height, so the host can size the iframe', () => {
+    const embedded = mountStage({ live: true, embedded: true })
+      .get('[data-slot="call-layout"]')
+      .classes()
+
+    expect(embedded.filter((c) => /dvh|vh/.test(c))).toEqual([])
+    expect(embedded).toContain('xl:grid-cols-[minmax(0,1fr)_var(--spacing-call-panel)]')
   })
 })

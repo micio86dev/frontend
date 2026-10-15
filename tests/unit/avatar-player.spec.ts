@@ -63,25 +63,21 @@ describe('AvatarPlayer.client.vue', () => {
     expect(wrapper.find('video').attributes('muted')).toBeUndefined()
   })
 
-  it("declares no micMuted prop — the candidate mic is not this component's concern", async () => {
-    // `muted` (invisible-competency-handover D4) and `overlay` (D6 position
-    // fix below) ARE legitimate declared props now — `micMuted` specifically
-    // stays absent: the candidate's own microphone is never this
-    // component's concern.
+  it("declares micMuted as an uplink-only prop next to the handover role's muted", async () => {
     const { default: AvatarPlayer } = await import('~/app/components/AvatarPlayer.client.vue')
     const declaredProps = (AvatarPlayer as unknown as { props?: Record<string, unknown> }).props
 
-    // `audioOnly` joined the list for voice-only templates. It describes the
-    // INTERVIEW (no video track on the stream), never the candidate's
-    // microphone — which is what this exact-list assertion exists to keep out.
+    // `audioOnly` describes the INTERVIEW (no video track), never the microphone.
+    // `micMuted` is separate from `muted` so the candidate's mic never gates the
+    // interviewer's audio (see the test above and avatar-player-mic.spec.ts).
     expect(Object.keys(declaredProps ?? {})).toEqual([
       'provider',
       'config',
       'overlay',
       'muted',
+      'micMuted',
       'audioOnly',
     ])
-    expect(Object.keys(declaredProps ?? {})).not.toContain('micMuted')
   })
 
   it('starts the provider against the <video> element, not a detached node', async () => {

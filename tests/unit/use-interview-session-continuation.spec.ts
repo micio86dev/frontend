@@ -56,6 +56,7 @@ function createMockProvider(steerable: boolean) {
       log.push(muted ? 'mute' : 'unmute')
     }),
     nudgeWrapUp: vi.fn(),
+    whenAvatarSilent: undefined as undefined | (() => Promise<void>),
     sendBoundary: vi.fn(async (): Promise<SteeringResult> => {
       log.push('send')
       return { ok: true }
@@ -253,6 +254,28 @@ describe('single-session continuation flow', () => {
       A,
       B,
     ])
+  })
+
+  it('moves the ordinal and total with the cursor on a granted continuation', async () => {
+    const withProgress = (response: ReturnType<typeof baseResponse>, ordinal: number) => ({
+      ...response,
+      question_context: {
+        ...response.question_context,
+        competency_ordinal: ordinal,
+        total_competencies: 3,
+      },
+    })
+    const session = await liveSession(withProgress(fresh(), 1) as ReturnType<typeof fresh>)
+    expect(session.competencyOrdinal.value).toBe(1)
+    queue('/candidate/interview/end', END_CONTINUE)
+    queue('/candidate/interview/start', withProgress(continuation(B), 2))
+
+    providers[0]!._emit('state', 'complete')
+    await flush()
+
+    expect(session.sessionId.value).toBe(B)
+    expect(session.competencyOrdinal.value).toBe(2)
+    expect(session.totalCompetencies.value).toBe(3)
   })
 
   it('asserts the live conversation on /start only from the boundary', async () => {
@@ -456,6 +479,48 @@ describe('live_conversation_id is never sent without a joined handle', () => {
 })
 
 describe('assertBoundary', () => {
+  it('does not mute the mic or call /end until the avatar is silent, and double triggers wait too', async () => {
+    const session = await liveSession()
+    queue('/candidate/interview/end', END_CONTINUE)
+    queue('/candidate/interview/start', continuation(B))
+    let release!: () => void
+    providers[0]!.whenAvatarSilent = vi.fn(
+      () => new Promise<void>((resolve) => (release = resolve))
+    )
+    log.length = 0
+
+    providers[0]!._emit('state', 'complete')
+    providers[0]!._emit('state', 'complete')
+    await flush()
+
+    expect(providers[0]!.whenAvatarSilent).toHaveBeenCalledTimes(1)
+    expect(ends()).toHaveLength(0)
+    expect(log).toEqual([])
+
+    release()
+    await flush()
+
+    expect(log.slice(0, 2)).toEqual(['mute', 'end'])
+    expect(ends()).toHaveLength(1)
+    expect(session.sessionId.value).toBe(B)
+  })
+
+  it('drops the boundary when the session is torn down while waiting for silence', async () => {
+    const session = await liveSession()
+    let release!: () => void
+    providers[0]!.whenAvatarSilent = vi.fn(
+      () => new Promise<void>((resolve) => (release = resolve))
+    )
+
+    providers[0]!._emit('state', 'complete')
+    await flush()
+    await session.teardown()
+    release()
+    await flush()
+
+    expect(ends()).toHaveLength(0)
+  })
+
   it('racing inputs mint one ticket and one /end', async () => {
     const session = await liveSession()
     queue('/candidate/interview/end', END_CONTINUE)
@@ -962,5 +1027,72 @@ describe('boundary_due on the /utterance 202 (FE-05)', () => {
     expect(ends()).toHaveLength(1)
     expect(providers[0]!.sendBoundary).toHaveBeenCalledTimes(1)
     expect(session.sessionId.value).toBe(B)
+  })
+})
+
+describe('boundaryInFlight (interviewer ring held across the boundary)', () => {
+  it('is true from the silence wait until the steering ack, then false', async () => {
+    const session = await liveSession()
+    queue('/candidate/interview/end', END_CONTINUE)
+    queue('/candidate/interview/start', continuation(B))
+    let release!: () => void
+    providers[0]!.whenAvatarSilent = vi.fn(
+      () => new Promise<void>((resolve) => (release = resolve))
+    )
+    let ack!: (r: SteeringResult) => void
+    providers[0]!.sendBoundary.mockImplementationOnce(
+      () => new Promise<SteeringResult>((resolve) => (ack = resolve))
+    )
+    expect(session.boundaryInFlight.value).toBe(false)
+
+    providers[0]!._emit('state', 'complete')
+    await flush()
+    expect(session.boundaryInFlight.value).toBe(true) // still waiting for silence
+
+    release()
+    await flush()
+    expect(providers[0]!.sendBoundary).toHaveBeenCalledTimes(1)
+    expect(session.boundaryInFlight.value).toBe(true) // steering not acknowledged yet
+
+    ack({ ok: true })
+    await flush()
+    expect(session.boundaryInFlight.value).toBe(false)
+  })
+
+  it('is false again after a losing 409', async () => {
+    const session = await liveSession()
+    queue('/candidate/interview/end', new Thrown({ status: 409 }))
+
+    providers[0]!._emit('state', 'complete')
+    await flush()
+
+    expect(session.boundaryInFlight.value).toBe(false)
+  })
+
+  it('is false again after a failed /end', async () => {
+    const session = await liveSession()
+    queue('/candidate/interview/end', new Thrown({ status: 500 }))
+
+    providers[0]!._emit('state', 'complete')
+    await flush()
+
+    expect(session.boundaryInFlight.value).toBe(false)
+  })
+
+  it('is false again after a teardown while waiting for silence', async () => {
+    const session = await liveSession()
+    let release!: () => void
+    providers[0]!.whenAvatarSilent = vi.fn(
+      () => new Promise<void>((resolve) => (release = resolve))
+    )
+
+    providers[0]!._emit('state', 'complete')
+    await flush()
+    expect(session.boundaryInFlight.value).toBe(true)
+    await session.teardown()
+    release()
+    await flush()
+
+    expect(session.boundaryInFlight.value).toBe(false)
   })
 })
