@@ -744,6 +744,40 @@ describe('useInterviewSession — integrity events reach the row they belong to 
     expect(callsTo('/candidate/interview/end')).toHaveLength(1)
   })
 
+  it('a periodic request that hangs does not slow down a later /end', async () => {
+    const buf = drainingBuffer()
+    const session = await liveSession(buf.options)
+    buf.push(event(1))
+    mockCandidateFetch.mockImplementation((path: string) =>
+      path === INTEGRITY
+        ? new Promise(() => {})
+        : Promise.resolve(path === '/candidate/interview/end' ? { next_action: 'done' } : undefined)
+    )
+    await vi.advanceTimersByTimeAsync(FLUSH_INTERVAL_MS)
+    // Long past the ceiling: the hung request no longer counts as in flight.
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    void session.endQuestion('timeout')
+    await vi.advanceTimersByTimeAsync(10)
+
+    expect(callsTo('/candidate/interview/end')).toHaveLength(1)
+  })
+
+  it('no periodic flush addresses a row once its /end has started', async () => {
+    const buf = drainingBuffer()
+    const session = await liveSession(buf.options)
+    mockCandidateFetch.mockImplementation((path: string) =>
+      path === '/candidate/interview/end' ? new Promise(() => {}) : Promise.resolve(undefined)
+    )
+
+    void session.endQuestion('timeout')
+    await vi.advanceTimersByTimeAsync(10)
+    buf.push(event(1))
+    await vi.advanceTimersByTimeAsync(FLUSH_INTERVAL_MS)
+
+    expect(integritySessionIds()).toEqual([])
+  })
+
   it('a failed integrity request falls back to keepalive once, to the same row, and /end still runs', async () => {
     const buf = drainingBuffer()
     const session = await liveSession(buf.options)

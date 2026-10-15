@@ -813,6 +813,8 @@ export function useInterviewSession(
   /** The latest integrity POST still running, so an end can wait for a periodic flush. */
   let integrityInFlight: Promise<void> = Promise.resolve()
   let integrityRequests = 0
+  /** The row whose `/end` or `/suspend` has started: the periodic flush no longer addresses it. */
+  let endingSessionId: number | null = null
 
   function stopIntegrityTimer() {
     if (integrityTimer !== null) {
@@ -830,7 +832,8 @@ export function useInterviewSession(
     if (integrityTimer !== null || typeof window === 'undefined') return
     integrityTimer = setInterval(() => {
       const handle = activeSession.value
-      if (handle) void flushIntegrity(handle.attribution.current)
+      if (!handle || handle.attribution.current === endingSessionId) return
+      void flushIntegrity(handle.attribution.current)
     }, FLUSH_INTERVAL_MS)
   }
 
@@ -878,7 +881,11 @@ export function useInterviewSession(
    */
   function flushIntegrity(sessionId: number | null): Promise<void> {
     integrityRequests++
-    const sent = sendIntegrity(sessionId).finally(() => integrityRequests--)
+    // Each request is capped on its own, so one that hangs stops counting as in flight
+    // after the ceiling instead of holding every later end.
+    const sent = withCeiling(sendIntegrity(sessionId), UTTERANCE_DRAIN_CEILING_MS).finally(
+      () => integrityRequests--
+    )
     integrityInFlight = Promise.all([integrityInFlight, sent]).then(() => undefined)
     return integrityInFlight
   }
@@ -915,6 +922,8 @@ export function useInterviewSession(
    * overtakes events of its own session.
    */
   function settleIntegrity(sessionId: number): Promise<void> | null {
+    // From here the periodic flush leaves this row alone: what is left goes with this settle.
+    endingSessionId = sessionId
     if (hasPendingIntegrity())
       return withCeiling(flushIntegrity(sessionId), UTTERANCE_DRAIN_CEILING_MS)
     // Nothing pending and nothing in flight: no extra await before `/end`.
