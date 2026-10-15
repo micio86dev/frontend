@@ -680,6 +680,39 @@ describe('useInterviewSession — integrity events reach the row they belong to 
     expect(integritySessionIds().sort()).toEqual([A, B])
   })
 
+  it('a hanging integrity request never holds /end past the ceiling', async () => {
+    const buf = drainingBuffer()
+    const session = await liveSession(buf.options)
+    buf.push(event(1))
+    mockCandidateFetch.mockImplementation((path: string) =>
+      path === INTEGRITY
+        ? new Promise(() => {})
+        : Promise.resolve(path === '/candidate/interview/end' ? { next_action: 'done' } : undefined)
+    )
+
+    const ended = session.endQuestion('timeout')
+    await vi.advanceTimersByTimeAsync(5_000)
+    await ended
+
+    expect(callsTo('/candidate/interview/end')).toHaveLength(1)
+  })
+
+  it('a failed integrity request falls back to keepalive once, to the same row, and /end still runs', async () => {
+    const buf = drainingBuffer()
+    const session = await liveSession(buf.options)
+    buf.push(event(1))
+    mockCandidateFetch.mockImplementation(async (path: string) => {
+      if (path === INTEGRITY) throw new Error('offline')
+      return path === '/candidate/interview/end' ? { next_action: 'done' } : undefined
+    })
+
+    await session.endQuestion('timeout')
+
+    expect(mockFlushIntegrityKeepalive).toHaveBeenCalledTimes(1)
+    expect(integritySessionIds()).toEqual([A, A])
+    expect(callsTo('/candidate/interview/end')).toHaveLength(1)
+  })
+
   it('flushes periodically to the current row, and the timer stops once the call ends', async () => {
     const buf = drainingBuffer()
     const session = await liveSession(buf.options)

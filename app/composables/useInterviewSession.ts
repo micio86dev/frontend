@@ -1192,7 +1192,8 @@ export function useInterviewSession(
     // Same choke point as `callEnd`: whatever the candidate said before pausing
     // must reach the server before the provider session that produced it stops
     // existing.
-    if (hasPendingIntegrity()) await flushIntegrity(dbSessionId)
+    if (hasPendingIntegrity())
+      await withCeiling(flushIntegrity(dbSessionId), UTTERANCE_DRAIN_CEILING_MS)
     await drainUtterances()
 
     try {
@@ -1214,7 +1215,8 @@ export function useInterviewSession(
     // written under time pressure. A choke point cannot be forgotten.
     // Integrity events belong to the row that is ending: flush them before
     // `/end`, and before any caller moves the cursor.
-    if (hasPendingIntegrity()) await flushIntegrity(dbSessionId)
+    if (hasPendingIntegrity())
+      await withCeiling(flushIntegrity(dbSessionId), UTTERANCE_DRAIN_CEILING_MS)
     await drainUtterances()
     // Best effort, only when lines are waiting, under the drain's ceiling: a stuck network must not hold /end.
     if (utteranceOutbox.size > 0) await withCeiling(flushUtterances(), UTTERANCE_DRAIN_CEILING_MS)
