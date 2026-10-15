@@ -8018,6 +8018,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description The interview outline. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8041,6 +8042,29 @@ export interface operations {
                 };
             };
             401: components["responses"]["AuthenticationException"];
+            /** @description The participant is no longer in an active interview (completed or errored). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            /** @description The project no longer exists (`project_not_found`) or its assessment type is not supported (`assessment_type_not_supported`). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        error: "project_not_found" | "assessment_type_not_supported";
+                    };
+                };
+            };
         };
     };
     "participant.index": {
