@@ -125,10 +125,10 @@ describe('call screen: the side panel names competencies but never carries a cod
     expect(imports.sort()).toEqual(
       [
         'vue',
-        '~/app/components/InterviewTimer.vue',
-        '~/app/components/ProgressBar.vue',
-        '~/app/components/molecules/CallAnswerTimer.vue',
-        '~/app/components/molecules/CallStoryboard.vue',
+        '~/components/InterviewTimer.vue',
+        '~/components/ProgressBar.vue',
+        '~/components/molecules/CallAnswerTimer.vue',
+        '~/components/molecules/CallStoryboard.vue',
         '~/app/composables/useInterviewClock',
       ].sort()
     )

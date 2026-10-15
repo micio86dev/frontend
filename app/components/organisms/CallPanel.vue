@@ -185,12 +185,12 @@
  * Slots: help.
  */
 import { computed } from 'vue'
-import InterviewTimer from '~/app/components/InterviewTimer.vue'
-import ProgressBar from '~/app/components/ProgressBar.vue'
+import InterviewTimer from '~/components/InterviewTimer.vue'
+import ProgressBar from '~/components/ProgressBar.vue'
 import CallAnswerTimer, {
   type CallAnswerTimerProps,
-} from '~/app/components/molecules/CallAnswerTimer.vue'
-import CallStoryboard, { type StoryboardItem } from '~/app/components/molecules/CallStoryboard.vue'
+} from '~/components/molecules/CallAnswerTimer.vue'
+import CallStoryboard, { type StoryboardItem } from '~/components/molecules/CallStoryboard.vue'
 import { formatClock } from '~/app/composables/useInterviewClock'
 
 const props = withDefaults(

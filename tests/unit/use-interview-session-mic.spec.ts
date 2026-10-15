@@ -264,6 +264,79 @@ describe('the choice survives a boundary on one joined conversation', () => {
   })
 })
 
+describe('a choice made while the restore is in flight is not lost', () => {
+  /** Hold the second uplink call (the restore after the forced mute) until released. */
+  function holdRestore(p: ReturnType<typeof createMockProvider>) {
+    let release!: () => void
+    p.setMicMuted.mockImplementation((_muted: boolean) =>
+      p.setMicMuted.mock.calls.length === 2
+        ? new Promise<undefined>((resolve) => (release = () => resolve(undefined)))
+        : Promise.resolve(undefined)
+    )
+    return () => release()
+  }
+
+  it('re-applies a toggle made during the restore after a lost /end race', async () => {
+    const session = await liveSession()
+    const release = holdRestore(providers[0]!)
+    queue('/candidate/interview/end', new Thrown({ status: 409 }))
+
+    providers[0]!._emit('state', 'complete')
+    await flush()
+    expect(calls(providers[0]!)).toEqual([true, false]) // forced mute, then the pending restore
+
+    session.setMicMuted(true) // the candidate mutes while the restore is awaited
+    release()
+    await flush()
+
+    expect(session.boundaryInFlight.value).toBe(false)
+    expect(lastCall(providers[0]!)).toBe(true)
+  })
+
+  it('re-applies the LATEST of several toggles made during the restore', async () => {
+    const session = await liveSession()
+    const release = holdRestore(providers[0]!)
+    queue('/candidate/interview/end', new Thrown({ status: 409 }))
+
+    providers[0]!._emit('state', 'complete')
+    await flush()
+    session.setMicMuted(true)
+    session.setMicMuted(false)
+    release()
+    await flush()
+
+    expect(session.micMuted.value).toBe(false)
+    expect(lastCall(providers[0]!)).toBe(false)
+  })
+
+  it('re-applies a toggle made during the steering-acknowledgement restore', async () => {
+    const session = await liveSession()
+    const release = holdRestore(providers[0]!)
+    queue('/candidate/interview/end', END_CONTINUE)
+    queue('/candidate/interview/start', continuation(77))
+
+    providers[0]!._emit('state', 'complete')
+    await flush()
+    session.setMicMuted(true)
+    release()
+    await flush()
+
+    expect(session.sessionId.value).toBe(77)
+    expect(session.boundaryInFlight.value).toBe(false)
+    expect(lastCall(providers[0]!)).toBe(true)
+  })
+
+  it('does not touch the provider again when nothing was toggled', async () => {
+    await liveSession()
+    queue('/candidate/interview/end', new Thrown({ status: 409 }))
+
+    providers[0]!._emit('state', 'complete')
+    await flush()
+
+    expect(calls(providers[0]!)).toEqual([true, false])
+  })
+})
+
 describe('the choice survives an invisible handover', () => {
   it.each([
     ['muted', true],

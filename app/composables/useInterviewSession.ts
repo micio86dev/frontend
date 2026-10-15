@@ -660,16 +660,38 @@ export function useInterviewSession(
 
   const micMuted = ref(false)
 
+  /**
+   * True when the candidate toggled while a forced mute owned the uplink: the choice was
+   * recorded but not sent. A restore clears it as it sends the current value; a toggle made
+   * while that restore is awaited sets it again, and the end of the window re-applies it.
+   */
+  let micChoicePending = false
+
   /** Reopen the uplink after a forced mute, to the candidate's own choice (never unconditionally). */
   function restoreMic(handle: ProviderSession) {
+    micChoicePending = false
     return handle.provider.setMicMuted(micMuted.value).catch(() => {})
   }
 
   function setMicMuted(muted: boolean) {
     micMuted.value = muted
-    if (handoverInFlight.value) return // a forced mute owns the uplink; restoreMic applies this later
+    if (handoverInFlight.value) {
+      micChoicePending = true // a forced mute owns the uplink; the end of the window applies this
+      return
+    }
     activeSession.value?.provider.setMicMuted(muted).catch(() => {})
   }
+
+  // The forced-mute window ended with a choice nobody sent (a toggle during the restore await).
+  watch(
+    handoverInFlight,
+    (inFlight) => {
+      if (inFlight || !micChoicePending) return
+      micChoicePending = false
+      activeSession.value?.provider.setMicMuted(micMuted.value).catch(() => {})
+    },
+    { flush: 'sync' }
+  )
 
   const players = computed<SessionPlayer[]>(() => {
     const list: SessionPlayer[] = []
@@ -911,6 +933,32 @@ export function useInterviewSession(
    * late answer for the outgoing row must not overwrite the incoming one's count. A response
    * missing the field leaves the value alone.
    */
+  type CompetencyProgress = { total: number | null; ordinal: number | null }
+
+  /** Progress named by a /start response; an invalid or absent field leaves the old value. */
+  function progressOf(response: StartResponse): CompetencyProgress {
+    const { competency_ordinal, total_competencies } = response.question_context
+    return {
+      total: isPositiveNumber(total_competencies) ? total_competencies : null,
+      ordinal: isPositiveNumber(competency_ordinal) ? competency_ordinal : null,
+    }
+  }
+
+  /**
+   * Moves "competency n of N" with the session id it describes. Called wherever the id
+   * swaps, never at an incoming /start that is still waiting for its crossfade: the panel
+   * pairs this with the id and the primary index, which belong to the outgoing competency
+   * until then.
+   */
+  function applyProgress(progress: CompetencyProgress | null) {
+    if (!progress) return
+    if (progress.total !== null) totalCompetencies.value = progress.total
+    if (progress.ordinal !== null) competencyOrdinal.value = progress.ordinal
+  }
+
+  /** The crossfade target's progress, applied at `promote()` together with the id swap. */
+  let incomingProgress: CompetencyProgress | null = null
+
   function recordPrimaryIndex(dbSessionId: number, body: UtteranceResponse | undefined) {
     if (dbSessionId === sessionId.value && typeof body?.primary_index === 'number') {
       primaryIndex.value = body.primary_index
@@ -1291,6 +1339,7 @@ export function useInterviewSession(
    */
   function abandonIncomingAttempt() {
     logHandoverEvent('incoming-attempt-abandoned')
+    incomingProgress = null
     incomingSession.value = null
     incomingEntering.value = false
   }
@@ -1331,6 +1380,8 @@ export function useInterviewSession(
     // ~200ms crossfade window, with two unmuted mics again.
     void restoreMic(incoming)
     activeSession.value = incoming
+    applyProgress(incomingProgress)
+    incomingProgress = null
     sessionId.value = incoming.attribution.current
     armAgeTimer(incoming)
     // The machine stays `live` for the whole handover (D2); this also covers
@@ -1649,7 +1700,8 @@ export function useInterviewSession(
   async function applyContinuation(
     handle: ProviderSession,
     dbSessionId: number,
-    continuation: ParsedContinuation
+    continuation: ParsedContinuation,
+    progress: CompetencyProgress
   ): Promise<void> {
     if (handle !== activeSession.value) return
     if (!isSteerable(handle) || continuation.conversationId !== handle.conversationId) {
@@ -1662,6 +1714,7 @@ export function useInterviewSession(
     advanceAttribution(dbSessionId, () => {
       steering = handle.provider.sendBoundary(ticket)
     })
+    applyProgress(progress)
 
     let result = await steering
     if (result.ok) {
@@ -1809,7 +1862,12 @@ export function useInterviewSession(
         // `confirmDevices()`, which the latch would otherwise refuse.
         isResuming = false
         if (target === 'boundary' && joined) {
-          await applyContinuation(joined, Number(response.session_id), continuation)
+          await applyContinuation(
+            joined,
+            Number(response.session_id),
+            continuation,
+            progressOf(response)
+          )
         } else {
           // A continuation to a caller that holds no handle cannot be honoured.
           transitionTo('error')
@@ -1843,9 +1901,7 @@ export function useInterviewSession(
       // total) so the panel can read "competency n of N" from the first competency.
       // `endedCompetencies` is NOT touched here: it stays /end-only, because it also
       // decides whether a competency has run.
-      const { competency_ordinal, total_competencies } = response.question_context
-      if (isPositiveNumber(total_competencies)) totalCompetencies.value = total_competencies
-      if (isPositiveNumber(competency_ordinal)) competencyOrdinal.value = competency_ordinal
+      const progress = progressOf(response)
 
       const startConfig: StartConfig = {
         dbSessionId,
@@ -1889,6 +1945,7 @@ export function useInterviewSession(
       wireProviderEvents(handle)
 
       if (crossfade) {
+        incomingProgress = progress
         incomingSession.value = handle
         // Tavus cannot arm the bound at `complete` like HeyGen does: the ceiling is
         // only known from this response. Armed at publish, unless a HeyGen handover
@@ -1898,6 +1955,7 @@ export function useInterviewSession(
           armHandoverBound()
         }
       } else {
+        applyProgress(progress) // in place when the id first appears (the embed reads it then)
         sessionId.value = handle.attribution.current
         activeSession.value = handle
         armAgeTimer(handle)
