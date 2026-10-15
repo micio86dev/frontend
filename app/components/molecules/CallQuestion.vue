@@ -29,7 +29,7 @@
         `${speakerName}:`
       }}</span>
       {{ ' ' }}
-      <span data-testid="call-question-text">{{ text }}</span>
+      <span data-testid="call-question-text">{{ shownText }}</span>
     </p>
     <p v-else data-testid="call-question-hint" class="text-base leading-7 text-white/80">
       {{ $t('interview.live.listen_hint') }}
@@ -62,7 +62,8 @@
  *
  * SSR-safe: `document` is only touched inside `focusOnBoundary`.
  */
-import { ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { captionPageMs, captionPages } from '~/utils/caption-pages'
 
 const props = withDefaults(
   defineProps<{
@@ -74,6 +75,45 @@ const props = withDefaults(
 )
 
 const band = ref<HTMLElement | null>(null)
+
+/**
+ * A long utterance arrives whole but the overlay holds three lines: it is shown one page
+ * at a time, each for as long as it takes to say, and the last page stays. Captions off,
+ * the screen-reader region gets the whole text at once.
+ */
+const pages = computed(() => captionPages(props.text))
+const pageIndex = ref(0)
+let pageTimer: ReturnType<typeof setTimeout> | null = null
+
+const shownText = computed(() =>
+  props.visible ? (pages.value[pageIndex.value] ?? props.text) : props.text
+)
+
+function clearPageTimer(): void {
+  if (pageTimer !== null) clearTimeout(pageTimer)
+  pageTimer = null
+}
+
+function scheduleNextPage(): void {
+  clearPageTimer()
+  const current = pages.value[pageIndex.value]
+  if (current === undefined || pageIndex.value >= pages.value.length - 1) return
+  pageTimer = setTimeout(() => {
+    pageIndex.value++
+    scheduleNextPage()
+  }, captionPageMs(current))
+}
+
+watch(
+  () => props.text,
+  () => {
+    pageIndex.value = 0
+    scheduleNextPage()
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(clearPageTimer)
 
 /**
  * Bottom of the video, left of the own tile: 9-14rem wide plus its 0.75rem margin and a gap.
