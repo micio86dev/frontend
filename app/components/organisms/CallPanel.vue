@@ -68,22 +68,22 @@
     </section>
 
     <!--
-      Durata dell'intervista. Shown only once the SERVER has stated `interview_max_seconds`:
-      the 300 s fallback seed of the countdown is never a maximum, so before that nothing here
-      is visible. The section is hidden with `v-show` and not removed, because the countdown
-      inside it is the interview's ONLY timeout enforcement (`tick` / `expired`) and must stay
-      mounted whatever the display condition.
+      Durata dell'intervista. The heading, the figure, the bar and the sentence appear only once
+      the SERVER has stated `interview_max_seconds`: the 300 s fallback seed of the countdown is
+      never a maximum. The countdown itself is the interview's ONLY timeout enforcement (`tick` /
+      `expired`), so it is never hidden: without a stated maximum the section shows that exact
+      figure alone, and an enforcing timeout is never invisible to the candidate.
 
       The visible figure is hidden from assistive technology and the sentence that states the
       MAXIMUM is read instead: "03:12 / 20:00" alone does not say that 20:00 is a ceiling.
     -->
     <section
-      v-show="hasMax"
       data-testid="call-panel-duration"
-      aria-labelledby="call-panel-duration-label"
+      :aria-labelledby="hasMax ? 'call-panel-duration-label' : undefined"
       class="flex min-w-56 flex-1 flex-col gap-3 xl:flex-none"
     >
       <p
+        v-if="hasMax"
         id="call-panel-duration-label"
         class="text-xs font-semibold tracking-wide text-muted-foreground uppercase"
       >
