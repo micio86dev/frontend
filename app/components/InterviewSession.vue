@@ -93,6 +93,7 @@
                   :provider="p.provider"
                   :config="p.config"
                   :muted="p.muted"
+                  :mic-muted="session.micMuted.value"
                   :audio-only="p.audioOnly"
                   :overlay="p.role !== 'live'"
                   @state="onPlayerState(p.key, $event)"

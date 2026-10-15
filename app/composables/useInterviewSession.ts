@@ -335,6 +335,15 @@ export interface UseInterviewSessionReturn {
    * `finally`, so it cannot stay set.
    */
   boundaryInFlight: Readonly<Ref<boolean>>
+  /**
+   * The candidate's own microphone choice (D9). Lives as long as this instance:
+   * a boundary, a handover, a new competency or a resume never reset it, only a
+   * page reload does. A mute forced by the boundary or the handover wins while
+   * it is in effect and the choice is reapplied afterwards.
+   */
+  micMuted: Readonly<Ref<boolean>>
+  /** Record the candidate's choice; reaches the provider unless a forced mute is in effect. */
+  setMicMuted: (muted: boolean) => void
   acceptConsent: () => void
   /** @param audioDeviceId Microphone from device check; remembered for later competencies. */
   confirmDevices: (audioDeviceId?: string) => void
@@ -648,6 +657,19 @@ export function useInterviewSession(
   const activeProvider = computed(() => activeSession.value?.provider ?? null)
   const activeConfig = computed(() => activeSession.value?.config ?? null)
   const handoverInFlight = computed(() => handoverActive.value || boundaryInFlight.value)
+
+  const micMuted = ref(false)
+
+  /** Reopen the uplink after a forced mute, to the candidate's own choice (never unconditionally). */
+  function restoreMic(handle: ProviderSession) {
+    return handle.provider.setMicMuted(micMuted.value).catch(() => {})
+  }
+
+  function setMicMuted(muted: boolean) {
+    micMuted.value = muted
+    if (handoverInFlight.value) return // a forced mute owns the uplink; restoreMic applies this later
+    activeSession.value?.provider.setMicMuted(muted).catch(() => {})
+  }
 
   const players = computed<SessionPlayer[]>(() => {
     const list: SessionPlayer[] = []
@@ -1307,7 +1329,7 @@ export function useInterviewSession(
     // ever governs the VIDEO element) — unmuting the mic at `entering`
     // instead of here would reopen a smaller-scoped version of B1 for the
     // ~200ms crossfade window, with two unmuted mics again.
-    incoming.provider.setMicMuted(false).catch(() => {})
+    void restoreMic(incoming)
     activeSession.value = incoming
     sessionId.value = incoming.attribution.current
     armAgeTimer(incoming)
@@ -1533,7 +1555,7 @@ export function useInterviewSession(
       // Lost the /end race — undo the handover prep: nothing is actually
       // advancing, so the mic mute and the bound timer must not stick.
       endHandover()
-      handle.provider.setMicMuted(false).catch(() => {})
+      void restoreMic(handle)
       return
     }
 
@@ -1545,7 +1567,7 @@ export function useInterviewSession(
     // pause/done/unrecognised: no next competency. Abandon the handover prep
     // — transitionTo() below unmounts this handle's player anyway.
     endHandover()
-    handle.provider.setMicMuted(false).catch(() => {})
+    void restoreMic(handle)
     transitionTo(directive === 'done' ? 'done' : 'end_of_question')
   }
 
@@ -1609,7 +1631,7 @@ export function useInterviewSession(
       handle.provider.stop().catch(() => {})
       advanceAfterQuestion(directive)
     } finally {
-      if (!micHandedOff) await handle.provider.setMicMuted(false).catch(() => {})
+      if (!micHandedOff) await restoreMic(handle)
       boundaryInFlight.value = false
     }
   }
@@ -1643,11 +1665,11 @@ export function useInterviewSession(
 
     let result = await steering
     if (result.ok) {
-      await handle.provider.setMicMuted(false).catch(() => {})
+      await restoreMic(handle)
       return
     }
 
-    await handle.provider.setMicMuted(false).catch(() => {})
+    await restoreMic(handle)
     if (isJoinedFailure(result)) result = await handle.provider.sendBoundary(ticket)
     if (result.ok) return
 
@@ -2194,6 +2216,8 @@ export function useInterviewSession(
     players,
     handoverInFlight,
     boundaryInFlight: readonly(boundaryInFlight),
+    micMuted: readonly(micMuted),
+    setMicMuted,
     acceptConsent,
     confirmDevices,
     pause,

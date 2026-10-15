@@ -104,6 +104,7 @@ vi.mock('~/composables/useInterviewSession', async (importOriginal) => {
         ...real.useInterviewSession(...args),
         handoverInFlight: handover,
         boundaryInFlight: boundary,
+        micMuted: ref(false),
       }
       captured.handover = handover
       captured.boundary = boundary
