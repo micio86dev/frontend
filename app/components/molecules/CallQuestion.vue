@@ -76,7 +76,7 @@ const props = withDefaults(
     visible?: boolean
     utteranceKey?: number
   }>(),
-  { visible: true }
+  { visible: true, utteranceKey: 0 }
 )
 
 const band = ref<HTMLElement | null>(null)
