@@ -17,6 +17,7 @@ import { nextTick } from 'vue'
 import type { IntegrityEventInternal } from '~/app/utils/proctor-config'
 import { BoundarySendError } from '~/app/utils/attribution-cursor'
 import { useProctor } from '~/app/composables/useProctor'
+import { FLUSH_INTERVAL_MS } from '~/app/utils/proctor-config'
 
 const { mockCandidateFetch, mockFlushIntegrityKeepalive, mockCreateProvider } = vi.hoisted(() => {
   class MockCandidateUnauthorizedError extends Error {}
@@ -454,12 +455,13 @@ describe('useInterviewSession — advanceAttribution during a handover window', 
   /** HeyGen: the live handle completes, /end says continue, an incoming handle is minted. */
   async function overlap(options: Parameters<typeof useInterviewSession>[0] = {}) {
     const session = await liveSession(options, 'heygen')
-    mockCandidateFetch.mockResolvedValueOnce({
-      ended_competencies: 1,
-      total_competencies: 3,
-      next_action: 'continue',
+    // By path, not by call order: a pending integrity flush precedes /end.
+    mockCandidateFetch.mockImplementation(async (path: string) => {
+      if (path === '/candidate/interview/end') {
+        return { ended_competencies: 1, total_competencies: 3, next_action: 'continue' }
+      }
+      return path === '/candidate/interview/start' ? startResponse(INCOMING, 'heygen') : undefined
     })
-    mockCandidateFetch.mockResolvedValueOnce(startResponse(INCOMING, 'heygen'))
     providers[0]!._emit('state', 'complete')
     await flush()
     expect(providers).toHaveLength(2)
@@ -586,5 +588,266 @@ describe('useInterviewSession — muted boundary window and a single /end', () =
     const ends = callsTo('/candidate/interview/end')
     expect(ends).toHaveLength(1)
     expect(ends[0]![1]).toMatchObject({ body: { session_id: A } })
+  })
+})
+
+describe('useInterviewSession — integrity events reach the row they belong to at the end', () => {
+  const INTEGRITY = '/candidate/interview/integrity'
+
+  /** A buffer that drains on acknowledgement, like the proctor's real one. */
+  function drainingBuffer() {
+    let buffer: IntegrityEventInternal[] = []
+    return {
+      push: (e: IntegrityEventInternal) => {
+        buffer = [...buffer, e]
+      },
+      options: {
+        getPendingIntegrityEvents: () => buffer,
+        onIntegrityEventsFlushed: (flushed: IntegrityEventInternal[]) => {
+          buffer = buffer.filter((e) => !flushed.includes(e))
+        },
+      },
+    }
+  }
+
+  const event = (ts: number) => ({ type: 'tab_hidden', ts }) as unknown as IntegrityEventInternal
+
+  /** Every integrity POST, whichever transport carried it. */
+  function integritySessionIds(): Array<number | null> {
+    return [
+      ...callsTo(INTEGRITY).map((c) => (c[1] as { body: { session_id: number } }).body.session_id),
+      ...mockFlushIntegrityKeepalive.mock.calls.map(
+        (c) => (c[0] as { session_id: number }).session_id
+      ),
+    ]
+  }
+
+  function answerEndWith(action: string) {
+    mockCandidateFetch.mockImplementation(async (path: string) =>
+      path === '/candidate/interview/end' ? { next_action: action } : undefined
+    )
+  }
+
+  it('the last competency flushes to its own row when the interview completes', async () => {
+    const buf = drainingBuffer()
+    const session = await liveSession(buf.options)
+    session.advanceAttribution(B)
+    buf.push(event(1))
+    answerEndWith('done')
+
+    providers[0]!._emit('state', 'complete')
+    await flush()
+
+    expect(integritySessionIds()).toEqual([B])
+    const order = mockCandidateFetch.mock.calls.map((c: unknown[]) => c[0])
+    expect(order.indexOf(INTEGRITY)).toBeLessThan(order.indexOf('/candidate/interview/end'))
+  })
+
+  it('the same holds on the timeout end path', async () => {
+    const buf = drainingBuffer()
+    const session = await liveSession(buf.options)
+    buf.push(event(1))
+    answerEndWith('done')
+
+    await session.endQuestion('timeout')
+
+    expect(integritySessionIds()).toEqual([A])
+  })
+
+  it('pause (suspend) flushes the pending events to the current row', async () => {
+    const buf = drainingBuffer()
+    const session = await liveSession(buf.options)
+    session.advanceAttribution(B)
+    buf.push(event(1))
+
+    session.pause()
+    await flush()
+
+    expect(integritySessionIds()).toEqual([B])
+  })
+
+  it('sends each event once: the boundary flush and the end flush do not duplicate', async () => {
+    const buf = drainingBuffer()
+    const session = await liveSession(buf.options)
+    buf.push(event(1))
+    session.advanceAttribution(B)
+    buf.push(event(2))
+    answerEndWith('done')
+
+    providers[0]!._emit('state', 'complete')
+    await flush()
+
+    expect(integritySessionIds().sort()).toEqual([A, B])
+  })
+
+  it('/end waits for a periodic flush still in flight', async () => {
+    const buf = drainingBuffer()
+    const session = await liveSession(buf.options)
+    buf.push(event(1))
+    let land!: () => void
+    const order: string[] = []
+    mockCandidateFetch.mockImplementation((path: string) => {
+      if (path === INTEGRITY)
+        return new Promise<void>((resolve) => {
+          land = () => {
+            order.push('integrity landed')
+            resolve()
+          }
+        })
+      if (path === '/candidate/interview/end') order.push('end sent')
+      return Promise.resolve(
+        path === '/candidate/interview/end' ? { next_action: 'done' } : undefined
+      )
+    })
+
+    await vi.advanceTimersByTimeAsync(FLUSH_INTERVAL_MS)
+    const ended = session.endQuestion('timeout')
+    await vi.advanceTimersByTimeAsync(100)
+    land()
+    await ended
+
+    expect(order).toEqual(['integrity landed', 'end sent'])
+  })
+
+  it('a throwing event source never rejects the periodic flush', async () => {
+    const session = await liveSession({
+      getPendingIntegrityEvents: () => {
+        throw new Error('proctor gone')
+      },
+    })
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      await vi.advanceTimersByTimeAsync(FLUSH_INTERVAL_MS)
+      await flush()
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
+    expect(session.state.value).toBe('live')
+  })
+
+  it('a hanging integrity request never holds /end past the ceiling', async () => {
+    const buf = drainingBuffer()
+    const session = await liveSession(buf.options)
+    buf.push(event(1))
+    mockCandidateFetch.mockImplementation((path: string) =>
+      path === INTEGRITY
+        ? new Promise(() => {})
+        : Promise.resolve(path === '/candidate/interview/end' ? { next_action: 'done' } : undefined)
+    )
+
+    const ended = session.endQuestion('timeout')
+    await vi.advanceTimersByTimeAsync(5_000)
+    await ended
+
+    expect(callsTo('/candidate/interview/end')).toHaveLength(1)
+  })
+
+  it('a periodic request that hangs does not slow down a later /end', async () => {
+    const buf = drainingBuffer()
+    const session = await liveSession(buf.options)
+    buf.push(event(1))
+    mockCandidateFetch.mockImplementation((path: string) =>
+      path === INTEGRITY
+        ? new Promise(() => {})
+        : Promise.resolve(path === '/candidate/interview/end' ? { next_action: 'done' } : undefined)
+    )
+    await vi.advanceTimersByTimeAsync(FLUSH_INTERVAL_MS)
+    // Long past the ceiling: the hung request no longer counts as in flight.
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    void session.endQuestion('timeout')
+    await vi.advanceTimersByTimeAsync(10)
+
+    expect(callsTo('/candidate/interview/end')).toHaveLength(1)
+  })
+
+  it('no periodic flush addresses a row once its /end has started', async () => {
+    const buf = drainingBuffer()
+    const session = await liveSession(buf.options)
+    mockCandidateFetch.mockImplementation((path: string) =>
+      path === '/candidate/interview/end' ? new Promise(() => {}) : Promise.resolve(undefined)
+    )
+
+    void session.endQuestion('timeout')
+    await vi.advanceTimersByTimeAsync(10)
+    buf.push(event(1))
+    await vi.advanceTimersByTimeAsync(FLUSH_INTERVAL_MS)
+
+    expect(integritySessionIds()).toEqual([])
+  })
+
+  it('after a pause and a resume on the same row, the periodic flush addresses it again', async () => {
+    const buf = drainingBuffer()
+    const session = await liveSession(buf.options)
+    session.pause()
+    await flush()
+    expect(session.state.value).toBe('paused')
+
+    mockCandidateFetch.mockResolvedValueOnce(startResponse(A, 'tavus'))
+    session.resume()
+    await flush()
+    providers.at(-1)!._emit('state', 'ready')
+    await flush()
+    expect(session.state.value).toBe('live')
+
+    buf.push(event(1))
+    await vi.advanceTimersByTimeAsync(FLUSH_INTERVAL_MS)
+
+    expect(integritySessionIds()).toEqual([A])
+  })
+
+  it('a throwing keepalive transport never rejects the flush or blocks /end', async () => {
+    const buf = drainingBuffer()
+    const session = await liveSession(buf.options)
+    buf.push(event(1))
+    mockFlushIntegrityKeepalive.mockImplementation(() => {
+      throw new Error('keepalive refused')
+    })
+    mockCandidateFetch.mockImplementation(async (path: string) => {
+      if (path === INTEGRITY) throw new Error('offline')
+      return path === '/candidate/interview/end' ? { next_action: 'done' } : undefined
+    })
+
+    await session.endQuestion('timeout')
+
+    expect(callsTo('/candidate/interview/end')).toHaveLength(1)
+  })
+
+  it('a failed integrity request falls back to keepalive once, to the same row, and /end still runs', async () => {
+    const buf = drainingBuffer()
+    const session = await liveSession(buf.options)
+    buf.push(event(1))
+    mockCandidateFetch.mockImplementation(async (path: string) => {
+      if (path === INTEGRITY) throw new Error('offline')
+      return path === '/candidate/interview/end' ? { next_action: 'done' } : undefined
+    })
+
+    await session.endQuestion('timeout')
+
+    expect(mockFlushIntegrityKeepalive).toHaveBeenCalledTimes(1)
+    expect(integritySessionIds()).toEqual([A, A])
+    expect(callsTo('/candidate/interview/end')).toHaveLength(1)
+  })
+
+  it('flushes periodically to the current row, and the timer stops once the call ends', async () => {
+    const buf = drainingBuffer()
+    const session = await liveSession(buf.options)
+    session.advanceAttribution(B)
+    buf.push(event(1))
+
+    await vi.advanceTimersByTimeAsync(FLUSH_INTERVAL_MS)
+    expect(integritySessionIds()).toEqual([B])
+
+    answerEndWith('done')
+    providers[0]!._emit('state', 'complete')
+    await flush()
+    expect(session.state.value).toBe('done')
+
+    buf.push(event(2))
+    await vi.advanceTimersByTimeAsync(FLUSH_INTERVAL_MS * 3)
+    expect(integritySessionIds()).toEqual([B])
+    expect(vi.getTimerCount()).toBe(0)
   })
 })

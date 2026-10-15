@@ -115,7 +115,7 @@ import { createBoundaryTicket } from '~/app/utils/advance-interaction'
 import { asCompetencyCode, type CompetencyCode } from '~/app/utils/competency-codes'
 import type { operations } from '~~/types/api'
 
-import type { IntegrityEventInternal } from '~/app/utils/proctor-config'
+import { FLUSH_INTERVAL_MS, type IntegrityEventInternal } from '~/app/utils/proctor-config'
 import {
   candidateFetch,
   flushIntegrityKeepalive,
@@ -809,7 +809,36 @@ export function useInterviewSession(
     activeSession.value = null
   }
 
+  let integrityTimer: ReturnType<typeof setInterval> | null = null
+  /** The latest integrity POST still running, so an end can wait for a periodic flush. */
+  let integrityInFlight: Promise<void> = Promise.resolve()
+  let integrityRequests = 0
+  /** The row whose `/end` or `/suspend` has started: the periodic flush no longer addresses it. */
+  let endingSessionId: number | null = null
+
+  function stopIntegrityTimer() {
+    if (integrityTimer !== null) {
+      clearInterval(integrityTimer)
+      integrityTimer = null
+    }
+  }
+
+  /**
+   * Periodic flush while the call is live, addressed to the CURRENT cursor.
+   * Idempotent. Cleared with the resize listener on every terminal state and
+   * on teardown; it does nothing while no provider session is published.
+   */
+  function startIntegrityTimer() {
+    if (integrityTimer !== null || typeof window === 'undefined') return
+    integrityTimer = setInterval(() => {
+      const handle = activeSession.value
+      if (!handle || handle.attribution.current === endingSessionId) return
+      void flushIntegrity(handle.attribution.current)
+    }, FLUSH_INTERVAL_MS)
+  }
+
   function removeResizeListener() {
+    stopIntegrityTimer()
     if (resizeListener && typeof window !== 'undefined') {
       window.removeEventListener('resize', resizeListener)
       resizeListener = null
@@ -832,8 +861,85 @@ export function useInterviewSession(
     options.onIntegrityEventsFlushed?.(pending)
   }
 
+  /** Call sites gate on this so an empty buffer costs no extra microtask before `/end`. */
+  function hasPendingIntegrity(): boolean {
+    try {
+      return (options.getPendingIntegrityEvents?.().length ?? 0) > 0
+    } catch {
+      // A broken event source must never stand between the candidate and `/end`.
+      return false
+    }
+  }
+
+  /**
+   * Send every unsent integrity event to `sessionId` over the normal
+   * transport and wait for it (the end/suspend callers cap that wait), so the
+   * events normally land before the `/end` or `/suspend` that follows. The
+   * buffer is acknowledged on dispatch (drained exactly once, so a concurrent
+   * flush cannot resend them); if the request fails, the same batch falls back
+   * to the keepalive transport, best effort, which may land after `/end`.
+   */
+  function flushIntegrity(sessionId: number | null): Promise<void> {
+    integrityRequests++
+    // Each request is capped on its own, so one that hangs stops counting as in flight
+    // after the ceiling instead of holding every later end.
+    const sent = withCeiling(sendIntegrity(sessionId), UTTERANCE_DRAIN_CEILING_MS).finally(
+      () => integrityRequests--
+    )
+    integrityInFlight = Promise.all([integrityInFlight, sent]).then(() => undefined)
+    return integrityInFlight
+  }
+
+  /** Reads and acknowledges the pending events; a broken event source yields none, never a throw. */
+  function takePendingIntegrity() {
+    try {
+      const pending = options.getPendingIntegrityEvents?.() ?? []
+      if (pending.length > 0) options.onIntegrityEventsFlushed?.(pending)
+      return pending
+    } catch {
+      return []
+    }
+  }
+
+  /** Never rejects: it runs from a timer, where a rejection would be unhandled. */
+  async function sendIntegrity(sessionId: number | null): Promise<void> {
+    const pending = takePendingIntegrity()
+    if (pending.length === 0) return
+    const body = {
+      session_id: sessionId,
+      events: pending.map((e) => ({ kind: e.type, ts: e.ts, payload: e.meta ?? null })),
+    }
+    try {
+      await candidateFetch('/candidate/interview/integrity', { method: 'POST', body })
+    } catch {
+      try {
+        flushIntegrityKeepalive(body)
+      } catch {
+        // Best effort: a refused fallback must not reject this flush, or every later end waits on it.
+      }
+    }
+  }
+
+  /**
+   * Before `/end` or `/suspend`: send what is pending to the ending row and wait, under the
+   * drain ceiling, for that and for any periodic flush still in flight, so `/end` never
+   * overtakes events of its own session.
+   */
+  function settleIntegrity(sessionId: number): Promise<void> | null {
+    // From here the periodic flush leaves this row alone: what is left goes with this settle.
+    endingSessionId = sessionId
+    if (hasPendingIntegrity())
+      return withCeiling(flushIntegrity(sessionId), UTTERANCE_DRAIN_CEILING_MS)
+    // Nothing pending and nothing in flight: no extra await before `/end`.
+    if (integrityRequests === 0) return null
+    return withCeiling(integrityInFlight, UTTERANCE_DRAIN_CEILING_MS)
+  }
+
   function attachResizeListener() {
     if (typeof window === 'undefined') return
+    // Live again (first connect, or a resume on the same row): the periodic flush addresses it.
+    endingSessionId = null
+    startIntegrityTimer()
 
     resizeListener = () => {
       if (effectiveViewportWidth(window) < 1024) {
@@ -1141,6 +1247,8 @@ export function useInterviewSession(
     // Same choke point as `callEnd`: whatever the candidate said before pausing
     // must reach the server before the provider session that produced it stops
     // existing.
+    const integritySettled = settleIntegrity(dbSessionId)
+    if (integritySettled) await integritySettled
     await drainUtterances()
 
     try {
@@ -1160,6 +1268,10 @@ export function useInterviewSession(
     // Inside callEnd, not at its call sites. Both callers would have to
     // remember, and the one most likely to be added next is a new exit path
     // written under time pressure. A choke point cannot be forgotten.
+    // Integrity events belong to the row that is ending: flush them before
+    // `/end`, and before any caller moves the cursor.
+    const integritySettled = settleIntegrity(dbSessionId)
+    if (integritySettled) await integritySettled
     await drainUtterances()
     // Best effort, only when lines are waiting, under the drain's ceiling: a stuck network must not hold /end.
     if (utteranceOutbox.size > 0) await withCeiling(flushUtterances(), UTTERANCE_DRAIN_CEILING_MS)

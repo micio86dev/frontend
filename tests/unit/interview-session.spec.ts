@@ -471,9 +471,10 @@ describe('InterviewSession — the written question', () => {
   it('pages a long utterance and restarts it when the avatar says it again', async () => {
     const { wrapper } = await mountLive()
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    const long = Array.from({ length: 6 }, (_, i) => `Welcome sentence ${i + 1}, said slowly.`)
-      .join(' ')
-      .repeat(2)
+    const long = Array.from(
+      { length: 12 },
+      (_, i) => `Welcome sentence ${i + 1}, said slowly.`
+    ).join(' ')
     const pages = captionPages(long)
 
     try {
