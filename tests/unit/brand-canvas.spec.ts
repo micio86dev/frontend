@@ -272,6 +272,28 @@ describe('BrandCanvas — bare mode, for the interview that brings its own surfa
 
     expect(wrapper.get('header').find('[data-testid="chrome"]').exists()).toBe(true)
   })
+
+  it('lets the header-end wrapper span the rest of the row, right-aligned', () => {
+    const wrapper = mount(BrandCanvas, {
+      props: { testId: 'a-page', headingId: 'a-heading' },
+      slots: { default: '<p>x</p>', 'header-end': '<span data-testid="chrome">2 / 5</span>' },
+      global: { mocks: { $t: tMock } },
+    })
+
+    const wrapperClasses = wrapper.get('[data-testid="chrome"]').element.parentElement!.classList
+
+    for (const cls of [
+      'ml-auto',
+      'flex',
+      'min-w-0',
+      'flex-1',
+      'items-center',
+      'justify-end',
+      'gap-3',
+    ]) {
+      expect(wrapperClasses).toContain(cls)
+    }
+  })
 })
 
 describe("BrandCanvas — the organization's mark, or ours, but never nothing", () => {
@@ -328,6 +350,58 @@ describe("BrandCanvas — the organization's mark, or ours, but never nothing", 
     await flushPromises()
 
     expect(wrapper.find('[data-testid="brand-canvas-org"]').exists()).toBe(false)
+  })
+
+  describe('the plate opt-out (live-interview-call-chrome, D13)', () => {
+    const PRIMED = {
+      primary_color: '#771aaf',
+      logo_url: 'https://cdn.test/acme.png',
+      name: null,
+    }
+
+    it('renders the logo bare, with no plate element, when plate is false', async () => {
+      useCandidateBranding().prime(PRIMED)
+      const wrapper = mountCanvas({ plate: false })
+      await flushPromises()
+
+      const logo = wrapper.get('[data-testid="brand-canvas-logo"]')
+
+      expect(logo.attributes('src')).toBe('https://cdn.test/acme.png')
+      expect(logo.attributes('alt')).toBe('')
+      // The image sits straight in the header: no wrapper carries the white plate.
+      expect(logo.element.parentElement?.tagName).toBe('HEADER')
+      expect(wrapper.find('header span.bg-card').exists()).toBe(false)
+    })
+
+    it('keeps the plate by default and when plate is explicitly true', async () => {
+      useCandidateBranding().prime(PRIMED)
+
+      for (const props of [{}, { plate: true }]) {
+        const wrapper = mountCanvas(props)
+        await flushPromises()
+
+        const logo = wrapper.get('[data-testid="brand-canvas-logo"]')
+        expect(logo.element.parentElement?.className).toContain('bg-card')
+      }
+    })
+
+    it('does not compensate a bare logo that shares the canvas colour', async () => {
+      useCandidateBranding().prime({ ...PRIMED, primary_color: '#ffd400' })
+      const wrapper = mountCanvas({ plate: false })
+      await flushPromises()
+
+      const logo = wrapper.get('[data-testid="brand-canvas-logo"]')
+
+      // Shown as supplied: no filter, background or outline invented around it.
+      expect(logo.classes().join(' ')).not.toMatch(/bg-|filter|drop-shadow|outline|ring|border/)
+    })
+
+    it('leaves the BEAI wordmark alone when there is no logo', async () => {
+      const wrapper = mountCanvas({ plate: false })
+      await flushPromises()
+
+      expect(wrapper.get('header').text()).toContain('BEAI')
+    })
   })
 })
 

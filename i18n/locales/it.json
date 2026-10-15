@@ -59,6 +59,14 @@
     "call": {
       "question_region": "Domanda corrente",
       "panel_label": "Avanzamento del colloquio",
+      "header": {
+        "title": "Colloquio di assessment",
+        "title_with_subject": "Colloquio di assessment · {subject}",
+        "potential": "Potenziale",
+        "elapsed_sr": "Tempo trascorso",
+        "captions": "Sottotitoli",
+        "microphone": "Microfono"
+      },
       "progress": "Domanda {n} di {total}",
       "duration_label": "Durata",
       "duration_value": "{elapsed} / {total}",
@@ -72,6 +80,7 @@
       "self_view_off": "Fotocamera non disponibile",
       "network_pending": "La connessione è instabile. Le tue risposte vengono inviate appena torna disponibile.",
       "exit": {
+        "short": "Esci",
         "label": "Esci, riprenderai dopo",
         "title": "Vuoi uscire dal colloquio?",
         "body": "Il colloquio verrà sospeso e non viene registrato nulla. Potrai riprenderlo dalla stessa domanda riaprendo il link di invito da questo browser, entro le {time}.",
