@@ -2817,8 +2817,8 @@ export interface paths {
          *     interview: past a handful of predefined questions the adaptivity that is
          *     the product has nothing left to do.
          *
-         *     The `interview_intro_phrase` map replaces the stored one and `null` clears it; each change writes
-         *     an audit row. The whole PATCH runs in one transaction, so a failed audit row applies nothing. The
+         *     The `interview_intro_phrase` and `interview_closing_phrase` maps replace the stored one and `null`
+         *     clears it; each change writes an audit row. The whole PATCH runs in one transaction, so a failed audit row applies nothing. The
          *     caps stay unaudited, as before.
          */
         patch: operations["superadmin.updateSettings"];
@@ -4250,6 +4250,15 @@ export interface components {
              *     `en` is required, `it` optional, each at most 3600 characters.
              */
             interview_intro_phrase?: {
+                en: string;
+                it?: string;
+            } | null;
+            /**
+             * @description The closing greeting per locale, spoken on the LAST competency right before the final phrase.
+             *     A map REPLACES the stored one and `null` clears it; `en` is required, `it` optional, each at
+             *     most 3600 characters and free of the end phrase.
+             */
+            interview_closing_phrase?: {
                 en: string;
                 it?: string;
             } | null;
@@ -10918,6 +10927,10 @@ export interface operations {
                                 it?: string;
                                 en?: string;
                             } | null;
+                            interview_closing_phrase: {
+                                it?: string;
+                                en?: string;
+                            } | null;
                         };
                     };
                 };
@@ -10950,6 +10963,10 @@ export interface operations {
                                 potential: number;
                             };
                             interview_intro_phrase: {
+                                it?: string;
+                                en?: string;
+                            } | null;
+                            interview_closing_phrase: {
                                 it?: string;
                                 en?: string;
                             } | null;
