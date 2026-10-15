@@ -862,10 +862,11 @@ export function useInterviewSession(
 
   /**
    * Send every unsent integrity event to `sessionId` over the normal
-   * transport and wait for it, so the events are on the server before an
-   * `/end` or `/suspend` that follows. The buffer is acknowledged on dispatch
-   * (drained exactly once, so a concurrent flush cannot resend them); if the
-   * request fails, the same batch falls back to the keepalive transport.
+   * transport and wait for it (the end/suspend callers cap that wait), so the
+   * events normally land before the `/end` or `/suspend` that follows. The
+   * buffer is acknowledged on dispatch (drained exactly once, so a concurrent
+   * flush cannot resend them); if the request fails, the same batch falls back
+   * to the keepalive transport, best effort, which may land after `/end`.
    */
   async function flushIntegrity(sessionId: number | null) {
     const pending = options.getPendingIntegrityEvents?.() ?? []
