@@ -131,6 +131,7 @@
             v-if="live"
             ref="callQuestion"
             :text="currentCaption"
+            :utterance-key="captionCount"
             :speaker-name="interviewerName"
             :visible="captionsEnabled"
           />
@@ -796,6 +797,8 @@ const preInterviewStep = computed(() => {
 const hasRunACompetency = computed(() => (session.endedCompetencies.value ?? 0) > 0)
 
 const currentCaption = ref('')
+/** Counts avatar utterances, so the same caption said twice restarts its paging. */
+const captionCount = ref(0)
 
 // The target of the three terminal-state support links: the configured support
 // URL (https: or mailto: only), else the shipped mailbox.
@@ -986,6 +989,7 @@ watch(
 
 function onTranscript(entry: { text: string }): void {
   currentCaption.value = entry.text
+  captionCount.value++
 }
 
 /**

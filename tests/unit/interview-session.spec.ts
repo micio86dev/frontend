@@ -15,6 +15,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { INTERVIEW_CLOSING_GRACE_MS } from '~/app/utils/interview-budget'
+import { captionPages, captionPageMs } from '~/app/utils/caption-pages'
 import { mount, flushPromises } from '@vue/test-utils'
 import {
   computed,
@@ -465,6 +466,30 @@ describe('InterviewSession — the written question', () => {
     providers[0]!._emit('transcript', { role: 'avatar', text: 'A follow-up', ts: 2 })
     await flushPromises()
     expect(caption(wrapper)).toBe('A follow-up')
+  })
+
+  it('pages a long utterance and restarts it when the avatar says it again', async () => {
+    const { wrapper } = await mountLive()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const long = Array.from({ length: 6 }, (_, i) => `Welcome sentence ${i + 1}, said slowly.`)
+      .join(' ')
+      .repeat(2)
+    const pages = captionPages(long)
+
+    try {
+      providers[0]!._emit('transcript', { role: 'avatar', text: long, ts: 1 })
+      await flushPromises()
+      expect(caption(wrapper)).toBe(pages[0])
+
+      await vi.advanceTimersByTimeAsync(captionPageMs(pages[0]!))
+      expect(caption(wrapper)).toBe(pages[1])
+
+      providers[0]!._emit('transcript', { role: 'avatar', text: long, ts: 2 })
+      await flushPromises()
+      expect(caption(wrapper)).toBe(pages[0])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("never shows the candidate's words, but still posts them as the candidate's utterance", async () => {

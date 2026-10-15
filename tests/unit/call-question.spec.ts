@@ -20,6 +20,7 @@
 import { afterEach, describe, it, expect, vi } from 'vitest'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import CallQuestion from '~/app/components/molecules/CallQuestion.vue'
+import { captionPages, captionPageMs } from '~/app/utils/caption-pages'
 import en from '../../i18n/locales/en.json'
 
 function resolveEn(key: string): string {
@@ -105,6 +106,94 @@ describe('CallQuestion — what it shows', () => {
     await wrapper.setProps({ text: '' })
 
     expect(region(wrapper).text()).toBe(HINT)
+  })
+})
+
+describe('CallQuestion — a long utterance is paged', () => {
+  // Distinct sentences, so every page differs and a wrong page is visible.
+  const LONG = Array.from(
+    { length: 8 },
+    (_, i) => `Sentence number ${i + 1} of the welcome, said by the interviewer today.`
+  ).join(' ')
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('shows the first page, then the next ones at the speech pace, and keeps the last', async () => {
+    vi.useFakeTimers()
+    const pages = captionPages(LONG)
+    const wrapper = mountBand(LONG)
+
+    expect(pages.length).toBeGreaterThan(2)
+    expect(shown(wrapper)).toBe(pages[0])
+
+    for (let i = 1; i < pages.length; i++) {
+      await vi.advanceTimersByTimeAsync(captionPageMs(pages[i - 1]!))
+      expect(shown(wrapper)).toBe(pages[i])
+    }
+
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(shown(wrapper)).toBe(pages.at(-1))
+  })
+
+  it('starts again from the first page of a new utterance', async () => {
+    vi.useFakeTimers()
+    const wrapper = mountBand(LONG)
+
+    await vi.advanceTimersByTimeAsync(captionPageMs(captionPages(LONG)[0]!))
+    const other = LONG.replaceAll('welcome', 'closing')
+    await wrapper.setProps({ text: other })
+    expect(shown(wrapper)).toBe(captionPages(other)[0])
+
+    await wrapper.setProps({ text: 'A follow-up' })
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(shown(wrapper)).toBe('A follow-up')
+  })
+
+  it('starts again from the first page when the same utterance is said again', async () => {
+    vi.useFakeTimers()
+    const pages = captionPages(LONG)
+    const wrapper = mountBand(LONG, { utteranceKey: 1 })
+
+    await vi.advanceTimersByTimeAsync(captionPageMs(pages[0]!))
+    expect(shown(wrapper)).toBe(pages[1])
+
+    await wrapper.setProps({ utteranceKey: 2 })
+
+    expect(shown(wrapper)).toBe(pages[0])
+    expect(vi.getTimerCount()).toBe(1)
+    await vi.advanceTimersByTimeAsync(captionPageMs(pages[0]!))
+    expect(shown(wrapper)).toBe(pages[1])
+  })
+
+  it('leaves no page timer behind once unmounted', () => {
+    vi.useFakeTimers()
+    const wrapper = mountBand(LONG)
+
+    expect(vi.getTimerCount()).toBe(1)
+    wrapper.unmount()
+    mounted.splice(mounted.indexOf(wrapper), 1)
+
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('shows the page being said when captions are turned back on', async () => {
+    vi.useFakeTimers()
+    const pages = captionPages(LONG)
+    const wrapper = mountBand(LONG, { visible: false })
+
+    await vi.advanceTimersByTimeAsync(captionPageMs(pages[0]!))
+    await wrapper.setProps({ visible: true })
+
+    expect(shown(wrapper)).toBe(pages[1])
+  })
+
+  it('writes the whole utterance at once while captions are off', () => {
+    const wrapper = mountBand(LONG, { visible: false })
+
+    expect(shown(wrapper)).toBe(LONG)
   })
 })
 
