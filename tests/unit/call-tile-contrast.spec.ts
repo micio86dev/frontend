@@ -89,7 +89,7 @@ describe.each(MATRIX)('speaking ring contrast — %s', (_label, brand) => {
   })
 })
 
-describe('the ring is drawn from the two ring tokens only', () => {
+describe('the ring is drawn from the two ring tokens plus the on-canvas hairline', () => {
   const BRAND_TOKENS: readonly string[] = [
     ...BRAND_COLOR_TOKENS,
     ...BRAND_DERIVED_TOKENS,
@@ -105,11 +105,15 @@ describe('the ring is drawn from the two ring tokens only', () => {
     expect(CSS).not.toMatch(/--color-speaking-ring:\s*var\(/)
   })
 
-  it('the component references only the two ring tokens, never a brand variable', () => {
+  it('the component references only the ring tokens and the on-canvas hairline, never a brand variable', () => {
     const source = componentSource()
     const referenced = new Set([...source.matchAll(/var\((--[a-z0-9-]+)\)/g)].map((m) => m[1]))
 
-    expect([...referenced].sort()).toEqual(['--color-avatar-bg', '--color-speaking-ring'])
+    expect([...referenced].sort()).toEqual([
+      '--color-avatar-bg',
+      '--color-on-canvas',
+      '--color-speaking-ring',
+    ])
     // No other brand variable, and the halo follows the ring colour (not a fixed white).
     for (const token of BRAND_TOKENS.filter((t) => t !== '--color-speaking-ring')) {
       expect(source).not.toContain(token)

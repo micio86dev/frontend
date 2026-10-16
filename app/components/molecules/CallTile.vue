@@ -46,11 +46,14 @@
  * is speaking and passes the already-localized `name` and `speakingLabel`.
  *
  * The ring is a box-shadow composite, outside in: 2px avatar-bg, 3px
- * speaking-ring, 2px avatar-bg, then a decorative 32px halo of the ring colour
- * at 30%. `--color-speaking-ring` is the organization primary, lifted to 3:1
+ * speaking-ring, 2px avatar-bg, a 1px on-canvas hairline, then a decorative
+ * 32px halo of the ring colour at 30%. `--color-speaking-ring` is the organization primary, lifted to 3:1
  * against avatar-bg by useBrandTheme (DESIGN.md §3.1), and it sits between two
  * dark bands, so its contrast does not depend on the video behind it.
- * Resting, the tile keeps only the 2px dark frame.
+ * Resting, the tile keeps the 2px dark frame and the hairline. The hairline
+ * (on-canvas at 28%) keeps the tile edge visible when the canvas is as dark
+ * as the tile (the default canvas, the Dark preset); on a light canvas the
+ * dark tile already contrasts and it is harmless.
  *
  * Motion: a 150ms box-shadow transition under `motion-safe` only (DESIGN.md
  * §10), so `prefers-reduced-motion: reduce` switches the ring instantly. It is
@@ -72,8 +75,8 @@ withDefaults(
 
 const TILE_CLASSES = [
   'relative overflow-hidden rounded-surface bg-avatar-bg',
-  'shadow-[0_0_0_2px_var(--color-avatar-bg)]',
-  'data-[speaking=true]:shadow-[0_0_0_2px_var(--color-avatar-bg),0_0_0_5px_var(--color-speaking-ring),0_0_0_7px_var(--color-avatar-bg),0_0_32px_color-mix(in_srgb,var(--color-speaking-ring)_30%,transparent)]',
+  'shadow-[0_0_0_2px_var(--color-avatar-bg),0_0_0_3px_color-mix(in_oklab,var(--color-on-canvas)_28%,transparent)]',
+  'data-[speaking=true]:shadow-[0_0_0_2px_var(--color-avatar-bg),0_0_0_5px_var(--color-speaking-ring),0_0_0_7px_var(--color-avatar-bg),0_0_0_8px_color-mix(in_oklab,var(--color-on-canvas)_28%,transparent),0_0_32px_color-mix(in_srgb,var(--color-speaking-ring)_30%,transparent)]',
   'motion-safe:transition-shadow motion-safe:duration-150 motion-safe:ease-out',
 ]
 </script>

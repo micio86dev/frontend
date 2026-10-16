@@ -19,8 +19,10 @@ function mountTile(props: Record<string, unknown> = {}, slots: Record<string, st
   })
 }
 
-const RING_SHADOW =
-  'data-[speaking=true]:shadow-[0_0_0_2px_var(--color-avatar-bg),0_0_0_5px_var(--color-speaking-ring),0_0_0_7px_var(--color-avatar-bg),0_0_32px_color-mix(in_srgb,var(--color-speaking-ring)_30%,transparent)]'
+const RING_SHADOW = `data-[speaking=true]:shadow-[0_0_0_2px_var(--color-avatar-bg),0_0_0_5px_var(--color-speaking-ring),0_0_0_7px_var(--color-avatar-bg),0_0_0_8px_color-mix(in_oklab,var(--color-on-canvas)_28%,transparent),0_0_32px_color-mix(in_srgb,var(--color-speaking-ring)_30%,transparent)]`
+
+/** The 1px on-canvas hairline outside the outermost keyline, so the edge reads on any canvas. */
+const HAIRLINE = '0_0_0_%spx_color-mix(in_oklab,var(--color-on-canvas)_28%,transparent)'
 
 describe('CallTile resting state', () => {
   it('is a dark frame with a 2px avatar-bg resting ring and renders its media slot', () => {
@@ -33,7 +35,7 @@ describe('CallTile resting state', () => {
         'overflow-hidden',
         'rounded-surface',
         'bg-avatar-bg',
-        'shadow-[0_0_0_2px_var(--color-avatar-bg)]',
+        'shadow-[0_0_0_2px_var(--color-avatar-bg),0_0_0_3px_color-mix(in_oklab,var(--color-on-canvas)_28%,transparent)]',
       ])
     )
     expect(wrapper.find('[data-testid="media"]').exists()).toBe(true)
@@ -45,6 +47,17 @@ describe('CallTile resting state', () => {
     expect(wrapper.attributes('data-speaking')).toBe('false')
     // The ring composite exists in the class list, but only behind the variant.
     expect(wrapper.classes()).toContain(RING_SHADOW)
+  })
+
+  it('draws a 1px on-canvas hairline outside the 2px keyline, so the edge shows on any canvas', () => {
+    const shadow = mountTile()
+      .classes()
+      .find((c) => c.startsWith('shadow-['))
+
+    expect(shadow).toContain(`,${HAIRLINE.replace('%s', '3')}`)
+    expect(shadow!.indexOf('2px_var(--color-avatar-bg)')).toBeLessThan(
+      shadow!.indexOf('3px_color-mix')
+    )
   })
 
   it('shows the name chip with the name and no microphone icon or hidden text', () => {
@@ -66,6 +79,14 @@ describe('CallTile speaking state', () => {
     expect(wrapper.classes()).toContain(RING_SHADOW)
   })
 
+  it('keeps the hairline outside the outer keyline and before the halo while speaking', () => {
+    const shadow = mountTile({ speaking: true })
+      .classes()
+      .find((c) => c.startsWith('data-[speaking=true]:shadow-['))!
+
+    expect(shadow).toContain(`7px_var(--color-avatar-bg),${HAIRLINE.replace('%s', '8')},0_0_32px`)
+  })
+
   it('draws the ring from avatar-bg and speaking-ring only, never a brand token', () => {
     const ring = mountTile({ speaking: true })
       .classes()
@@ -74,7 +95,7 @@ describe('CallTile speaking state', () => {
 
     expect(ring).toContain('--color-speaking-ring')
     expect(ring).toContain('--color-avatar-bg')
-    expect(ring).not.toMatch(/primary|brand|canvas|accent|lavender|on-primary/)
+    expect(ring).not.toMatch(/primary|brand|accent|lavender|on-primary/)
   })
 
   it('shows the microphone icon and visually hidden text on the chip, only when speaking', () => {
