@@ -106,6 +106,10 @@
       "candidate_speaking": "You are speaking",
       "self_view": "Your camera",
       "self_view_off": "Camera unavailable",
+      "mic_muted": {
+        "text": "Microphone off: the interviewer can't hear you.",
+        "action": "Unmute"
+      },
       "network_pending": "Connection is unstable. Your answers are sent as soon as it returns.",
       "exit": {
         "short": "Exit",

@@ -106,6 +106,10 @@
       "candidate_speaking": "Stai parlando",
       "self_view": "La tua fotocamera",
       "self_view_off": "Fotocamera non disponibile",
+      "mic_muted": {
+        "text": "Microfono spento: l'intervistatore non ti sente.",
+        "action": "Riattiva"
+      },
       "network_pending": "La connessione è instabile. Le tue risposte vengono inviate appena torna disponibile.",
       "exit": {
         "short": "Esci",

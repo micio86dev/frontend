@@ -59,6 +59,7 @@ describe('the call screen: the components under guard', () => {
         'components/molecules/CallAnswerTimer.vue',
         'components/molecules/CallExitDialog.vue',
         'components/molecules/CallHelpLink.vue',
+        'components/molecules/CallMicMutedBadge.vue',
         'components/molecules/CallQuestion.vue',
         'components/molecules/CallSelfView.client.vue',
         'components/molecules/CallStoryboard.vue',

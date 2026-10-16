@@ -202,6 +202,36 @@ describe('CallHeader — the toggles', () => {
   })
 })
 
+describe('CallHeader — state colours', () => {
+  it('muted microphone: red border and text on a light red fill, with a red dot before the label', () => {
+    const button = mic(mountHeader({ micMuted: true }))
+
+    expect(button.classes()).toEqual(
+      expect.arrayContaining(['border-error-dark', 'text-error-dark', 'bg-error-light'])
+    )
+    const dot = button.get('[data-slot="mic-muted-dot"]')
+    expect(dot.attributes('aria-hidden')).toBe('true')
+    expect(dot.classes()).toContain('bg-error-dark')
+  })
+
+  it('live microphone: neutral card, no red and no dot', () => {
+    const button = mic(mountHeader({ micMuted: false }))
+
+    expect(button.classes()).toContain('bg-card')
+    expect(button.classes().filter((c) => /error/.test(c))).toEqual([])
+    expect(button.find('[data-slot="mic-muted-dot"]').exists()).toBe(false)
+  })
+
+  it('captions on: brand tint with an ink border; off: neutral card that tints on hover', () => {
+    const on = captions(mountHeader({ captionsEnabled: true })).classes()
+    const off = captions(mountHeader({ captionsEnabled: false })).classes()
+
+    expect(on).toEqual(expect.arrayContaining(['bg-primary-surface', 'border-primary-ink']))
+    expect(off).toContain('bg-card')
+    expect(off).toContain('hover:bg-primary-surface')
+  })
+})
+
 describe('CallHeader — copy', () => {
   const KEYS = [
     'interview.call.header.title',

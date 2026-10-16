@@ -22,14 +22,21 @@
 
     <div class="flex shrink-0 items-center gap-2">
       <!--
-        White controls drawn from the CARD tokens, never `bg-background` / `text-foreground`:
-        on the brand canvas only the card pair keeps its measured contrast on any colour.
+        Controls drawn from the CARD tokens, never `bg-background` / `text-foreground`: on the
+        brand canvas only the card pair keeps its measured contrast on any colour. State colours:
+        captions on = brand tint + ink border; microphone muted = error-dark on error-light with
+        a dot (colour is never the only cue: the icon swaps and `aria-pressed` states it).
       -->
       <Button
         data-testid="call-header-captions"
         variant="outline"
         :aria-pressed="captionsEnabled ? 'true' : 'false'"
-        class="h-(--spacing-control) gap-2 bg-card px-4 text-card-foreground"
+        class="h-(--spacing-control) gap-2 px-4 transition-colors"
+        :class="
+          captionsEnabled
+            ? 'border-primary-ink bg-primary-surface text-on-primary-surface hover:bg-primary-surface/70'
+            : 'bg-card text-card-foreground hover:bg-primary-surface hover:text-on-primary-surface'
+        "
         @click="emit('toggle-captions')"
       >
         <CaptionsIcon v-if="captionsEnabled" data-icon="captions" aria-hidden="true" />
@@ -46,11 +53,22 @@
         variant="outline"
         :aria-pressed="micMuted ? 'false' : 'true'"
         :aria-disabled="micDisabled ? 'true' : undefined"
-        class="h-(--spacing-control) gap-2 bg-card px-4 text-card-foreground aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
+        class="h-(--spacing-control) gap-2 px-4 transition-colors aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
+        :class="
+          micMuted
+            ? 'border-error-dark bg-error-light text-error-dark hover:bg-[color-mix(in_oklab,var(--color-error)_22%,white)] hover:text-error-dark'
+            : 'bg-card text-card-foreground hover:bg-primary-surface hover:text-on-primary-surface'
+        "
         @click="onToggleMic"
       >
         <MicOffIcon v-if="micMuted" data-icon="mic-off" aria-hidden="true" />
         <MicIcon v-else data-icon="mic" aria-hidden="true" />
+        <span
+          v-if="micMuted"
+          data-slot="mic-muted-dot"
+          aria-hidden="true"
+          class="size-2 shrink-0 rounded-full bg-error-dark"
+        />
         {{ $t('interview.call.header.microphone') }}
       </Button>
 

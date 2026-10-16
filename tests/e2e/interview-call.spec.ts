@@ -623,6 +623,24 @@ test.describe('the call stage (the default live interview)', () => {
     expect(await bandFocusCount()).toBe(1)
   })
 
+  test('a muted microphone shows the badge, and its Unmute action opens the microphone and removes it', async ({
+    page,
+  }) => {
+    await mockCallApi(page)
+    await goLive(page)
+    const mic = page.getByTestId('call-header-mic')
+    const badge = page.getByTestId('call-mic-muted-badge')
+    await expect(badge).toHaveCount(0)
+
+    await mic.click()
+    await expect(badge).toBeVisible()
+    await expect(badge).toContainText('interviewer')
+
+    await page.getByTestId('call-mic-muted-unmute').click()
+    await expect(badge).toHaveCount(0)
+    await expect(mic).toHaveAttribute('aria-pressed', 'true')
+  })
+
   test('a muted microphone stays muted across a competency boundary, and an open one stays open', async ({
     page,
   }) => {

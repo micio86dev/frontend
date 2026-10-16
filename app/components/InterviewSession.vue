@@ -127,6 +127,16 @@
             layer, so the keyed players are never re-parented. Rendered only while live; when the
             candidate turns captions off it stays mounted as the screen-reader region.
           -->
+          <!--
+            The muted-microphone badge: top of the tile, only while live. Hidden while a handover
+            holds the microphone shut (the candidate did not mute and cannot unmute then).
+          -->
+          <CallMicMutedBadge
+            v-if="live"
+            class="absolute inset-x-3 top-3 z-10"
+            :visible="session.micMuted.value && !session.handoverInFlight.value"
+            @unmute="session.setMicMuted(false)"
+          />
           <CallQuestion
             v-if="live"
             ref="callQuestion"
@@ -587,6 +597,7 @@ import { INTERVIEW_CLOSING_GRACE_MS } from '~/app/utils/interview-budget'
 import CallSelfView from '~/components/molecules/CallSelfView.client.vue'
 import CallTile from '~/components/molecules/CallTile.vue'
 import CallHeader from '~/components/organisms/CallHeader.vue'
+import CallMicMutedBadge from '~/components/molecules/CallMicMutedBadge.vue'
 import CallPanel from '~/components/organisms/CallPanel.vue'
 import { useInterviewOutline } from '~/composables/useInterviewOutline'
 import { useAnswerTimer } from '~/composables/useAnswerTimer'
