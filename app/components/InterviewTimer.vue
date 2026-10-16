@@ -1,8 +1,11 @@
 <template>
   <div class="flex items-center gap-2">
-    <span class="text-sm text-muted-foreground" :class="figure ? 'sr-only' : ''">{{
-      label ?? $t('interview.live.timer_label')
-    }}</span>
+    <span
+      data-testid="interview-timer-caption"
+      class="text-sm text-muted-foreground"
+      :class="figure ? 'sr-only' : ''"
+      >{{ label ?? $t('interview.live.timer_label') }}</span
+    >
     <!--
       Card tokens: the timer sits on the white status pill in the canvas header.
       The last ten seconds turn `--color-recording` (#dc2626, 4.83:1 on white);

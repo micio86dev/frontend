@@ -67,11 +67,11 @@ describe('InterviewTimer.vue', () => {
       })
 
     const big = mountTimer(true)
-    expect(big.get('span').classes()).toContain('sr-only')
+    expect(big.get('[data-testid="interview-timer-caption"]').classes()).toContain('sr-only')
     expect(big.get('time').classes()).toContain('text-4xl')
 
     const plain = mountTimer(false)
-    expect(plain.get('span').classes()).not.toContain('sr-only')
+    expect(plain.get('[data-testid="interview-timer-caption"]').classes()).not.toContain('sr-only')
     expect(plain.get('time').classes()).not.toContain('text-4xl')
   })
 
