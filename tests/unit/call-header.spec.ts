@@ -5,7 +5,7 @@
  * What is pinned here: the DOM and tab order (title, clock, Sottotitoli, Microfono,
  * Esci), exactly three controls and no Camera / "Ripeti domanda" / Pausa, a clock
  * with an accessible name that is NOT a live region, `aria-pressed` toggles with a
- * constant visible label and a swapping icon, a microphone that is `aria-disabled`
+ * visible label that states the state and a swapping icon, a microphone that is `aria-disabled`
  * (still focusable) while an interview-owned mute is in force, 44 px targets and
  * it/en key parity.
  *
@@ -93,7 +93,7 @@ describe('CallHeader — composition', () => {
     const wrapper = mountHeader()
     const names = wrapper.findAll('button').map((b) => b.text())
 
-    expect(names).toEqual(['Sottotitoli', 'Microfono', 'Esci'])
+    expect(names).toEqual(['Sottotitoli attivi', 'Microfono attivo', 'Esci'])
     for (const forbidden of [/camera/i, /fotocamera/i, /ripeti/i, /repeat/i, /pausa/i, /pause/i]) {
       expect(wrapper.text()).not.toMatch(forbidden)
     }
@@ -103,8 +103,8 @@ describe('CallHeader — composition', () => {
     const wrapper = mountHeader({}, en)
 
     expect(wrapper.findAll('button').map((b) => b.text())).toEqual([
-      'Captions',
-      'Microphone',
+      'Captions on',
+      'Microphone on',
       'Esci',
     ])
   })
@@ -135,14 +135,14 @@ describe('CallHeader — the clock', () => {
 })
 
 describe('CallHeader — the toggles', () => {
-  it('reports captions pressed when on and unpressed when off, with a constant label', () => {
+  it('reports captions pressed when on and unpressed when off, and the label states the state', () => {
     const on = captions(mountHeader({ captionsEnabled: true }))
     const off = captions(mountHeader({ captionsEnabled: false }))
 
     expect(on.attributes('aria-pressed')).toBe('true')
     expect(off.attributes('aria-pressed')).toBe('false')
-    expect(on.text()).toBe('Sottotitoli')
-    expect(off.text()).toBe('Sottotitoli')
+    expect(on.text()).toBe('Sottotitoli attivi')
+    expect(off.text()).toBe('Sottotitoli spenti')
   })
 
   it('swaps the captions icon with the state, so it is never colour alone', () => {
@@ -162,7 +162,8 @@ describe('CallHeader — the toggles', () => {
     expect(open.get('[data-icon]').attributes('data-icon')).toBe('mic')
     expect(muted.attributes('aria-pressed')).toBe('false')
     expect(muted.get('[data-icon]').attributes('data-icon')).toBe('mic-off')
-    expect(muted.text()).toBe('Microfono')
+    expect(open.text()).toBe('Microfono attivo')
+    expect(muted.text()).toBe('Microfono spento')
   })
 
   it('emits toggle-captions and toggle-mic on click', async () => {
@@ -214,21 +215,44 @@ describe('CallHeader — state colours', () => {
     expect(dot.classes()).toContain('bg-error-dark')
   })
 
-  it('live microphone: neutral card, no red and no dot', () => {
+  it('live microphone: primary accent with a green live dot, no red and no muted dot', () => {
     const button = mic(mountHeader({ micMuted: false }))
 
-    expect(button.classes()).toContain('bg-card')
+    expect(button.classes()).toEqual(
+      expect.arrayContaining([
+        'bg-primary-surface',
+        'border-primary-ink',
+        'text-on-primary-surface',
+      ])
+    )
     expect(button.classes().filter((c) => /error/.test(c))).toEqual([])
     expect(button.find('[data-slot="mic-muted-dot"]').exists()).toBe(false)
+    const dot = button.get('[data-slot="mic-live-dot"]')
+    expect(dot.attributes('aria-hidden')).toBe('true')
+    expect(dot.classes()).toContain('bg-success-dark')
   })
 
-  it('captions on: brand tint with an ink border; off: neutral card that tints on hover', () => {
+  it('muted microphone has no live dot', () => {
+    expect(
+      mic(mountHeader({ micMuted: true }))
+        .find('[data-slot="mic-live-dot"]')
+        .exists()
+    ).toBe(false)
+  })
+
+  it('captions on: primary accent with an ink border; off: neutral card that tints on hover', () => {
     const on = captions(mountHeader({ captionsEnabled: true })).classes()
     const off = captions(mountHeader({ captionsEnabled: false })).classes()
 
-    expect(on).toEqual(expect.arrayContaining(['bg-primary-surface', 'border-primary-ink']))
+    expect(on).toEqual(
+      expect.arrayContaining([
+        'bg-primary-surface',
+        'border-primary-ink',
+        'text-on-primary-surface',
+      ])
+    )
     expect(off).toContain('bg-card')
-    expect(off).toContain('hover:bg-primary-surface')
+    expect(off).toContain('hover:bg-primary-surface/40')
   })
 })
 
@@ -238,8 +262,10 @@ describe('CallHeader — copy', () => {
     'interview.call.header.title_with_subject',
     'interview.call.header.potential',
     'interview.call.header.elapsed_sr',
-    'interview.call.header.captions',
-    'interview.call.header.microphone',
+    'interview.call.header.captions_on',
+    'interview.call.header.captions_off',
+    'interview.call.header.microphone_on',
+    'interview.call.header.microphone_off',
     'interview.call.exit.short',
   ]
 

@@ -252,7 +252,7 @@ test.describe('the call stage (the default live interview)', () => {
     await expect(page.getByTestId('call-header-title')).toHaveText(
       'Assessment interview · Sales Manager'
     )
-    await expect(header.getByRole('button')).toHaveText(['Captions', 'Microphone', 'Exit'])
+    await expect(header.getByRole('button')).toHaveText(['Captions on', 'Microphone on', 'Exit'])
     await expect(page.getByTestId('call-header-clock').locator('time')).toHaveText(/^\d{2,}:\d{2}$/)
     await expect(header.getByRole('timer')).toHaveCount(0)
     await expect(page.getByRole('timer')).toHaveCount(1)

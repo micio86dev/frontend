@@ -65,8 +65,10 @@
         "title_with_subject": "Assessment interview · {subject}",
         "potential": "Potential",
         "elapsed_sr": "Elapsed time",
-        "captions": "Captions",
-        "microphone": "Microphone"
+        "captions_on": "Captions on",
+        "captions_off": "Captions off",
+        "microphone_on": "Microphone on",
+        "microphone_off": "Microphone off"
       },
       "answer": {
         "label": "Answer time",

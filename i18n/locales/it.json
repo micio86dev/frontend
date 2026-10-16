@@ -65,8 +65,10 @@
         "title_with_subject": "Colloquio di assessment · {subject}",
         "potential": "Potenziale",
         "elapsed_sr": "Tempo trascorso",
-        "captions": "Sottotitoli",
-        "microphone": "Microfono"
+        "captions_on": "Sottotitoli attivi",
+        "captions_off": "Sottotitoli spenti",
+        "microphone_on": "Microfono attivo",
+        "microphone_off": "Microfono spento"
       },
       "answer": {
         "label": "Tempo di risposta",

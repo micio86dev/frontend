@@ -23,9 +23,12 @@
     <div class="flex shrink-0 items-center gap-2">
       <!--
         Controls drawn from the CARD tokens, never `bg-background` / `text-foreground`: on the
-        brand canvas only the card pair keeps its measured contrast on any colour. State colours:
-        captions on = brand tint + ink border; microphone muted = error-dark on error-light with
-        a dot (colour is never the only cue: the icon swaps and `aria-pressed` states it).
+        brand canvas only the card pair (and the primary surface pair) keeps its measured contrast
+        on any colour. The organization's PRIMARY colour is the accent of ACTIVE states: captions
+        on and microphone on = primary surface + ink border (the live microphone adds a green
+        dot); captions off = neutral card; microphone muted = error-dark on error-light with a
+        red dot. Colour is never the only cue: the visible label states the state, the icon
+        swaps and `aria-pressed` repeats it.
       -->
       <Button
         data-testid="call-header-captions"
@@ -35,13 +38,19 @@
         :class="
           captionsEnabled
             ? 'border-primary-ink bg-primary-surface text-on-primary-surface hover:bg-primary-surface/70'
-            : 'bg-card text-card-foreground hover:bg-primary-surface hover:text-on-primary-surface'
+            : 'bg-card text-card-foreground hover:bg-primary-surface/40'
         "
         @click="emit('toggle-captions')"
       >
         <CaptionsIcon v-if="captionsEnabled" data-icon="captions" aria-hidden="true" />
         <CaptionsOffIcon v-else data-icon="captions-off" aria-hidden="true" />
-        {{ $t('interview.call.header.captions') }}
+        {{
+          $t(
+            captionsEnabled
+              ? 'interview.call.header.captions_on'
+              : 'interview.call.header.captions_off'
+          )
+        }}
       </Button>
 
       <!--
@@ -57,7 +66,7 @@
         :class="
           micMuted
             ? 'border-error-dark bg-error-light text-error-dark hover:bg-[color-mix(in_oklab,var(--color-error)_22%,white)] hover:text-error-dark'
-            : 'bg-card text-card-foreground hover:bg-primary-surface hover:text-on-primary-surface'
+            : 'border-primary-ink bg-primary-surface text-on-primary-surface hover:bg-primary-surface/70'
         "
         @click="onToggleMic"
       >
@@ -69,7 +78,19 @@
           aria-hidden="true"
           class="size-2 shrink-0 rounded-full bg-error-dark"
         />
-        {{ $t('interview.call.header.microphone') }}
+        <span
+          v-else
+          data-slot="mic-live-dot"
+          aria-hidden="true"
+          class="size-2 shrink-0 rounded-full bg-success-dark"
+        />
+        {{
+          $t(
+            micMuted
+              ? 'interview.call.header.microphone_off'
+              : 'interview.call.header.microphone_on'
+          )
+        }}
       </Button>
 
       <slot name="exit" />
