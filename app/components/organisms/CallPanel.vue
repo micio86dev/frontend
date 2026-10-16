@@ -13,7 +13,7 @@
     </p>
 
     <!--
-      Tempo di risposta: how long the current answer has been running, with the suggested-length
+      Answer time: how long the current answer has been running, with the suggested-length
       bar when a budget exists. Always present (the figure reads 00:00 until the interviewer has
       spoken); guidance only, it never ends an answer.
     -->
@@ -37,7 +37,7 @@
     </section>
 
     <!--
-      Percorso: where the candidate is in the interview. The sentence and bar state the server's
+      Path: where the candidate is in the interview. The sentence and bar state the server's
       total; the storyboard under them names the outline's competencies. A <p> label, not a
       heading, so the page's heading outline is unchanged.
     -->
@@ -68,7 +68,7 @@
     </section>
 
     <!--
-      Durata dell'intervista. The heading, the figure, the bar and the sentence appear only once
+      Interview duration. The heading, the figure, the bar and the sentence appear only once
       the SERVER has stated `interview_max_seconds`: the 300 s fallback seed of the countdown is
       never a maximum. The countdown itself is the interview's ONLY timeout enforcement (`tick` /
       `expired`), so it is never hidden: without a stated maximum the section shows that exact
@@ -138,8 +138,8 @@
  * CallPanel — the side panel of the candidate call screen
  * (candidate-interview-call-ui D7, D8; DESIGN.md §7.3).
  *
- * Titled "Intervista". Top to bottom: "Tempo di risposta" (the answer timer, its chip and the
- * suggested-length bar), the "Percorso" section ("Competenza 2 di 5", a thin
+ * Titled "Interview". Top to bottom: "Answer time" (the answer timer, its chip and the
+ * suggested-length bar), the "Path" section ("Competency 2 of 5", a thin
  * bar, and the named storyboard), how long it has taken against the stated maximum
  * ("03:12 / 25:00"), the interview countdown, then the help link. Exit lives in the call
  * header.
@@ -152,14 +152,14 @@
  *
  * Props:
  *   ended            — competencies ended so far; null before the first /end counts as 0.
- *   total            — the server's total; null or 0 hides progress and duration (the
+ *   total            — the server's total; null or 0 hides the progress sentence and bar (the
  *                      figure is not known until the first /end, and a bar "of nothing"
- *                      would be a lie). The panel itself, the counter, Exit and help
+ *                      would be a lie). The duration section depends on `maxSeconds` instead. The panel itself, the counter, Exit and help
  *                      are NEVER hidden (Exit is in the call header, so a candidate can leave
  *                      during the first question).
  *   elapsedSeconds   — from `useInterviewClock()`; owned by the caller.
  *   questionSeconds  — what the interview countdown starts from (the seconds LEFT in the whole interview).
- *                      Omitted: no countdown. It also feeds "Restano circa N minuti".
+ *                      Omitted: no countdown. It also feeds "About N minutes left".
  *                      The caller owns the remaining time (see InterviewTimer) and
  *                      re-keys this component's counter on a new competency session
  *                      (the countdown itself is the WHOLE interview's, so the key changes only
