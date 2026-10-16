@@ -8,7 +8,11 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import { matchesEndPhrase } from '~/app/utils/proctor-config'
-import { TavusProvider } from '~/app/providers/tavus'
+import {
+  TavusProvider,
+  AVATAR_UTTERANCE_PENDING_MS,
+  COMPLETION_SETTLE_MS,
+} from '~/app/providers/tavus'
 
 const LOCALES = {
   it: { endPhrase: 'Passiamo alla prossima domanda.', finalPhrase: 'Grazie per il tuo tempo.' },
@@ -113,9 +117,17 @@ describe('TavusProvider speaking the opening text', () => {
     expect(states).not.toContain('complete')
   })
 
-  it('completes when the spoken text does contain the final phrase', async () => {
-    const { states } = await run(`${IT_INTRO} ${LOCALES.it.finalPhrase}`)
+  it('completes, once the avatar has settled, when the spoken text does contain the final phrase', async () => {
+    vi.useFakeTimers()
+    try {
+      const { states } = await run(`${IT_INTRO} ${LOCALES.it.finalPhrase}`)
 
-    expect(states).toContain('complete')
+      expect(states).not.toContain('complete')
+      vi.advanceTimersByTime(AVATAR_UTTERANCE_PENDING_MS + COMPLETION_SETTLE_MS)
+
+      expect(states).toContain('complete')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

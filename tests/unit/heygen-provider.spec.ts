@@ -34,8 +34,9 @@
  *   - SSR path: when sdkLoader throws (mimics SSR guard), provider emits 'error'
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { HeyGenProvider } from '~/app/providers/heygen'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { HeyGenProvider, HEYGEN_SPEECH_PENDING_MS } from '~/app/providers/heygen'
+import { COMPLETION_SETTLE_MS, closingFallbackMs } from '~/app/utils/closing-completion'
 
 // ---- Mock SDK session factory ----
 // This pattern replaces vi.mock + dynamic-import complexities.
@@ -113,10 +114,15 @@ describe('HeyGenProvider', () => {
   let emittedErrors: unknown[]
 
   beforeEach(() => {
+    vi.useFakeTimers()
     mockSession = createMockSession()
     emittedStates = []
     emittedTranscripts = []
     emittedErrors = []
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   function makeProvider() {
@@ -268,8 +274,79 @@ describe('HeyGenProvider', () => {
     expect(emittedStates).not.toContain('complete')
 
     mockSession._emit('avatar.speak_ended', undefined)
+    expect(emittedStates).not.toContain('complete')
+
+    vi.advanceTimersByTime(COMPLETION_SETTLE_MS)
 
     expect(emittedStates).toContain('complete')
+  })
+
+  describe('a long closing is never cut off', () => {
+    const closing = { text: `Grazie di tutto. ${PHRASES.endPhrase}` }
+    const completes = () => emittedStates.filter((s) => s === 'complete').length
+
+    it('holds a transcription that arrives BEFORE speak_started', async () => {
+      const { provider } = makeProvider()
+      await provider.start(makeMountEl(), { dbSessionId: 1, ...PHRASES })
+
+      mockSession._emit('avatar.transcription', closing)
+      vi.advanceTimersByTime(HEYGEN_SPEECH_PENDING_MS - 1)
+      expect(completes()).toBe(0)
+
+      mockSession._emit('avatar.speak_started', undefined)
+      vi.advanceTimersByTime(HEYGEN_SPEECH_PENDING_MS + COMPLETION_SETTLE_MS)
+      expect(completes()).toBe(0)
+
+      mockSession._emit('avatar.speak_ended', undefined)
+      vi.advanceTimersByTime(COMPLETION_SETTLE_MS - 1)
+      expect(completes()).toBe(0)
+
+      vi.advanceTimersByTime(1)
+      expect(completes()).toBe(1)
+    })
+
+    it('a speak_ended between chunks followed by speak_started inside the window does not complete', async () => {
+      const { provider } = makeProvider()
+      await provider.start(makeMountEl(), { dbSessionId: 1, ...PHRASES })
+
+      mockSession._emit('avatar.speak_started', undefined)
+      mockSession._emit('avatar.transcription', closing)
+      mockSession._emit('avatar.speak_ended', undefined)
+      vi.advanceTimersByTime(COMPLETION_SETTLE_MS - 1)
+      mockSession._emit('avatar.speak_started', undefined)
+      vi.advanceTimersByTime(COMPLETION_SETTLE_MS * 2)
+      expect(completes()).toBe(0)
+
+      mockSession._emit('avatar.speak_ended', undefined)
+      vi.advanceTimersByTime(COMPLETION_SETTLE_MS)
+      expect(completes()).toBe(1)
+    })
+
+    it('falls back to base + estimated speech when speak_ended never arrives, and not earlier', async () => {
+      const { provider } = makeProvider()
+      await provider.start(makeMountEl(), { dbSessionId: 1, ...PHRASES })
+
+      mockSession._emit('avatar.speak_started', undefined)
+      mockSession._emit('avatar.transcription', closing)
+      vi.advanceTimersByTime(closingFallbackMs(closing.text) - 1)
+      expect(completes()).toBe(0)
+
+      vi.advanceTimersByTime(1)
+      expect(completes()).toBe(1)
+    })
+
+    it('stop() clears the timers, so no complete follows it', async () => {
+      const { provider } = makeProvider()
+      await provider.start(makeMountEl(), { dbSessionId: 1, ...PHRASES })
+
+      mockSession._emit('avatar.speak_started', undefined)
+      mockSession._emit('avatar.transcription', closing)
+      mockSession._emit('avatar.speak_ended', undefined)
+      await provider.stop()
+      vi.advanceTimersByTime(closingFallbackMs(closing.text) + COMPLETION_SETTLE_MS)
+
+      expect(completes()).toBe(0)
+    })
   })
 
   // ---- Disconnection ----
@@ -348,6 +425,7 @@ describe('HeyGenProvider', () => {
     await provider.start(el, { dbSessionId: 1, ...PHRASES })
 
     mockSession._emit('avatar.transcription', { text: PHRASES.endPhrase })
+    vi.advanceTimersByTime(HEYGEN_SPEECH_PENDING_MS + COMPLETION_SETTLE_MS)
 
     expect(emittedStates).toContain('complete')
   })
@@ -358,6 +436,7 @@ describe('HeyGenProvider', () => {
     await provider.start(el, { dbSessionId: 1, ...PHRASES })
 
     mockSession._emit('avatar.transcription', { text: PHRASES.finalPhrase })
+    vi.advanceTimersByTime(HEYGEN_SPEECH_PENDING_MS + COMPLETION_SETTLE_MS)
 
     expect(emittedStates).toContain('complete')
   })

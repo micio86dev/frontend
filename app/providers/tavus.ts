@@ -38,7 +38,14 @@ import {
   RESPOND_TEXT,
   type TavusBoundaryTicket,
 } from '~/app/utils/advance-interaction'
+import {
+  COMPLETION_FALLBACK_MS,
+  COMPLETION_SETTLE_MS,
+  closingFallbackMs,
+} from '~/app/utils/closing-completion'
 import { matchesEndPhrase } from '~/app/utils/proctor-config'
+
+export { COMPLETION_FALLBACK_MS, COMPLETION_SETTLE_MS }
 
 /** The slice of Daily's call object this provider uses. */
 interface DailyCallObject {
@@ -54,15 +61,6 @@ interface DailyCallObject {
 
 /** How long the avatar has to answer a boundary steering (N5). */
 export const STEERING_ACK_TIMEOUT_MS = 10_000
-
-/**
- * How long a heard end phrase waits for the avatar's `stopped_speaking` before
- * the question completes anyway. The safety net against a missing event, so a
- * lost event costs the candidate this much silence and never a hung interview.
- * UNMEASURED: the window is an estimate, not a bound on closing-sentence length.
- * Confirm it on a live Tavus run before relying on it.
- */
-export const COMPLETION_FALLBACK_MS = 12_000
 
 /**
  * Continuous avatar silence required before `whenAvatarSilent` resolves. Rides out
@@ -105,6 +103,8 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
   /** An end phrase was heard while the avatar was still speaking it. */
   private endPhrasePending = false
   private completionTimer: ReturnType<typeof setTimeout> | null = null
+  /** Armed while a held completion sees the avatar silent; any speech cancels it. */
+  private completionSettleTimer: ReturnType<typeof setTimeout> | null = null
   /** An avatar utterance arrived and its audio has not started yet. */
   private utterancePending = false
   private utteranceTimer: ReturnType<typeof setTimeout> | null = null
@@ -261,8 +261,7 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
     // Path 1 — the tool call. Precise, and never observed to fire.
     // Same rule as the spoken phrase: the closing sentence has to finish first.
     if (data.type === 'conversation.tool_call' && data.name === 'end_interview') {
-      if (this.replicaSpeaking) this.deferCompletion()
-      else this.emitState('complete')
+      this.deferCompletion('')
 
       return
     }
@@ -280,10 +279,6 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
       this.replicaSpeaking = false
       this.clearUtterancePending()
       this.reevaluateSilence()
-
-      if (this.endPhrasePending) {
-        this.finishCompletion()
-      }
 
       return
     }
@@ -349,21 +344,32 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
     // Only the AVATAR's speech ends the interview. A candidate who reads the
     // closing line aloud — or is simply polite — must not be able to end their
     // own assessment early.
-    // The closing sentence is still playing: complete only when it has finished.
-    // Completing now would hand the question over and cut the last sentence.
+    // The phrase is only the LAST words of the closing: always held, never
+    // completed on the spot (the utterance can precede `started_speaking`).
     if (isAvatar && this.phrases !== null && matchesEndPhrase(speech, this.phrases)) {
-      if (this.replicaSpeaking) {
-        this.deferCompletion()
-      } else {
-        this.emitState('complete')
-      }
+      this.deferCompletion(speech)
     }
   }
 
-  /** Completes once the avatar stops speaking, or after the fallback window. */
-  private deferCompletion(): void {
+  /**
+   * Holds the completion until the avatar has been silent for COMPLETION_SETTLE_MS,
+   * or until the lost-event fallback (base window + estimated speech) elapses.
+   */
+  private deferCompletion(speech: string): void {
     this.endPhrasePending = true
-    this.completionTimer ??= setTimeout(() => this.finishCompletion(), COMPLETION_FALLBACK_MS)
+    this.completionTimer ??= setTimeout(() => this.finishCompletion(), closingFallbackMs(speech))
+    this.reevaluateCompletion()
+  }
+
+  /** (Re)starts the completion settle window when the avatar is quiet; cancels it otherwise. */
+  private reevaluateCompletion(): void {
+    if (this.completionSettleTimer !== null) {
+      clearTimeout(this.completionSettleTimer)
+      this.completionSettleTimer = null
+    }
+    if (!this.endPhrasePending || this.replicaSpeaking || this.utterancePending) return
+
+    this.completionSettleTimer = setTimeout(() => this.finishCompletion(), COMPLETION_SETTLE_MS)
   }
 
   private finishCompletion(): void {
@@ -391,6 +397,7 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
 
   /** (Re)starts the settle window when the avatar is quiet; cancels it otherwise. */
   private reevaluateSilence(): void {
+    this.reevaluateCompletion()
     if (this.settleTimer !== null) {
       clearTimeout(this.settleTimer)
       this.settleTimer = null
@@ -434,6 +441,10 @@ export class TavusProvider implements InterviewProvider, SupportsContextSteering
     if (this.completionTimer !== null) {
       clearTimeout(this.completionTimer)
       this.completionTimer = null
+    }
+    if (this.completionSettleTimer !== null) {
+      clearTimeout(this.completionSettleTimer)
+      this.completionSettleTimer = null
     }
     this.endPhrasePending = false
     this.replicaSpeaking = false
