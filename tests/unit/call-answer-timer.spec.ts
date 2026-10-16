@@ -359,9 +359,9 @@ describe('CallAnswerTimer - the suggested-length bar', () => {
     // chip is a Badge whose base class list names `destructive`; the bar and the figure are ours.
     // The whole bar (tracks and segments included) is scanned; only the max marker, which is the
     // red alarm icon by design, is cut out first.
-    const bar = wrapper.get('[data-testid="call-answer-bar"]').html()
+    const barHtml = wrapper.get('[data-testid="call-answer-bar"]').html()
     const maxIcon = wrapper.get('[data-testid="call-answer-max-icon"]').html()
-    const drawn = bar.replace(maxIcon, '') + wrapper.get('time').html()
+    const drawn = barHtml.replace(maxIcon, '') + wrapper.get('time').html()
     expect(drawn).not.toMatch(/destructive|recording|alert|bg-error|text-error|animate|pulse/)
 
     // The only cue past the end is the status text hint.
