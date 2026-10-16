@@ -175,7 +175,7 @@
  *   answerSeconds    — the answer timer (`useAnswerTimer`), owned by the page.
  *   answerPhase      — idle / listening / waiting / answering: the chip beside the timer.
  *   micMuted         — the candidate's own mute INTENT, for the hint (not the forced-mute state).
- *   budget           — the suggested answer length (`answerBudget()`), or null for no bar.
+ *   budget           — the good-answer range and bar scale (`answerBudget()`), or null for no bar.
  *   maxSeconds       — the interview's real limit (the avatar template's, `interview_max_seconds`).
  *                      The duration section is shown ONLY once the server has stated it; the
  *                      client's 300 s fallback is never presented as a maximum.

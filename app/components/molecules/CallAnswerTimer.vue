@@ -25,48 +25,72 @@
     </p>
 
     <template v-if="zones">
-      <div
-        data-testid="call-answer-bar"
-        role="progressbar"
-        aria-valuemin="0"
-        :aria-valuemax="zones.max"
-        :aria-valuenow="zones.elapsed"
-        :aria-valuetext="
-          $t('interview.call.answer.budget_sr', {
-            elapsed: formatBudgetTime(zones.elapsed),
-            max: formatBudgetTime(zones.max),
-          })
-        "
-        :aria-label="$t('interview.call.answer.budget_label')"
-        class="flex h-2.5 w-full overflow-hidden rounded-full"
-      >
-        <div
-          v-for="(zone, index) in zones.items"
-          :key="index"
-          data-testid="call-answer-zone"
-          class="relative h-full"
-          :class="[zone.ideal ? 'bg-primary-ink/30' : 'bg-secondary', index > 0 ? 'ml-0.5' : '']"
-          :style="{ width: `${zone.width}%` }"
-        >
+      <!-- The outer padding keeps an icon at a boundary near either end from clipping. -->
+      <div class="px-2">
+        <div class="relative py-0.5">
           <div
-            data-testid="call-answer-fill"
-            class="h-full bg-primary-ink transition-[width] duration-300 motion-reduce:transition-none"
-            :style="{ width: `${zone.fill}%` }"
-          />
+            data-testid="call-answer-bar"
+            role="progressbar"
+            aria-valuemin="0"
+            :aria-valuemax="zones.end"
+            :aria-valuenow="zones.elapsed"
+            :aria-valuetext="
+              $t('interview.call.answer.budget_sr', {
+                elapsed: formatBudgetTime(zones.elapsed),
+                from: formatBudgetTime(budget!.min),
+                to: formatBudgetTime(budget!.max),
+              })
+            "
+            :aria-label="$t('interview.call.answer.budget_label')"
+            class="flex h-2.5 w-full overflow-hidden rounded-full"
+          >
+            <div
+              v-for="(zone, index) in zones.items"
+              :key="zone.name"
+              data-testid="call-answer-zone"
+              :data-zone="zone.name"
+              class="relative h-full"
+              :class="[zone.track, index > 0 ? 'ml-0.5' : '']"
+              :style="{ width: `${zone.width}%` }"
+            >
+              <div
+                data-testid="call-answer-fill"
+                class="h-full transition-[width] duration-300 motion-reduce:transition-none"
+                :class="zone.ink"
+                :style="{ width: `${zone.fill}%` }"
+              />
+            </div>
+          </div>
+          <span
+            data-testid="call-answer-min-icon"
+            class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-background text-success-dark"
+            :style="{ left: `${(budget!.min * 100) / budget!.end}%` }"
+          >
+            <CircleCheckIcon aria-hidden="true" class="block size-4" />
+          </span>
+          <span
+            data-testid="call-answer-max-icon"
+            class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-background text-error-dark"
+            :style="{ left: `${(budget!.max * 100) / budget!.end}%` }"
+          >
+            <AlarmClockIcon aria-hidden="true" class="block size-4" />
+          </span>
         </div>
       </div>
       <p data-testid="call-answer-labels" class="text-sm font-medium tabular-nums">
         {{
-          $t('interview.call.answer.budget_labels', {
-            min: formatBudgetTime(budget!.min),
-            from: formatBudgetTime(budget!.idealFrom),
-            to: formatBudgetTime(budget!.idealTo),
-            max: formatBudgetTime(budget!.max),
+          $t('interview.call.answer.budget_range', {
+            from: formatBudgetTime(budget!.min),
+            to: formatBudgetTime(budget!.max),
           })
         }}
       </p>
-      <p data-testid="call-answer-note" class="text-xs text-muted-foreground">
-        {{ $t('interview.call.answer.budget_note') }}
+      <p
+        v-if="zones.elapsed > budget!.max"
+        data-testid="call-answer-long"
+        class="text-sm font-medium text-warning-dark"
+      >
+        {{ $t('interview.call.answer.budget_long') }}
       </p>
     </template>
   </div>
@@ -83,8 +107,8 @@
  * Props:
  *   seconds  — the answer time, counted from the moment the interviewer stopped speaking.
  *   phase    — idle / listening / waiting / answering. The chip states it in TEXT; idle has none.
- *   budget   — the suggested answer length in whole seconds, or null (no bar, no labels, no
- *              note). Guidance only: past the max the bar stays full and calm.
+ *   budget   — the good-answer range and the bar's scale end in whole seconds, or null (no bar,
+ *              no labels). Guidance only: past the scale end the bar stays full and calm.
  *   micMuted — the candidate's own INTENT (not the visual state): the hint tells them to
  *              unmute, which they cannot do during a handover.
  *
@@ -92,13 +116,14 @@
  * would bury the question, and the page has exactly one `role="timer"`, the interview-time
  * countdown. The bar is a `progressbar` (spec: it exposes the answer time against the max to
  * assistive technology) whose value is read on demand, never announced; its min / ideal / max
- * are also written as text under it, so colour is never the only carrier.
+ * range is also written as text under it, and a text hint appears once the answer runs long,
+ * so colour is never the only carrier.
  *
- * The bar is four zones: [0, min), [min, ideal from), [ideal from, ideal to], (ideal to, max].
- * Each zone fills in turn, so the position reads against the guidance.
+ * The bar is three zones: too short [0, min), good answer [min, max], long (max, end]. Each
+ * zone fills in turn, so the position reads against the guidance.
  */
 import { computed } from 'vue'
-import { MicOffIcon } from '@lucide/vue'
+import { AlarmClockIcon, CircleCheckIcon, MicOffIcon } from '@lucide/vue'
 import { Badge } from '~/components/ui/badge'
 import { formatClock } from '~/app/composables/useInterviewClock'
 import { formatBudgetTime, type AnswerBudget } from '~/app/utils/answer-budget'
@@ -119,31 +144,30 @@ const STATUS_KEYS = {
   answering: 'interview.call.answer.status.answering',
 } as const
 
-/** Zone widths as a share of the max and how much of each zone the answer has filled. */
+/** Zone names, widths as a share of the scale, ink classes, and how much of each the answer has filled. */
 const zones = computed(() => {
   const budget = props.budget
   if (budget === null) return null
 
-  const elapsed = Math.min(Math.max(Math.floor(props.seconds), 0), budget.max)
-  const bounds = [0, budget.min, budget.idealFrom, budget.idealTo, budget.max]
+  const elapsed = Math.min(Math.max(Math.floor(props.seconds), 0), budget.end)
+  const bounds = [0, budget.min, budget.max, budget.end]
+  const kinds = [
+    { name: 'short', track: 'bg-secondary', ink: 'bg-primary-ink' },
+    { name: 'good', track: 'bg-primary-ink/30', ink: 'bg-primary-ink' },
+    { name: 'long', track: 'bg-warning-light', ink: 'bg-warning' },
+  ] as const
 
-  const items = [0, 1, 2, 3].map((index) => {
+  const items = kinds.map((kind, index) => {
     const from = bounds[index]!
-    const to = bounds[index + 1]!
-    const length = to - from
+    const length = bounds[index + 1]! - from
 
     return {
-      ideal: index === 2,
-      width: (length * 100) / budget.max,
-      fill:
-        length === 0
-          ? elapsed >= to
-            ? 100
-            : 0
-          : (Math.min(Math.max(elapsed - from, 0), length) * 100) / length,
+      ...kind,
+      width: (length * 100) / budget.end,
+      fill: (Math.min(Math.max(elapsed - from, 0), length) * 100) / length,
     }
   })
 
-  return { items, elapsed, max: budget.max }
+  return { items, elapsed, end: budget.end }
 })
 </script>

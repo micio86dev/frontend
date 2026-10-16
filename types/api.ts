@@ -3118,6 +3118,8 @@ export interface components {
             persona: {
                 display_name: string | null;
             };
+            answer_min_seconds: number;
+            answer_max_seconds: number;
         };
         /**
          * AvatarTemplateScope
@@ -3576,6 +3578,8 @@ export interface components {
             persona: {
                 display_name: string | null;
             };
+            answer_min_seconds: number;
+            answer_max_seconds: number;
             usage: {
                 organization_count: number;
                 project_count: number;
@@ -5253,6 +5257,8 @@ export interface operations {
                     /** @description Bind a language model to the template. `llm_model_id` and `llm_credential_id` are both set or both null. */
                     llm_model_id?: number | null;
                     llm_credential_id?: number | null;
+                    answer_min_seconds?: number;
+                    answer_max_seconds?: number;
                     persona?: {
                         display_name?: string | null;
                     };
@@ -5366,6 +5372,8 @@ export interface operations {
                     /** @description Bind a language model to the template. `llm_model_id` and `llm_credential_id` are both set or both null; sending both as null clears the binding. */
                     llm_model_id?: number | null;
                     llm_credential_id?: number | null;
+                    answer_min_seconds?: number;
+                    answer_max_seconds?: number;
                     persona?: {
                         display_name?: string | null;
                     };
@@ -5451,6 +5459,8 @@ export interface operations {
                             config: unknown[];
                             /** @description Persona is optional: a template may be pure provider config. */
                             persona: unknown[] | null;
+                            answer_min_seconds: number;
+                            answer_max_seconds: number;
                             /** @description The language model binding, by model key and credential name; `null` when the template has none. */
                             llm: {
                                 model_key: string;
@@ -7556,6 +7566,8 @@ export interface operations {
                             total_competencies: number | null;
                         };
                         interview_max_seconds: number;
+                        answer_min_seconds: number;
+                        answer_max_seconds: number;
                         conversation_id?: string;
                         conversation_ttl_seconds?: number;
                         continuation?: {
@@ -8638,6 +8650,8 @@ export interface operations {
                     /** @description Bind a language model to the template. `llm_model_id` and `llm_credential_id` are both set or both null. */
                     llm_model_id?: number | null;
                     llm_credential_id?: number | null;
+                    answer_min_seconds?: number;
+                    answer_max_seconds?: number;
                     persona?: {
                         display_name?: string | null;
                     };
@@ -8744,6 +8758,8 @@ export interface operations {
                     /** @description Bind a language model to the template. `llm_model_id` and `llm_credential_id` are both set or both null; sending both as null clears the binding. */
                     llm_model_id?: number | null;
                     llm_credential_id?: number | null;
+                    answer_min_seconds?: number;
+                    answer_max_seconds?: number;
                     persona?: {
                         display_name?: string | null;
                     };

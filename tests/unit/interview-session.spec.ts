@@ -156,6 +156,9 @@ const NEXT = 77
 /** Extra `question_context` fields the next /start answers with (`competency_ordinal`, `total_competencies`); reset before each test. */
 let questionContextExtras: Record<string, unknown> = {}
 
+/** Top-level fields the next /start answers with (the answer range); reset before each test. */
+let startExtras: Record<string, unknown> = {}
+
 function startResponse(sessionId: number, provider = 'tavus', interviewMaxSeconds = 1200) {
   return {
     session_id: sessionId,
@@ -164,6 +167,9 @@ function startResponse(sessionId: number, provider = 'tavus', interviewMaxSecond
     conversation_url: null,
     audio_only: false,
     interview_max_seconds: interviewMaxSeconds,
+    answer_min_seconds: 90,
+    answer_max_seconds: 150,
+    ...startExtras,
     question_context: {
       competency_code: 'PRS',
       question_index: 0,
@@ -374,6 +380,7 @@ const hint = (wrapper: Awaited<ReturnType<typeof mountLive>>['wrapper']) =>
 beforeEach(() => {
   vi.clearAllMocks()
   questionContextExtras = {}
+  startExtras = {}
   playerLifecycle.mounted = 0
   playerLifecycle.unmounted = 0
   realPlayer.emitNullOnUnmount = false
@@ -1925,7 +1932,7 @@ describe('InterviewSession — the answer time section', () => {
       const countdownBefore = toSeconds(wrapper.get('[role="timer"]').text())
       await vi.advanceTimersByTimeAsync(260_000)
 
-      // 1200 s over the 6 primaries of the outline: a 200 s maximum, long passed.
+      // Long past the 2:30 maximum and the 200 s end of the bar.
       expect(answerTime(wrapper)).toBe('04:20')
       expect(endCalls()).toHaveLength(0)
       expect(countdownBefore - toSeconds(wrapper.get('[role="timer"]').text())).toBe(260)
@@ -1953,52 +1960,44 @@ describe('InterviewSession — the answer time section', () => {
 
   describe('the suggested-length bar', () => {
     const labels = (wrapper: Mounted) => wrapper.find('[data-testid="call-answer-labels"]')
+    const range = (from: string, to: string) =>
+      `interview.call.answer.budget_range|${JSON.stringify({ from, to })}`
 
-    it('reads the arithmetic of the server limit and the outline total: 1200 s over 6 is 3:20', async () => {
+    it('states the good-answer range the start response names: 90 to 150 s is 1:30 to 2:30', async () => {
       const { wrapper } = await mountLive()
       await flushPromises()
 
-      expect(labels(wrapper).text()).toBe(
-        `interview.call.answer.budget_labels|${JSON.stringify({
-          min: '0:50',
-          from: '1:15',
-          to: '2:30',
-          max: '3:20',
-        })}`
-      )
+      expect(labels(wrapper).text()).toBe(range('1:30', '2:30'))
     })
 
-    it('stays hidden until the outline has supplied its total, then appears', async () => {
-      let release!: (value: unknown) => void
-      const pending = new Promise((resolve) => (release = resolve))
-      mockCandidateFetch.mockImplementation(async (path: string) =>
-        path === OUTLINE_PATH ? pending : undefined
-      )
+    it('follows a range the template configured (60 to 120 s)', async () => {
+      startExtras = { answer_min_seconds: 60, answer_max_seconds: 120 }
       const { wrapper } = await mountLive()
       await flushPromises()
-      expect(labels(wrapper).exists()).toBe(false)
-      expect(wrapper.find('[data-testid="call-answer-bar"]').exists()).toBe(false)
 
-      release(outlineOf({ primary_total_all: 4 }))
-      await flushPromises()
-
-      expect(labels(wrapper).text()).toContain('"max":"5:00"')
+      expect(labels(wrapper).text()).toBe(range('1:00', '2:00'))
     })
 
     it.each([
-      ['a failed outline', new Error('network')],
-      ['a zero primary total', outlineOf({ primary_total_all: 0 })],
-    ])(
-      'has no bar for %s, and the timer, chip and duration still render',
-      async (_label, value) => {
-        serveOutline(value)
-        const { wrapper } = await mountLive()
-        await flushPromises()
+      ['absent', { answer_min_seconds: undefined, answer_max_seconds: undefined }],
+      ['inverted', { answer_min_seconds: 200, answer_max_seconds: 100 }],
+      ['non-positive', { answer_min_seconds: 0, answer_max_seconds: 150 }],
+    ])('falls back to 1:30 to 2:30 when the range is %s', async (_label, patch) => {
+      startExtras = patch
+      const { wrapper } = await mountLive()
+      await flushPromises()
 
-        expect(labels(wrapper).exists()).toBe(false)
-        expect(wrapper.find('[data-testid="call-panel-answer"] time').exists()).toBe(true)
-        expect(wrapper.find('[data-testid="call-panel-duration-value"]').exists()).toBe(true)
-      }
-    )
+      expect(labels(wrapper).text()).toBe(range('1:30', '2:30'))
+    })
+
+    it('does not depend on the outline: a failed outline still shows the bar, with the timer and duration', async () => {
+      serveOutline(new Error('network'))
+      const { wrapper } = await mountLive()
+      await flushPromises()
+
+      expect(labels(wrapper).text()).toBe(range('1:30', '2:30'))
+      expect(wrapper.find('[data-testid="call-panel-answer"] time').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="call-panel-duration-value"]').exists()).toBe(true)
+    })
   })
 })

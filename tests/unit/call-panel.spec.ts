@@ -581,7 +581,7 @@ describe('CallPanel — names appear, a code never does', () => {
 })
 
 describe('CallPanel — answer time (Tempo di risposta)', () => {
-  const BUDGET = { min: 50, idealFrom: 75, idealTo: 150, max: 200 }
+  const BUDGET = { min: 90, max: 150, end: 200 }
   const section = (wrapper: VueWrapper) => wrapper.get('[data-testid="call-panel-answer"]')
 
   it('is the first section, labelled "Tempo di risposta", before Percorso, Durata and help', () => {
@@ -623,7 +623,7 @@ describe('CallPanel — answer time (Tempo di risposta)', () => {
     const without = mountPanel({ ...TWENTY, budget: null })
 
     expect(section(withBudget).get('[data-testid="call-answer-labels"]').text()).toBe(
-      '0:50 min · ideale 1:15–2:30 · 3:20 max'
+      'Risposta efficace: da 1:30 a 2:30'
     )
     expect(section(without).find('[data-testid="call-answer-bar"]').exists()).toBe(false)
     expect(section(without).find('[data-testid="call-answer-labels"]').exists()).toBe(false)

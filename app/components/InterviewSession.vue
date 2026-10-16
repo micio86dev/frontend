@@ -953,12 +953,11 @@ const answerTimer = useAnswerTimer({
 })
 
 /**
- * The suggested answer length: the server's interview limit split across every scripted primary
- * question. `null` (no bar) until BOTH inputs exist; the client's 300 s countdown seed is never
- * an input.
+ * The suggested answer length: the good-answer range the start response states (the active
+ * template's, default 1:30 to 2:30). `null` (no bar) until /start has stated it.
  */
 const budget = computed(() =>
-  answerBudget(session.interviewMaxSeconds.value, outlineApi.outline.value?.primary_total_all)
+  answerBudget(session.answerMinSeconds.value, session.answerMaxSeconds.value)
 )
 
 /** Whole seconds of live interview time, for "03:12 / 25:00". It stops while suspended. */

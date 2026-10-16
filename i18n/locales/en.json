@@ -76,10 +76,10 @@
           "answering": "You are answering"
         },
         "muted_hint": "Microphone off: the interviewer cannot hear you",
-        "budget_labels": "{min} min · ideal {from}–{to} · {max} max",
-        "budget_note": "Suggested times, not binding",
+        "budget_range": "Good answer: {from} to {to}",
+        "budget_long": "Long answer: you can wrap up",
         "budget_label": "Suggested answer length",
-        "budget_sr": "{elapsed} of a suggested maximum of {max}"
+        "budget_sr": "{elapsed}. Good answer: {from} to {to}"
       },
       "storyboard": {
         "label": "Interview path",

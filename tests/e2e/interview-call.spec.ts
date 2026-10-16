@@ -30,6 +30,8 @@ function startResponse(sessionId: number, competency: string) {
     // The server states the interview limit: the duration section, the countdown and the
     // suggested-length bar all render, so the panel is as tall as it ever gets.
     interview_max_seconds: 1200,
+    answer_min_seconds: 90,
+    answer_max_seconds: 150,
     question_context: {
       question_index: sessionId - 1,
       total_questions: 3,
@@ -1084,7 +1086,8 @@ test.describe('the call stage fits the viewport', () => {
       // screen: nothing above it pushed the column past its bottom edge.
       await page.getByTestId('call-help-link').scrollIntoViewIfNeeded()
       const help = await boxOf(page.getByTestId('call-help-link'))
-      expect(help.bottom).toBeLessThanOrEqual(panel.bottom)
+      // A scroll position is a whole pixel while the content is fractional: allow that sub-pixel.
+      expect(help.bottom).toBeLessThanOrEqual(panel.bottom + 1)
       expect(help.bottom).toBeLessThanOrEqual(height)
       // The storyboard gives way (it scrolls) rather than the panel growing the page.
       const path = await boxOf(page.getByTestId('call-panel-path'))

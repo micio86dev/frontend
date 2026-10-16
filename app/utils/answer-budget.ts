@@ -1,49 +1,42 @@
 /**
  * Suggested answer length for the call panel.
  *
- * The per-answer maximum is the interview's server-stated time split evenly across every
- * scripted primary question of the interview. It is guidance only: nothing here ends,
- * pauses or shortens an answer, and the whole-interview timeout is untouched.
+ * A good answer lasts from `min` to `max` seconds (the active avatar template's range, default
+ * 1:30 to 2:30). Three zones: below min (too short), min to max (good), above max (long). The
+ * bar's scale ends at `end`, a third past the max, so the long zone is visible. It is guidance
+ * only: nothing here ends, pauses or shortens an answer.
  */
 
-/** Thresholds as fractions of the maximum (owner decision O1). */
-export const ANSWER_BUDGET_FRACTIONS = { min: 0.25, idealFrom: 0.375, idealTo: 0.75 } as const
+/** Used when the start response names no valid range. */
+export const DEFAULT_ANSWER_RANGE = { min: 90, max: 150 } as const
 
 /** All values are whole seconds. */
 export interface AnswerBudget {
   min: number
-  idealFrom: number
-  idealTo: number
   max: number
+  /** Where the bar's scale ends: `max` x 4/3, rounded. */
+  end: number
 }
 
-const isPositiveFinite = (value: number | null | undefined): value is number =>
-  typeof value === 'number' && Number.isFinite(value) && value > 0
+const isPositiveInt = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value > 0
 
-/**
- * `null` (no budget) when either input is missing, not finite, zero or negative, or when the
- * maximum would be under one second. The client's 300 s countdown seed is never an input:
- * pass `null` until the server states `interview_max_seconds`.
- */
-export function answerBudget(
-  interviewMaxSeconds: number | null | undefined,
-  primaryTotalAll: number | null | undefined
-): AnswerBudget | null {
-  if (!isPositiveFinite(interviewMaxSeconds) || !isPositiveFinite(primaryTotalAll)) return null
+/** `null` (no budget) unless both bounds are positive whole seconds with min below max. */
+export function answerBudget(min: unknown, max: unknown): AnswerBudget | null {
+  if (!isPositiveInt(min) || !isPositiveInt(max) || min >= max) return null
 
-  const max = Math.floor(interviewMaxSeconds / primaryTotalAll)
-  if (max < 1) return null
+  return { min, max, end: Math.round((max * 4) / 3) }
+}
 
-  return {
-    min: Math.round(max * ANSWER_BUDGET_FRACTIONS.min),
-    idealFrom: Math.round(max * ANSWER_BUDGET_FRACTIONS.idealFrom),
-    idealTo: Math.round(max * ANSWER_BUDGET_FRACTIONS.idealTo),
-    max,
-  }
+/** The range a start response states, or the default when either bound is missing or invalid. */
+export function answerRangeFrom(min: unknown, max: unknown): { min: number; max: number } {
+  const budget = answerBudget(min, max)
+
+  return budget ? { min: budget.min, max: budget.max } : { ...DEFAULT_ANSWER_RANGE }
 }
 
 /**
- * `m:ss` for the suggested-length labels ("1:00 min · ideale 1:30–3:00 · 4:00 max"): minutes
+ * `m:ss` for the suggested-length labels ("Good answer: 1:30 to 2:30"): minutes
  * unpadded and never wrapped at 60, a fraction dropped, anything negative or non-finite 0:00.
  */
 export function formatBudgetTime(totalSeconds: number): string {

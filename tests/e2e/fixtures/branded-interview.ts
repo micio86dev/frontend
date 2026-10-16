@@ -36,6 +36,8 @@ const START_RESPONSE = {
   // The real API always states the interview limit; the countdown and the duration section
   // stay hidden until it does (live-interview-call-chrome M3).
   interview_max_seconds: 1200,
+  answer_min_seconds: 90,
+  answer_max_seconds: 150,
   question_context: {
     question_index: 0,
     total_questions: 3,
