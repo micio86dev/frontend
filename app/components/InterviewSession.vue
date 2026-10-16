@@ -27,7 +27,6 @@
     <template v-else-if="callStageLive" #header-end>
       <CallHeader
         :title="callTitle"
-        :elapsed-seconds="elapsedSeconds"
         :captions-enabled="captionsEnabled"
         :mic-muted="session.micMuted.value || session.handoverInFlight.value"
         :mic-disabled="session.handoverInFlight.value"

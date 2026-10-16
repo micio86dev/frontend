@@ -7,19 +7,6 @@
       {{ title }}
     </p>
 
-    <!--
-      An accessible name, but NOT a live region and NOT role="timer": it must not announce each
-      second, and the page has exactly one timer role (the interview-time-remaining countdown).
-    -->
-    <p
-      data-testid="call-header-clock"
-      class="shrink-0 font-mono text-base font-semibold text-on-primary tabular-nums"
-    >
-      <span class="sr-only">{{ $t('interview.call.header.elapsed_sr') }}</span>
-      {{ ' ' }}
-      <time>{{ formatClock(elapsedSeconds) }}</time>
-    </p>
-
     <div class="flex shrink-0 items-center gap-2">
       <!--
         Controls drawn from the CARD tokens, never `bg-background` / `text-foreground`: on the
@@ -104,12 +91,11 @@
  * DESIGN.md §7.0.1, §7.3).
  *
  * Presentational only. It sits in `BrandCanvas`'s `header-end` slot, which spans the row:
- * the already-localized title, the elapsed clock, then Sottotitoli, Microfono and the Exit
- * slot in this DOM and tab order. There is no Camera, "Ripeti domanda" or Pause control.
+ * the already-localized title, then Sottotitoli, Microfono and the Exit slot in this DOM and
+ * tab order. It carries NO clock: the panel's countdown is the interview's one timer. There is no Camera, "Ripeti domanda" or Pause control.
  *
  * Props:
  *   title           — already localized by the page.
- *   elapsedSeconds  — the live clock (`useInterviewClock`), owned by the caller.
  *   captionsEnabled — the stored preference; pressed means captions are on.
  *   micMuted        — the VISUAL state: the candidate's choice, or an interview-owned mute.
  *   micDisabled     — an interview-owned mute is in force (boundary or handover).
@@ -120,11 +106,9 @@
  */
 import { CaptionsIcon, CaptionsOffIcon, MicIcon, MicOffIcon } from '@lucide/vue'
 import { Button } from '~/components/ui/button'
-import { formatClock } from '~/app/composables/useInterviewClock'
 
 const props = defineProps<{
   title: string
-  elapsedSeconds: number
   captionsEnabled: boolean
   micMuted: boolean
   micDisabled: boolean

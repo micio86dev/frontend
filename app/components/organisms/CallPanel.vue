@@ -72,14 +72,11 @@
     </div>
 
     <!--
-      Interview duration. The heading, the figure, the bar and the sentence appear only once
-      the SERVER has stated `interview_max_seconds`: the 300 s fallback seed of the countdown is
-      never a maximum. The countdown itself is the interview's ONLY timeout enforcement (`tick` /
-      `expired`), so it is never hidden: without a stated maximum the section shows that exact
-      figure alone, and an enforcing timeout is never invisible to the candidate.
-
-      The visible figure is hidden from assistive technology and the sentence that states the
-      MAXIMUM is read instead: "03:12 / 20:00" alone does not say that 20:00 is a ceiling.
+      Interview duration: the interview's ONE timer. The countdown is the big figure and the
+      only timeout enforcement (`tick` / `expired`), so it is never hidden. The heading, the
+      bar (elapsed over the maximum) and the stated maximum ("of 60 min") appear only once the
+      SERVER has stated `interview_max_seconds`: the 300 s fallback seed of the countdown is
+      never a maximum. Without one the section shows the countdown alone.
     -->
     <section
       data-testid="call-panel-duration"
@@ -93,42 +90,26 @@
       >
         {{ $t('interview.call.duration.label') }}
       </p>
-      <template v-if="hasMax">
-        <p
-          data-testid="call-panel-duration-value"
-          aria-hidden="true"
-          class="font-mono text-base font-semibold tabular-nums"
-        >
-          {{ $t('interview.call.duration.value', duration) }}
-        </p>
-        <span data-testid="call-panel-duration-sr" class="sr-only">{{
-          $t('interview.call.duration.sr', duration)
-        }}</span>
-        <ProgressBar
-          :current="elapsedClamped"
-          :total="maxCount"
-          hide-counts
-          :label="$t('interview.call.duration.label')"
-          :value-text="$t('interview.call.duration.sr', duration)"
-        />
-      </template>
-      <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
-        <p
-          v-if="hasMax && minutesLeft > 0"
-          data-testid="call-panel-remaining"
-          class="text-sm text-muted-foreground"
-        >
-          {{ $t('interview.call.duration.remaining', minutesLeft) }}
-        </p>
-        <InterviewTimer
-          v-if="questionSeconds !== undefined"
-          :key="timerKey ?? undefined"
-          :seconds="questionSeconds"
-          :label="$t('interview.call.remaining_label')"
-          @tick="emit('tick', $event)"
-          @expired="emit('expired')"
-        />
-      </div>
+      <InterviewTimer
+        v-if="questionSeconds !== undefined"
+        :key="timerKey ?? undefined"
+        :seconds="questionSeconds"
+        :label="$t('interview.call.remaining_label')"
+        :figure="hasMax"
+        @tick="emit('tick', $event)"
+        @expired="emit('expired')"
+      />
+      <ProgressBar
+        v-if="hasMax"
+        :current="elapsedClamped"
+        :total="maxCount"
+        hide-counts
+        :label="$t('interview.call.duration.label')"
+        :value-text="$t('interview.call.duration.sr', duration)"
+      />
+      <p v-if="hasMax" data-testid="call-panel-duration-max" class="text-sm text-muted-foreground">
+        {{ $t('interview.call.duration.of_max', { minutes: maxMinutes }) }}
+      </p>
     </section>
 
     <div class="flex basis-full flex-col xl:mt-auto">
@@ -144,8 +125,8 @@
  *
  * Titled "Interview". Top to bottom: "Answer time" (the answer timer, its chip and the
  * suggested-length bar), the "Path" section ("Competency 2 of 5" and a thin bar; the named
- * storyboard is mounted but hidden with `display:none`), how long it has taken against the stated maximum
- * ("03:12 / 25:00"), the interview countdown, then the help link. Exit lives in the call
+ * storyboard is mounted but hidden with `display:none`), the interview's ONE timer (the countdown, the elapsed/maximum bar under it and "of 25 min"),
+ * then the help link. Exit lives in the call
  * header.
  *
  * NAMES, NEVER A CODE (reversed from "numbers only", live-interview-call-chrome). The
@@ -163,7 +144,7 @@
  *                      during the first question).
  *   elapsedSeconds   — from `useInterviewClock()`; owned by the caller.
  *   questionSeconds  — what the interview countdown starts from (the seconds LEFT in the whole interview).
- *                      Omitted: no countdown. It also feeds "About N minutes left".
+ *                      Omitted: no countdown.
  *                      The caller owns the remaining time (see InterviewTimer) and
  *                      re-keys this component's counter on a new competency session
  *                      (the countdown itself is the WHOLE interview's, so the key changes only
@@ -260,8 +241,6 @@ const duration = computed(() => ({
   total: formatClock(maxCount.value),
 }))
 
-/** "About N minutes left": the ceiling of the countdown the page owns; 0 hides the sentence. */
-const minutesLeft = computed(() =>
-  props.questionSeconds === undefined ? 0 : Math.max(Math.ceil(props.questionSeconds / 60), 0)
-)
+/** The stated maximum in whole minutes, a partial minute rounded up ("of 60 min"). */
+const maxMinutes = computed(() => Math.ceil(maxCount.value / 60))
 </script>

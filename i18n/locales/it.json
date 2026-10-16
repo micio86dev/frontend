@@ -64,7 +64,6 @@
         "title": "Colloquio di assessment",
         "title_with_subject": "Colloquio di assessment · {subject}",
         "potential": "Potenziale",
-        "elapsed_sr": "Tempo trascorso",
         "captions_on": "Sottotitoli attivi",
         "captions_off": "Sottotitoli spenti",
         "microphone_on": "Microfono attivo",
@@ -97,9 +96,8 @@
       },
       "duration": {
         "label": "Durata dell'intervista",
-        "value": "{elapsed} / {total}",
-        "sr": "{elapsed} trascorsi su un massimo di {total}",
-        "remaining": "Restano circa {n} minuto | Restano circa {n} minuti"
+        "of_max": "di {minutes} min",
+        "sr": "{elapsed} trascorsi su un massimo di {total}"
       },
       "remaining_label": "Tempo rimanente",
       "interviewer_name": "Intervistatore AI",

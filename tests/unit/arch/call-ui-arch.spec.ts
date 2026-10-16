@@ -18,7 +18,7 @@
  *     so `it` and `en` can never drift from what is drawn.
  *  4. (live-interview-call-chrome) The live header is handed exactly the bindings it
  *     documents, Exit no longer reaches the panel, and the page has ONE timer role:
- *     the interview-time-remaining countdown. The header clock is a plain <time>.
+ *     the interview-time-remaining countdown. The header carries no clock.
  */
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -207,7 +207,6 @@ describe('call screen: the live header', () => {
     expect(bound).toEqual(
       [
         'captions-enabled',
-        'elapsed-seconds',
         'mic-disabled',
         'mic-muted',
         'title',
@@ -237,11 +236,10 @@ describe('call screen: the live header', () => {
     ).toHaveLength(1)
   })
 
-  it('draws the clock with a plain <time>, never a timer role or a live region', () => {
+  it("draws no clock of its own: the countdown is the page's only timer", () => {
     const header = stripComments(read(join(APP_ROOT, 'components/organisms/CallHeader.vue')))
 
-    expect(header).toMatch(/<time>/)
-    expect(header).not.toMatch(/role=|aria-live/)
+    expect(header).not.toMatch(/<time\b|role=|aria-live|formatClock|elapsed/i)
   })
 })
 

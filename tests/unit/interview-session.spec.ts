@@ -1381,13 +1381,16 @@ describe('InterviewSession — the stage', () => {
       const { wrapper, session } = await mountLive({ attach: true })
       ;(session as unknown as { totalCompetencies: { value: number } }).totalCompetencies.value = 3
       await flushPromises()
-      const duration = () => wrapper.get('[data-testid="call-panel-duration-value"]').text()
-      const shown = (elapsed: string) =>
-        `interview.call.duration.value|${JSON.stringify({ elapsed, total: '20:00' })}`
-      expect(duration()).toBe(shown('00:00'))
+      // The elapsed time now feeds only the duration bar: no figure repeats it as text.
+      const duration = () =>
+        wrapper
+          .get('[data-testid="call-panel-duration"] [role="progressbar"]')
+          .attributes('aria-valuenow')
+      const shown = (elapsed: number) => String(elapsed)
+      expect(duration()).toBe(shown(0))
 
       await vi.advanceTimersByTimeAsync(65_000)
-      expect(duration()).toBe(shown('01:05'))
+      expect(duration()).toBe(shown(65))
 
       await exitTheInterview()
       await vi.advanceTimersByTimeAsync(120_000)
@@ -1398,7 +1401,7 @@ describe('InterviewSession — the stage', () => {
       providers[1]!._emit('state', 'ready')
       await settle()
       expect(session.state.value).toBe('live')
-      expect(duration()).toBe(shown('01:05'))
+      expect(duration()).toBe(shown(65))
     } finally {
       vi.useRealTimers()
     }
@@ -1762,7 +1765,7 @@ describe('InterviewSession — the panel path (Percorso)', () => {
 
     expect(wrapper.find('[data-testid="call-storyboard"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="call-panel-progress-text"]').text()).toContain('"total":5')
-    expect(wrapper.find('[data-testid="call-panel-duration-value"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="call-panel-duration-max"]').exists()).toBe(true)
   })
 
   describe('"Competenza n di N" numerator', () => {
@@ -1898,20 +1901,16 @@ describe('InterviewSession — the answer time section', () => {
     })
   })
 
-  it('the "about N minutes left" sentence tracks the countdown as time passes', async () => {
+  it('the one countdown tracks the clock as time passes and no minutes-left sentence exists', async () => {
     await withClock(async () => {
       const { wrapper } = await mountLive({ stubs: { InterviewTimer: false } })
-      const remaining = () => wrapper.get('[data-testid="call-panel-remaining"]').text()
-      const sentence = (minutes: number) => `interview.call.duration.remaining|${minutes}`
 
-      expect(remaining()).toBe(sentence(20)) // 1200 s from the server maximum
+      expect(toSeconds(wrapper.get('[role="timer"]').text())).toBe(1200)
       await vi.advanceTimersByTimeAsync(61_000)
       expect(toSeconds(wrapper.get('[role="timer"]').text())).toBe(1139)
-      expect(remaining()).toBe(sentence(19))
-
-      await vi.advanceTimersByTimeAsync(600_000)
-      expect(toSeconds(wrapper.get('[role="timer"]').text())).toBe(539)
-      expect(remaining()).toBe(sentence(9))
+      expect(wrapper.findAll('[role="timer"]')).toHaveLength(1)
+      expect(wrapper.find('[data-testid="call-panel-remaining"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="call-header-clock"]').exists()).toBe(false)
     })
   })
 
@@ -1997,7 +1996,7 @@ describe('InterviewSession — the answer time section', () => {
 
       expect(labels(wrapper).text()).toBe(range('1:30', '2:30'))
       expect(wrapper.find('[data-testid="call-panel-answer"] time').exists()).toBe(true)
-      expect(wrapper.find('[data-testid="call-panel-duration-value"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="call-panel-duration-max"]').exists()).toBe(true)
     })
   })
 })

@@ -2,7 +2,7 @@
  * CallHeader — the live call's top bar content (live-interview-call-chrome, D13;
  * DESIGN.md §7.0.1, §7.3).
  *
- * What is pinned here: the DOM and tab order (title, clock, Sottotitoli, Microfono,
+ * What is pinned here: the DOM and tab order (title, Sottotitoli, Microfono,
  * Esci), exactly three controls and no Camera / "Ripeti domanda" / Pausa, a clock
  * with an accessible name that is NOT a live region, `aria-pressed` toggles with a
  * visible label that states the state and a swapping icon, a microphone that is `aria-disabled`
@@ -39,7 +39,6 @@ const translator =
 
 const BASE = {
   title: 'Colloquio di assessment · Responsabile Vendite',
-  elapsedSeconds: 192,
   captionsEnabled: true,
   micMuted: false,
   micDisabled: false,
@@ -65,11 +64,10 @@ const captions = (w: VueWrapper) => w.get('[data-testid="call-header-captions"]'
 const mic = (w: VueWrapper) => w.get('[data-testid="call-header-mic"]')
 
 describe('CallHeader — composition', () => {
-  it('renders the title, the clock and the three controls in this DOM order', () => {
+  it('renders the title and the three controls in this DOM order', () => {
     const wrapper = mountHeader()
     const order = [
       '[data-testid="call-header-title"]',
-      '[data-testid="call-header-clock"]',
       '[data-testid="call-header-captions"]',
       '[data-testid="call-header-mic"]',
       '[data-testid="slot-exit"]',
@@ -110,27 +108,15 @@ describe('CallHeader — composition', () => {
   })
 })
 
-describe('CallHeader — the clock', () => {
-  it('is a plain <time> with an sr-only "Tempo trascorso" prefix, not a live region', () => {
-    const wrapper = mountHeader({ elapsedSeconds: 192 })
-    const clock = wrapper.get('[data-testid="call-header-clock"]')
+describe('CallHeader — no clock', () => {
+  it('draws no clock, time element or live region: the countdown in the panel is the one timer', () => {
+    const wrapper = mountHeader()
 
-    expect(clock.get('span.sr-only').text()).toBe('Tempo trascorso')
-    expect(clock.get('time').text()).toBe('03:12')
-    // Collapsed the way an accessibility tree reads it: the prefix and the time are separate words.
-    expect(clock.text().replace(/\s+/g, ' ')).toBe('Tempo trascorso 03:12')
+    expect(wrapper.find('[data-testid="call-header-clock"]').exists()).toBe(false)
+    expect(wrapper.find('time').exists()).toBe(false)
     expect(wrapper.find('[aria-live]').exists()).toBe(false)
     expect(wrapper.find('[role]').exists()).toBe(false)
-  })
-
-  it('does not wrap minutes at 60', () => {
-    expect(mountHeader({ elapsedSeconds: 5400 }).get('time').text()).toBe('90:00')
-  })
-
-  it('is named in English too', () => {
-    expect(mountHeader({}, en).get('[data-testid="call-header-clock"] span.sr-only').text()).toBe(
-      'Elapsed time'
-    )
+    expect(wrapper.text()).not.toMatch(/\d{2}:\d{2}/)
   })
 })
 
@@ -261,7 +247,6 @@ describe('CallHeader — copy', () => {
     'interview.call.header.title',
     'interview.call.header.title_with_subject',
     'interview.call.header.potential',
-    'interview.call.header.elapsed_sr',
     'interview.call.header.captions_on',
     'interview.call.header.captions_off',
     'interview.call.header.microphone_on',

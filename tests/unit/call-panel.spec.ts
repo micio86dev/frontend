@@ -6,7 +6,7 @@
  *   - the "Percorso" section: "Competenza n di total" with `n` clamped to `total`, a
  *     progress bar whose `aria-valuetext` is exactly the visible text, and the named
  *     storyboard under it (live-interview-call-chrome D14);
- *   - a duration stated as a MAXIMUM (`total x 300 s`), minutes never wrapped at 60;
+ *   - a duration stated as a MAXIMUM, the countdown as the only timer;
  *   - competency NAMES from the outline may appear, a competency CODE never does, even
  *     when the surrounding store holds one;
  *   - the help link last in DOM order; Exit lives in the call header.
@@ -19,7 +19,6 @@ import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h, reactive } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 import CallPanel from '~/app/components/organisms/CallPanel.vue'
 import en from '../../i18n/locales/en.json'
 import it_ from '../../i18n/locales/it.json'
@@ -154,47 +153,46 @@ describe('CallPanel — competency progress (Percorso)', () => {
 /** The panel's duration props for a 20 minute interview, 3:12 in, with the countdown at 16:48. */
 const TWENTY = { ended: 1, total: 5, elapsedSeconds: 192, maxSeconds: 1200, questionSeconds: 1008 }
 
-const durationText = (wrapper: VueWrapper) =>
-  wrapper.get('[data-testid="call-panel-duration-value"]').text()
+const maxText = (wrapper: VueWrapper) =>
+  wrapper.get('[data-testid="call-panel-duration-max"]').text()
 
-describe("CallPanel — duration (Durata dell'intervista)", () => {
-  it('states the server maximum: "03:12 / 20:00" for 192 s of a 1200 s interview', () => {
+describe("CallPanel — duration (Durata dell'intervista): one timer, the countdown", () => {
+  it('shows the countdown as the figure under the section label, with the stated maximum beside it', () => {
     const wrapper = mountPanel(TWENTY)
+    const section = wrapper.get('[data-testid="call-panel-duration"]')
 
-    expect(durationText(wrapper)).toBe('03:12 / 20:00')
+    expect(section.text()).toContain("Durata dell'intervista")
+    expect(section.get('[role="timer"]').text()).toBe('16:48')
+    expect(maxText(wrapper)).toBe('di 20 min')
   })
 
-  it('does not wrap minutes at 60: 5400 s reads 90:00 and 3725 s elapsed reads 62:05', () => {
-    expect(durationText(mountPanel({ ...TWENTY, elapsedSeconds: 0, maxSeconds: 5400 }))).toBe(
-      '00:00 / 90:00'
-    )
-    expect(durationText(mountPanel({ ...TWENTY, elapsedSeconds: 3725, maxSeconds: 5400 }))).toBe(
-      '62:05 / 90:00'
-    )
-  })
-
-  it('gives screen readers the stated maximum, and hides the visual figure from them', () => {
+  it('draws no "elapsed / max" figure and no "minutes left" sentence any more', () => {
     const wrapper = mountPanel(TWENTY)
 
-    expect(wrapper.get('[data-testid="call-panel-duration-value"]').attributes('aria-hidden')).toBe(
-      'true'
-    )
-    expect(wrapper.get('[data-testid="call-panel-duration-sr"]').text()).toBe(
-      '03:12 trascorsi su un massimo di 20:00'
-    )
+    for (const id of [
+      'call-panel-duration-value',
+      'call-panel-duration-sr',
+      'call-panel-remaining',
+    ]) {
+      expect(wrapper.find(`[data-testid="${id}"]`).exists()).toBe(false)
+    }
+    expect(wrapper.text()).not.toContain('03:12')
+    expect(wrapper.text()).not.toContain('Restano')
+  })
+
+  it('states the maximum in whole minutes, rounding a partial minute up; 5400 s reads 90 min', () => {
+    expect(maxText(mountPanel({ ...TWENTY, maxSeconds: 5400 }))).toBe('di 90 min')
+    expect(maxText(mountPanel({ ...TWENTY, maxSeconds: 1201 }))).toBe('di 21 min')
   })
 
   it('reads the English copy', () => {
     const wrapper = mountPanel(TWENTY, en)
 
-    expect(wrapper.get('[data-testid="call-panel-duration-sr"]').text()).toBe(
-      '03:12 elapsed out of a maximum of 20:00'
-    )
-    expect(wrapper.get('[data-testid="call-panel-remaining"]').text()).toBe('About 17 minutes left')
+    expect(maxText(wrapper)).toBe('of 20 min')
     expect(wrapper.get('[role="timer"]').attributes('aria-label')).toBe('Time remaining')
   })
 
-  it('draws a bar of elapsed over the maximum, named and with the sr text as its value text', () => {
+  it('draws a bar of elapsed over the maximum, named, with the stated maximum as its value text', () => {
     const wrapper = mountPanel(TWENTY)
     const duration = wrapper.get('[data-testid="call-panel-duration"]')
     const bars = duration.findAll('[role="progressbar"]')
@@ -206,88 +204,40 @@ describe("CallPanel — duration (Durata dell'intervista)", () => {
     expect(bars[0]!.attributes('aria-label')).toBe("Durata dell'intervista")
   })
 
+  it('puts the countdown above the bar and the stated maximum under it', () => {
+    const html = mountPanel(TWENTY).get('[data-testid="call-panel-duration"]').html()
+
+    expect(html.indexOf('role="timer"')).toBeLessThan(html.indexOf('role="progressbar"'))
+    expect(html.indexOf('role="progressbar"')).toBeLessThan(
+      html.indexOf('data-testid="call-panel-duration-max"')
+    )
+  })
+
   it('labels the section "Durata dell\'intervista" and names the Percorso bar differently', () => {
     const wrapper = mountPanel({ ...TWENTY, storyboard: [item(1, 'A', 'current')] })
     const names = wrapper.findAll('[role="progressbar"]').map((bar) => bar.attributes('aria-label'))
 
-    expect(wrapper.get('[data-testid="call-panel-duration"]').text()).toContain(
-      "Durata dell'intervista"
-    )
     expect(new Set(names).size).toBe(2)
   })
 
-  it('shows the elapsed value of the header clock, formatted the same way', () => {
+  it('does not wrap minutes at 60: 3725 s elapsed of 5400 s sets the bar at 3725', () => {
     const wrapper = mountPanel({ ...TWENTY, elapsedSeconds: 3725, maxSeconds: 5400 })
+    const bar = wrapper.get('[data-testid="call-panel-duration"] [role="progressbar"]')
 
-    expect(durationText(wrapper).startsWith('62:05')).toBe(true)
-  })
-})
-
-describe('CallPanel — time remaining, approximate and exact side by side', () => {
-  it('says "Restano circa 17 minuti" and shows the exact countdown "Tempo rimanente 16:48"', () => {
-    const wrapper = mountPanel(TWENTY)
-    const timer = wrapper.get('[role="timer"]')
-
-    expect(wrapper.get('[data-testid="call-panel-remaining"]').text()).toBe(
-      'Restano circa 17 minuti'
-    )
-    expect(timer.text()).toBe('16:48')
-    expect(timer.attributes('aria-label')).toBe('Tempo rimanente')
-    expect(wrapper.get('[data-testid="call-panel-duration"]').text()).toContain('Tempo rimanente')
-    expect(wrapper.get('[data-testid="call-panel-duration"]').find('[role="timer"]').exists()).toBe(
-      true
-    )
-  })
-
-  it.each([
-    [1, 'Restano circa 1 minuto'],
-    [59, 'Restano circa 1 minuto'],
-    [60, 'Restano circa 1 minuto'],
-    [61, 'Restano circa 2 minuti'],
-    [1008, 'Restano circa 17 minuti'],
-  ])('%s s left reads "%s" (ceil of the minutes, singular for one)', (remaining, expected) => {
-    const wrapper = mountPanel({ ...TWENTY, questionSeconds: remaining })
-
-    expect(wrapper.get('[data-testid="call-panel-remaining"]').text()).toBe(expected)
-  })
-
-  it.each([0, -3])('hides the sentence at %s s left and never reads "0 minuti"', (remaining) => {
-    const wrapper = mountPanel({ ...TWENTY, elapsedSeconds: 1200, questionSeconds: remaining })
-
-    expect(wrapper.find('[data-testid="call-panel-remaining"]').exists()).toBe(false)
-    expect(wrapper.text()).not.toMatch(/\b0 minut/)
-  })
-
-  it('wires the plural through the REAL vue-i18n: one minute singular, others plural, it and en', () => {
-    const t = (locale: 'it' | 'en') =>
-      createI18n({ legacy: false, locale, messages: { it: it_, en } }).global.t
-    const key = 'interview.call.duration.remaining'
-
-    expect([1, 2, 17].map((n) => t('it')(key, n))).toEqual([
-      'Restano circa 1 minuto',
-      'Restano circa 2 minuti',
-      'Restano circa 17 minuti',
-    ])
-    expect([1, 17].map((n) => t('en')(key, n))).toEqual([
-      'About 1 minute left',
-      'About 17 minutes left',
-    ])
+    expect(bar.attributes('aria-valuenow')).toBe('3725')
+    expect(bar.attributes('aria-valuetext')).toBe('62:05 trascorsi su un massimo di 90:00')
   })
 })
 
 describe('CallPanel — past the maximum', () => {
-  it('keeps the bar full and the text clamped to the maximum, with no error treatment', () => {
+  it('keeps the bar full with no error treatment', () => {
     const wrapper = mountPanel({ ...TWENTY, elapsedSeconds: 1500, questionSeconds: 0 })
     const bar = wrapper.get('[data-testid="call-panel-duration"] [role="progressbar"]')
 
-    expect(durationText(wrapper)).toBe('20:00 / 20:00')
     expect(bar.attributes('aria-valuenow')).toBe('1200')
     expect(bar.attributes('aria-valuemax')).toBe('1200')
-    // The countdown turns red in its last ten seconds by design; the BAR and the figure never do.
+    // The countdown turns red in its last ten seconds by design; the BAR never does.
     expect(bar.html()).not.toMatch(/destructive|recording|alert/)
-    expect(wrapper.get('[data-testid="call-panel-duration-value"]').html()).not.toMatch(
-      /destructive|recording|alert/
-    )
   })
 })
 
@@ -299,9 +249,7 @@ describe('CallPanel — until the server states interview_max_seconds', () => {
     (maxSeconds) => {
       const wrapper = mountPanel({ ...TWENTY, maxSeconds, questionSeconds: 300 })
 
-      expect(wrapper.find('[data-testid="call-panel-duration-value"]').exists()).toBe(false)
-      expect(wrapper.find('[data-testid="call-panel-duration-sr"]').exists()).toBe(false)
-      expect(wrapper.find('[data-testid="call-panel-remaining"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="call-panel-duration-max"]').exists()).toBe(false)
       expect(
         wrapper.find('[data-testid="call-panel-duration"] [role="progressbar"]').exists()
       ).toBe(false)
@@ -311,8 +259,8 @@ describe('CallPanel — until the server states interview_max_seconds', () => {
   it('never presents the 300 s fallback seed as a maximum or as remaining time', () => {
     const wrapper = mountPanel({ ...TWENTY, maxSeconds: null, questionSeconds: 300 })
 
-    expect(wrapper.text()).not.toContain('/ 05:00')
-    expect(wrapper.text()).not.toContain('Restano')
+    expect(wrapper.text()).not.toContain('di 5 min')
+    expect(wrapper.find('[data-testid="call-panel-duration-max"]').exists()).toBe(false)
     // The percentage-of-total derivation is gone: 5 competencies x 300 s must not become 25:00.
     expect(wrapper.text()).not.toContain('25:00')
   })
@@ -361,7 +309,7 @@ describe('CallPanel — until the server states interview_max_seconds', () => {
   it('the duration does not wait for the competency total: it needs only the maximum', () => {
     const wrapper = mountPanel({ ...TWENTY, ended: null, total: null })
 
-    expect(durationText(wrapper)).toBe('03:12 / 20:00')
+    expect(maxText(wrapper)).toBe('di 20 min')
     expect(wrapper.find('[data-testid="call-panel-progress"]').exists()).toBe(false)
   })
 })

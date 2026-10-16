@@ -218,7 +218,7 @@ test.describe('the call stage (the default live interview)', () => {
     await expect(page.getByRole('button', { name: /^pause$/i })).toHaveCount(0)
   })
 
-  test('the header names the interview, shows a clock and offers exactly three controls', async ({
+  test('the header names the interview, shows no clock and offers exactly three controls', async ({
     page,
   }) => {
     await mockCallApi(page)
@@ -253,7 +253,9 @@ test.describe('the call stage (the default live interview)', () => {
       'Assessment interview · Sales Manager'
     )
     await expect(header.getByRole('button')).toHaveText(['Captions on', 'Microphone on', 'Exit'])
-    await expect(page.getByTestId('call-header-clock').locator('time')).toHaveText(/^\d{2,}:\d{2}$/)
+    // No clock in the header: the countdown in the panel is the interview's one timer.
+    await expect(page.getByTestId('call-header-clock')).toHaveCount(0)
+    await expect(page.getByTestId('call-panel-duration').getByRole('timer')).toHaveCount(1)
     await expect(header.getByRole('timer')).toHaveCount(0)
     await expect(page.getByRole('timer')).toHaveCount(1)
     await expect(page.getByTestId('call-header-captions')).toHaveAttribute('aria-pressed', 'true')
@@ -1268,7 +1270,7 @@ async function expectSingleColumn(
 /**
  * The live call, pixel for pixel, at 1440x900 on a light and a dark client colour
  * (design D14, "Visual regression"; DESIGN §7.3). The self-view video is masked (a
- * canvas-backed stream, never the same two frames), and so are the two clocks that
+ * canvas-backed stream, never the same two frames), and so are the two times that
  * count in real time; CSS animations are disabled. Baselines live next to this
  * spec for both browsers, darwin and linux, and are regenerated only in the pinned
  * container (`task e2e:update`).
@@ -1290,7 +1292,6 @@ test.describe('the call stage, pixel for pixel', () => {
         animations: 'disabled',
         mask: [
           page.locator('[data-slot="call-stage-self"] video'),
-          page.getByTestId('call-panel-duration-value'),
           page.getByTestId('call-panel').locator('time'),
         ],
       })

@@ -1,6 +1,6 @@
 <template>
   <div class="flex items-center gap-2">
-    <span class="text-sm text-muted-foreground">{{
+    <span class="text-sm text-muted-foreground" :class="figure ? 'sr-only' : ''">{{
       label ?? $t('interview.live.timer_label')
     }}</span>
     <!--
@@ -12,8 +12,11 @@
       role="timer"
       :aria-label="label ?? $t('interview.live.timer_label')"
       :aria-live="remaining <= 10 ? 'assertive' : 'off'"
-      class="font-mono text-base font-semibold tabular-nums"
-      :class="remaining <= 10 ? 'text-recording' : 'text-card-foreground'"
+      class="font-mono font-semibold tabular-nums"
+      :class="[
+        figure ? 'text-4xl leading-none' : 'text-base',
+        remaining <= 10 ? 'text-recording' : 'text-card-foreground',
+      ]"
     >
       {{ formattedTime }}
     </time>
@@ -30,6 +33,9 @@
  *   label   — optional caption, used as both the visible text and the accessible
  *             name. Defaults to `interview.live.timer_label`; the call side panel
  *             passes the longer "time left for this question".
+ *
+ *   figure  — draw the time as the big figure of a section that already carries a heading
+ *             (the call panel's duration); the caption stays as an sr-only text. Default false.
  *
  * Emits:
  *   tick    — the remaining seconds, every second. The parent OWNS the remaining
@@ -53,6 +59,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 const props = defineProps<{
   seconds: number
   label?: string
+  figure?: boolean
 }>()
 
 const emit = defineEmits<{

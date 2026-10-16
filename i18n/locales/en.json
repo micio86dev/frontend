@@ -64,7 +64,6 @@
         "title": "Assessment interview",
         "title_with_subject": "Assessment interview · {subject}",
         "potential": "Potential",
-        "elapsed_sr": "Elapsed time",
         "captions_on": "Captions on",
         "captions_off": "Captions off",
         "microphone_on": "Microphone on",
@@ -97,9 +96,8 @@
       },
       "duration": {
         "label": "Interview duration",
-        "value": "{elapsed} / {total}",
-        "sr": "{elapsed} elapsed out of a maximum of {total}",
-        "remaining": "About {n} minute left | About {n} minutes left"
+        "of_max": "of {minutes} min",
+        "sr": "{elapsed} elapsed out of a maximum of {total}"
       },
       "remaining_label": "Time remaining",
       "interviewer_name": "AI interviewer",
