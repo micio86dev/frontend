@@ -93,6 +93,29 @@ describe('CallAnswerTimer - the figure', () => {
   })
 })
 
+describe('CallAnswerTimer - layout order', () => {
+  const indexOf = (html: string, marker: string) => html.indexOf(marker)
+
+  it('puts the status chip and the hint on top, the bar next and the figure UNDER the bar', () => {
+    const html = mountTimer({ phase: 'answering', budget: BUDGET, micMuted: true }).html()
+    const chip = indexOf(html, 'data-testid="call-answer-chip"')
+    const hint = indexOf(html, 'data-testid="call-answer-muted"')
+    const bar = indexOf(html, 'data-testid="call-answer-bar"')
+    const time = indexOf(html, '<time')
+
+    expect(chip).toBeGreaterThan(-1)
+    expect(chip).toBeLessThan(hint)
+    expect(hint).toBeLessThan(bar)
+    expect(bar).toBeLessThan(time)
+  })
+
+  it('without a budget there is no bar: the chip, then the figure', () => {
+    const html = mountTimer({ phase: 'waiting', budget: null }).html()
+
+    expect(indexOf(html, 'data-testid="call-answer-chip"')).toBeLessThan(indexOf(html, '<time'))
+  })
+})
+
 describe('CallAnswerTimer - the status chip', () => {
   const chip = (wrapper: VueWrapper) => wrapper.find('[data-testid="call-answer-chip"]')
 

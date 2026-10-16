@@ -1,11 +1,7 @@
 <template>
   <div data-testid="call-answer-timer" class="flex flex-col gap-3">
-    <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <time
-        :datetime="`PT${Math.max(Math.floor(seconds), 0)}S`"
-        class="font-mono text-4xl leading-none font-semibold tabular-nums"
-        >{{ formatClock(seconds) }}</time
-      >
+    <!-- The row keeps its height while idle, so the chip appearing never pushes the bar down. -->
+    <div class="flex min-h-6 flex-wrap items-center gap-x-3 gap-y-2">
       <Badge
         v-if="phase !== 'idle'"
         data-testid="call-answer-chip"
@@ -24,59 +20,67 @@
       <span>{{ $t('interview.call.answer.muted_hint') }}</span>
     </p>
 
-    <template v-if="zones">
-      <!-- The outer padding keeps an icon at a boundary near either end from clipping. -->
-      <div class="px-2">
-        <div class="relative py-0.5">
+    <!-- The outer padding keeps an icon at a boundary near either end from clipping. -->
+    <div v-if="zones" class="px-2">
+      <div class="relative py-0.5">
+        <div
+          data-testid="call-answer-bar"
+          role="progressbar"
+          aria-valuemin="0"
+          :aria-valuemax="zones.end"
+          :aria-valuenow="zones.elapsed"
+          :aria-valuetext="
+            $t('interview.call.answer.budget_sr', {
+              elapsed: formatBudgetTime(zones.elapsed),
+              from: formatBudgetTime(budget!.min),
+              to: formatBudgetTime(budget!.max),
+            })
+          "
+          :aria-label="$t('interview.call.answer.budget_label')"
+          class="flex h-2.5 w-full overflow-hidden rounded-full"
+        >
           <div
-            data-testid="call-answer-bar"
-            role="progressbar"
-            aria-valuemin="0"
-            :aria-valuemax="zones.end"
-            :aria-valuenow="zones.elapsed"
-            :aria-valuetext="
-              $t('interview.call.answer.budget_sr', {
-                elapsed: formatBudgetTime(zones.elapsed),
-                from: formatBudgetTime(budget!.min),
-                to: formatBudgetTime(budget!.max),
-              })
-            "
-            :aria-label="$t('interview.call.answer.budget_label')"
-            class="flex h-2.5 w-full overflow-hidden rounded-full"
+            v-for="(zone, index) in zones.items"
+            :key="zone.name"
+            data-testid="call-answer-zone"
+            :data-zone="zone.name"
+            class="relative h-full"
+            :class="[zone.track, index > 0 ? 'ml-0.5' : '']"
+            :style="{ width: `${zone.width}%` }"
           >
             <div
-              v-for="(zone, index) in zones.items"
-              :key="zone.name"
-              data-testid="call-answer-zone"
-              :data-zone="zone.name"
-              class="relative h-full"
-              :class="[zone.track, index > 0 ? 'ml-0.5' : '']"
-              :style="{ width: `${zone.width}%` }"
-            >
-              <div
-                data-testid="call-answer-fill"
-                class="h-full transition-[width] duration-300 motion-reduce:transition-none"
-                :class="zone.ink"
-                :style="{ width: `${zone.fill}%` }"
-              />
-            </div>
+              data-testid="call-answer-fill"
+              class="h-full transition-[width] duration-300 motion-reduce:transition-none"
+              :class="zone.ink"
+              :style="{ width: `${zone.fill}%` }"
+            />
           </div>
-          <span
-            data-testid="call-answer-min-icon"
-            class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-background text-success-dark"
-            :style="{ left: `${(budget!.min * 100) / budget!.end}%` }"
-          >
-            <CircleCheckIcon aria-hidden="true" class="block size-4" />
-          </span>
-          <span
-            data-testid="call-answer-max-icon"
-            class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-background text-error-dark"
-            :style="{ left: `${(budget!.max * 100) / budget!.end}%` }"
-          >
-            <AlarmClockIcon aria-hidden="true" class="block size-4" />
-          </span>
         </div>
+        <span
+          data-testid="call-answer-min-icon"
+          class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-background text-success-dark"
+          :style="{ left: `${(budget!.min * 100) / budget!.end}%` }"
+        >
+          <CircleCheckIcon aria-hidden="true" class="block size-4" />
+        </span>
+        <span
+          data-testid="call-answer-max-icon"
+          class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-background text-error-dark"
+          :style="{ left: `${(budget!.max * 100) / budget!.end}%` }"
+        >
+          <AlarmClockIcon aria-hidden="true" class="block size-4" />
+        </span>
       </div>
+    </div>
+
+    <!-- The figure sits UNDER the bar, as plain text: the bar says how far, this says how long. -->
+    <time
+      :datetime="`PT${Math.max(Math.floor(seconds), 0)}S`"
+      class="font-mono text-4xl leading-none font-semibold tabular-nums"
+      >{{ formatClock(seconds) }}</time
+    >
+
+    <template v-if="zones">
       <p data-testid="call-answer-labels" class="text-sm font-medium tabular-nums">
         {{
           $t('interview.call.answer.budget_range', {
@@ -118,6 +122,9 @@
  * assistive technology) whose value is read on demand, never announced; its min / ideal / max
  * range is also written as text under it, and a text hint appears once the answer runs long,
  * so colour is never the only carrier.
+ *
+ * Top to bottom: the status chip (and the muted hint), the bar with its two markers, then the
+ * elapsed time as plain text UNDER the bar, the range sentence and the long-answer hint.
  *
  * The bar is three zones: too short [0, min), good answer [min, max], long (max, end]. Each
  * zone fills in turn, so the position reads against the guidance.
