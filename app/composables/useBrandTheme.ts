@@ -246,8 +246,8 @@ const DEFAULT_PRIMARY = '#771aaf'
  * white adds chroma — so these reproduce each token's ROLE, and the product's
  * own three values stay the authored constants they are.
  *
- * Three of the four then pass through `ensureContrast`, because three of them
- * land on a canvas where §9.1's floor is binding and the operator's colour is
+ * Four of the five then pass through `ensureContrast` (all but `primary-dark`),
+ * because four of them land on a canvas where §9.1's floor is binding and the operator's colour is
  * arbitrary. That is DESIGN.md §7.3.2 rule 2, and it is the difference between
  * branding a waveform and hiding one.
  */

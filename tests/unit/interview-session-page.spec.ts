@@ -430,6 +430,27 @@ describe('interview/session.vue — timer expiry and skip', () => {
     expect(wrapper.get('[data-testid="call-exit"]').attributes('disabled')).toBeUndefined()
   })
 
+  // The candidate did not mute during a handover (it holds the microphone shut)
+  // and cannot unmute then, so the "you are muted" badge must not show.
+  it('shows the muted-microphone badge on the live call when the candidate muted', async () => {
+    const session = makeSession({ state: 'live' })
+    session.micMuted.value = true
+    const wrapper = await mountPage(session)
+
+    expect(wrapper.find('[data-testid="call-mic-muted-badge"]').exists()).toBe(true)
+  })
+
+  it('hides the muted-microphone badge while a handover is in flight', async () => {
+    const session = makeSession({
+      state: 'live',
+      incoming: { dbSessionId: 99, provider: makeProvider(), config: CONFIG },
+    })
+    session.micMuted.value = true
+    const wrapper = await mountPage(session)
+
+    expect(wrapper.find('[data-testid="call-mic-muted-badge"]').exists()).toBe(false)
+  })
+
   // Pausing a LIVE question keeps the provider session up (tearing it down would
   // restart the question from its opening line), so `avatarMounted` stays true —
   // and the standalone `paused` section is ordered AFTER the avatar section in the

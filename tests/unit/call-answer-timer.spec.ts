@@ -5,8 +5,8 @@
  *
  * Pinned here: the elapsed figure is a plain <time> (never a timer role, never a live region:
  * announcing every second would bury the question), the chip is text, the muted hint is plain
- * text, and the suggested-length bar exists only with a budget, is guidance (full and calm past
- * the scale end) and states the good-answer range as text. `$t` is backed by the REAL `it.json` / `en.json`.
+ * text, and the suggested-length bar exists only with a budget, is guidance (full, with no alarm
+ * past the scale end: warning tokens and a text hint, never red or pulsing) and states the good-answer range as text. `$t` is backed by the REAL `it.json` / `en.json`.
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -337,17 +337,34 @@ describe('CallAnswerTimer - the suggested-length bar', () => {
     )
   })
 
-  it('past the end of the scale the bar stays full and calm (guidance only)', () => {
+  it('past the end of the scale the bar stays full with no alarm (guidance only)', () => {
     const wrapper = mountTimer({ seconds: 260, budget: BUDGET, phase: 'answering' })
-    const fills = wrapper.findAll('[data-testid="call-answer-fill"]').map(widthOf)
+    const fills = wrapper.findAll('[data-testid="call-answer-fill"]')
     const progress = bar(wrapper)
 
-    expect(fills).toEqual([100, 100, 100])
+    expect(fills.map(widthOf)).toEqual([100, 100, 100])
     expect(progress.attributes('aria-valuenow')).toBe('200')
     expect(wrapper.get('time').text()).toBe('04:20')
-    // The chip is a Badge whose base class list names `destructive`; the bar and the figure are ours.
-    const drawn = bar(wrapper).html() + wrapper.get('time').html()
-    expect(drawn).not.toMatch(/destructive|recording|alert/)
+
+    // The intended warning treatment: the long zone is a warning track with a warning fill, and
+    // the red alarm icon is the max marker (a boundary, not an alert).
+    const long = segments(wrapper)[2]!
+    expect(long.classes()).toContain('bg-warning-light')
+    expect(fills[2]!.classes()).toContain('bg-warning')
+    expect(wrapper.get('[data-testid="call-answer-max-icon"]').classes()).toContain(
+      'text-error-dark'
+    )
+
+    // No red / destructive classes and no pulsing or animation on any fill or on the figure. The
+    // chip is a Badge whose base class list names `destructive`; the bar and the figure are ours.
+    const drawn =
+      fills.map((fill) => fill.attributes('class')).join(' ') + wrapper.get('time').html()
+    expect(drawn).not.toMatch(/destructive|recording|alert|bg-error|text-error|animate|pulse/)
+
+    // The only cue past the end is the status text hint.
+    expect(wrapper.get('[data-testid="call-answer-long"]').text()).toBe(
+      'Risposta lunga: puoi concludere'
+    )
     expect(wrapper.emitted()).toEqual({})
   })
 

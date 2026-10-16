@@ -117,7 +117,7 @@
  *   seconds  — the answer time, counted from the moment the interviewer stopped speaking.
  *   phase    — idle / listening / waiting / answering. The chip states it in TEXT; idle has none.
  *   budget   — the good-answer range and the bar's scale end in whole seconds, or null (no bar,
- *              no labels). Guidance only: past the scale end the bar stays full and calm.
+ *              no labels). Guidance only: past the scale end the bar stays full, with no alarm (warning tokens, no red, no pulse).
  *   micMuted — the candidate's own INTENT (not the visual state): the hint tells them to
  *              unmute, which they cannot do during a handover.
  *
