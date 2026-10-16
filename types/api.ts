@@ -1439,7 +1439,7 @@ export interface paths {
         head?: never;
         /**
          * Update the organization
-         * @description Accepts `name`, the default webhook settings, `primary_color` and
+         * @description Accepts `name`, the default webhook settings, `primary_color`, `background_color` and
          *     `currency_code` (active catalogue codes only). Any other field in the body
          *     is ignored.
          */
@@ -3073,6 +3073,7 @@ export interface components {
             branding: {
                 name: string | null;
                 primary_color: string | null;
+                background_color: string | null;
                 logo_url: string | null;
             };
             project: {
@@ -3420,6 +3421,7 @@ export interface components {
             name: string;
             slug: string;
             primary_color: string | null;
+            background_color: string | null;
             currency_code: string;
             logo_url: string | null;
             default_webhook_url: string | null;
@@ -3509,6 +3511,7 @@ export interface components {
             branding: {
                 name: string | null;
                 primary_color: string | null;
+                background_color: string | null;
                 logo_url: string | null;
             };
             project: {
@@ -4181,13 +4184,14 @@ export interface components {
          * UpdateManagedOrganizationRequest
          * @description Validates PATCH /api/admin/organizations/{id} (superadmin only).
          *
-         *     Only `name`, `primary_color` and `currency_code` are writable here. `slug` is a tenancy
+         *     Only `name`, `primary_color`, `background_color` and `currency_code` are writable here. `slug` is a tenancy
          *     identifier and is never editable; the webhook defaults and the logo keep
          *     their own tenant-facing endpoints.
          */
         UpdateManagedOrganizationRequest: {
             name?: string;
             primary_color?: string | null;
+            background_color?: string | null;
             currency_code?: string;
         };
         /**
@@ -4226,6 +4230,7 @@ export interface components {
              *     choosing a colour would be a one-way door.
              */
             primary_color?: string | null;
+            background_color?: string | null;
             currency_code?: string;
         };
         /**
