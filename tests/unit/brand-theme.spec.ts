@@ -22,10 +22,14 @@
  */
 import { describe, it, expect, afterEach } from 'vitest'
 import {
+  applyBrandCanvas,
   applyBrandColor,
+  BRAND_CANVAS_TOKENS,
   BRAND_COLOR_TOKENS,
   BRAND_DERIVED_TOKENS,
+  BRAND_EDGE_TOKEN,
   BRAND_ON_PRIMARY_TOKENS,
+  deriveCanvasTokens,
   brandColorRevision,
   deriveOnPrimaryTokens,
 } from '../../app/composables/useBrandTheme'
@@ -38,10 +42,16 @@ function read(token: string): string {
 }
 
 afterEach(() => {
+  // Through the writers, so their module state (the edge guard reads both
+  // colours) is reset along with the properties.
+  applyBrandColor(null)
+  applyBrandCanvas(null)
   for (const token of [
     ...BRAND_COLOR_TOKENS,
     ...BRAND_DERIVED_TOKENS,
     ...BRAND_ON_PRIMARY_TOKENS,
+    ...BRAND_CANVAS_TOKENS,
+    BRAND_EDGE_TOKEN,
   ]) {
     document.documentElement.style.removeProperty(token)
   }
@@ -290,9 +300,8 @@ describe('the canvas contrast guarantee (DESIGN.md §7.3.2 rule 2)', () => {
 })
 
 describe('on-primary tokens (the text colour for anything drawn on the tenant canvas)', () => {
-  it('lists exactly the six on-primary tokens', () => {
+  it('lists exactly the five on-primary tokens (the canvas tone is derived from the background now)', () => {
     expect([...BRAND_ON_PRIMARY_TOKENS].sort()).toEqual([
-      '--color-canvas-tone',
       '--color-on-primary',
       '--color-on-primary-muted',
       '--color-on-primary-surface',
@@ -420,5 +429,143 @@ describe('on-primary margin at the worst-case tenant colour', () => {
     expect(worst.grey).toBe('#757575')
     expect(worst.ratio).toBeGreaterThanOrEqual(FLOOR)
     expect(worst.ratio).toBeLessThan(4.7)
+  })
+})
+
+describe('the speaking ring follows the primary, guarded at 3:1 on the avatar panel', () => {
+  const PANEL = '#0f172a'
+
+  it('is one of the derived tokens, so it is painted and cleared with the primary', () => {
+    expect(BRAND_DERIVED_TOKENS).toContain('--color-speaking-ring')
+  })
+
+  it('lifts the Quint primary (2.1:1 on the panel) to ensureContrast(primary, panel, 3)', () => {
+    applyBrandColor('#771aaf')
+
+    expect(read('--color-speaking-ring')).toBe(ensureContrast('#771aaf', PANEL, 3))
+    expect(read('--color-speaking-ring')).not.toBe('#771aaf')
+  })
+
+  it('keeps a primary that already reaches 3:1 verbatim (yellow)', () => {
+    applyBrandColor('#ffd400')
+
+    expect(read('--color-speaking-ring')).toBe('#ffd400')
+  })
+
+  it.each(['#000000', '#12203a', '#771aaf', '#e45526', '#ffd400', '#ffffff'])(
+    'clears 3:1 against the avatar panel for %s',
+    (colour) => {
+      applyBrandColor(colour)
+
+      expect(contrastRatio(read('--color-speaking-ring'), PANEL)).toBeGreaterThanOrEqual(3)
+    }
+  )
+})
+
+describe('applyBrandCanvas', () => {
+  it('writes every canvas token as concrete hex', () => {
+    applyBrandCanvas('#f1f5f9')
+
+    expect(read('--color-canvas')).toBe('#f1f5f9')
+    for (const token of BRAND_CANVAS_TOKENS) {
+      expect(read(token), token).toMatch(/^#[0-9a-f]{6}$/i)
+    }
+  })
+
+  it('flips on-canvas to dark text on a light background, at >= 4.5:1', () => {
+    applyBrandCanvas('#f1f5f9')
+
+    expect(read('--color-on-canvas')).toBe('#000000')
+    expect(contrastRatio(read('--color-on-canvas'), '#f1f5f9')).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(read('--color-on-canvas-muted'), '#f1f5f9')).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('keeps white text on the dark default background', () => {
+    applyBrandCanvas('#0f172a')
+
+    expect(read('--color-on-canvas')).toBe('#ffffff')
+  })
+
+  it('derives the same tokens deriveCanvasTokens returns', () => {
+    applyBrandCanvas('#1e3a5f')
+
+    for (const [token, value] of Object.entries(deriveCanvasTokens('#1e3a5f'))) {
+      expect(read(token)).toBe(value)
+    }
+  })
+
+  it('removes every canvas token on null, so the stylesheet default (dark) returns', () => {
+    applyBrandCanvas('#f1f5f9')
+    applyBrandCanvas(null)
+
+    for (const token of BRAND_CANVAS_TOKENS) {
+      expect(read(token), token).toBe('')
+    }
+  })
+
+  it.each(['red; } body { display: none } .x {', '#fff', 'f1f5f9', '#f1f5f9;'])(
+    'ignores the invalid value %j and clears what was there',
+    (bad) => {
+      applyBrandCanvas('#f1f5f9')
+      applyBrandCanvas(bad)
+
+      for (const token of BRAND_CANVAS_TOKENS) {
+        expect(read(token), token).toBe('')
+      }
+    }
+  )
+
+  it('does not touch the primary tokens', () => {
+    applyBrandColor('#771aaf')
+    applyBrandCanvas('#f1f5f9')
+    applyBrandCanvas(null)
+
+    expect(read('--color-primary')).toBe('#771aaf')
+  })
+
+  it('bumps the revision so cached canvas readers repaint', () => {
+    const before = brandColorRevision.value
+    applyBrandCanvas('#f1f5f9')
+
+    expect(brandColorRevision.value).toBeGreaterThan(before)
+  })
+})
+
+describe('the primary edge on the canvas (DESIGN.md §3.1 rule 3)', () => {
+  it('is the on-canvas colour when the primary is under 3:1 against the canvas', () => {
+    // Quint on the dark default is 2.1:1: the disc needs a visible edge.
+    applyBrandColor('#771aaf')
+    applyBrandCanvas('#0f172a')
+
+    expect(read(BRAND_EDGE_TOKEN)).toBe('#ffffff')
+  })
+
+  it('is the primary itself (no visible border) when it reaches 3:1', () => {
+    applyBrandColor('#ffd400')
+    applyBrandCanvas('#0f172a')
+
+    expect(read(BRAND_EDGE_TOKEN)).toBe('#ffd400')
+  })
+
+  it('guards a yellow primary on a light background with a dark edge', () => {
+    applyBrandColor('#ffd400')
+    applyBrandCanvas('#f1f5f9')
+
+    expect(read(BRAND_EDGE_TOKEN)).toBe('#000000')
+  })
+
+  it('is measured against the default canvas when only the primary is set', () => {
+    applyBrandColor('#771aaf')
+
+    expect(read(BRAND_EDGE_TOKEN)).toBe('#ffffff')
+  })
+
+  it('is removed once both colours are cleared', () => {
+    applyBrandColor('#ffd400')
+    applyBrandCanvas('#f1f5f9')
+    applyBrandColor(null)
+    applyBrandCanvas(null)
+
+    expect(read(BRAND_EDGE_TOKEN)).toBe('')
   })
 })

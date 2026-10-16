@@ -2,7 +2,7 @@
   <div data-testid="call-header" class="flex w-full min-w-0 items-center gap-4">
     <p
       data-testid="call-header-title"
-      class="mr-auto line-clamp-2 min-w-0 text-base font-semibold text-on-primary"
+      class="mr-auto line-clamp-2 min-w-0 text-base font-semibold text-on-canvas"
     >
       {{ title }}
     </p>
@@ -15,7 +15,9 @@
         on and microphone on = primary surface + ink border (the live microphone adds a green
         dot); captions off = neutral card; microphone muted = error-dark on error-light with a
         red dot. Colour is never the only cue: the visible label states the state, the icon
-        swaps and `aria-pressed` repeats it.
+        swaps and `aria-pressed` repeats it. Hover fills are OPAQUE mixes, never a `/NN` alpha of
+        the surface: the controls sit on the canvas, which can be dark, and a translucent fill
+        over it leaves the dark label on a dark pixel.
       -->
       <Button
         data-testid="call-header-captions"
@@ -24,8 +26,8 @@
         class="h-(--spacing-control) gap-2 px-4 transition-colors"
         :class="
           captionsEnabled
-            ? 'border-primary-ink bg-primary-surface text-on-primary-surface hover:bg-primary-surface/70'
-            : 'bg-card text-card-foreground hover:bg-primary-surface/40'
+            ? 'border-primary-ink bg-primary-surface text-on-primary-surface hover:bg-[color-mix(in_oklab,var(--color-primary-surface)_70%,white)]'
+            : 'bg-card text-card-foreground hover:bg-[color-mix(in_oklab,var(--color-primary-surface)_40%,white)]'
         "
         @click="emit('toggle-captions')"
       >
@@ -53,7 +55,7 @@
         :class="
           micMuted
             ? 'border-error-dark bg-error-light text-error-dark hover:bg-[color-mix(in_oklab,var(--color-error)_22%,white)] hover:text-error-dark'
-            : 'border-primary-ink bg-primary-surface text-on-primary-surface hover:bg-primary-surface/70'
+            : 'border-primary-ink bg-primary-surface text-on-primary-surface hover:bg-[color-mix(in_oklab,var(--color-primary-surface)_70%,white)]'
         "
         @click="onToggleMic"
       >

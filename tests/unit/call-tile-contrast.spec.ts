@@ -2,11 +2,12 @@
  * The speaking ring's contrast guarantee (DESIGN.md §3.1, §3.5; change
  * `candidate-interview-call-ui`, D5), computed rather than asserted in prose.
  *
- * The ring is a white band between two `--color-avatar-bg` bands, so it does
- * not depend on the brand colour or on the video behind the tile. This spec
- * measures the pair with the same `contrastRatio` the runtime derivation uses,
- * for the whole screenshot matrix, and proves the tokens are outside every
- * brand token list so no tenant colour can ever reach them.
+ * The ring is the organization PRIMARY (REVISED 2026-10-16: it was a fixed
+ * white), a band between two `--color-avatar-bg` bands, so it does not depend
+ * on the video behind the tile. `applyBrandColor` lifts the primary only as far
+ * as 3:1 against the panel needs. This spec measures the pair with the same
+ * `contrastRatio` the runtime derivation uses, for the whole screenshot
+ * matrix, and proves the panel token is outside every brand token list.
  */
 import { describe, it, expect, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -17,7 +18,7 @@ import {
   BRAND_DERIVED_TOKENS,
   BRAND_ON_PRIMARY_TOKENS,
 } from '../../app/composables/useBrandTheme'
-import { contrastRatio } from '../../app/utils/brand-color'
+import { contrastRatio, ensureContrast } from '../../app/utils/brand-color'
 
 const CSS = readFileSync(resolve(__dirname, '../../app/assets/css/main.css'), 'utf8')
 /** Read lazily so a missing component fails its own test, not the whole file. */
@@ -40,8 +41,9 @@ const MATRIX: ReadonlyArray<[label: string, color: string | null]> = [
 ]
 
 describe('the ring tokens are literals in the stylesheet', () => {
-  it('declares --color-speaking-ring as #ffffff and --color-avatar-bg as #0f172a', () => {
-    expect(RING?.toLowerCase()).toBe('#ffffff')
+  it('declares --color-speaking-ring as the Quint primary lifted to 3:1 and --color-avatar-bg as #0f172a', () => {
+    expect(RING?.toLowerCase()).toBe(ensureContrast('#771aaf', '#0f172a', 3))
+    expect(RING?.toLowerCase()).toBe('#9c59c5')
     expect(PANEL?.toLowerCase()).toBe('#0f172a')
   })
 
@@ -55,33 +57,47 @@ describe.each(MATRIX)('speaking ring contrast — %s', (_label, brand) => {
     applyBrandColor(null)
   })
 
-  it('the white band clears 3:1 against --color-avatar-bg (about 17.9:1)', () => {
+  const ring = (): string =>
+    document.documentElement.style.getPropertyValue('--color-speaking-ring') || (RING as string)
+
+  it('the primary band clears 3:1 against --color-avatar-bg', () => {
     applyBrandColor(brand)
 
-    const ratio = contrastRatio(RING as string, PANEL as string)
-
-    expect(ratio).toBeGreaterThanOrEqual(3)
-    expect(ratio).toBeCloseTo(17.9, 1)
+    expect(contrastRatio(ring(), PANEL as string)).toBeGreaterThanOrEqual(3)
   })
 
-  it('applying the brand never writes the ring or the panel token', () => {
+  it('is the primary itself when it already reaches 3:1, a lightened variant otherwise', () => {
     applyBrandColor(brand)
-    const style = document.documentElement.style
 
-    expect(style.getPropertyValue('--color-speaking-ring')).toBe('')
-    expect(style.getPropertyValue('--color-avatar-bg')).toBe('')
+    const primary = brand ?? '#771aaf'
+    const reaches = contrastRatio(primary, PANEL as string) >= 3
+
+    expect(ring()).toBe(reaches ? primary : ensureContrast(primary, PANEL as string, 3))
+  })
+
+  it('applying the brand never writes the panel token', () => {
+    applyBrandColor(brand)
+
+    expect(document.documentElement.style.getPropertyValue('--color-avatar-bg')).toBe('')
+  })
+
+  it('clearing the brand removes the ring override, so the stylesheet default returns', () => {
+    applyBrandColor(brand ?? '#ffd400')
+    applyBrandColor(null)
+
+    expect(document.documentElement.style.getPropertyValue('--color-speaking-ring')).toBe('')
   })
 })
 
-describe('the ring uses no brand token', () => {
+describe('the ring is drawn from the two ring tokens only', () => {
   const BRAND_TOKENS: readonly string[] = [
     ...BRAND_COLOR_TOKENS,
     ...BRAND_DERIVED_TOKENS,
     ...BRAND_ON_PRIMARY_TOKENS,
   ]
 
-  it('neither ring token is in a brand token list', () => {
-    expect(BRAND_TOKENS).not.toContain('--color-speaking-ring')
+  it('the ring token is a derived brand token and the panel is not', () => {
+    expect(BRAND_DERIVED_TOKENS).toContain('--color-speaking-ring')
     expect(BRAND_TOKENS).not.toContain('--color-avatar-bg')
   })
 
@@ -94,7 +110,11 @@ describe('the ring uses no brand token', () => {
     const referenced = new Set([...source.matchAll(/var\((--[a-z0-9-]+)\)/g)].map((m) => m[1]))
 
     expect([...referenced].sort()).toEqual(['--color-avatar-bg', '--color-speaking-ring'])
-    for (const token of BRAND_TOKENS) expect(source).not.toContain(token)
+    // No other brand variable, and the halo follows the ring colour (not a fixed white).
+    for (const token of BRAND_TOKENS.filter((t) => t !== '--color-speaking-ring')) {
+      expect(source).not.toContain(token)
+    }
+    expect(source).not.toContain('rgb(255_255_255')
   })
 })
 

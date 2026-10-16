@@ -54,6 +54,7 @@ describe('useCandidateBranding', () => {
     candidateFetchMock.mockReset()
     ;(await branding()).reset()
     document.documentElement.style.removeProperty('--color-primary')
+    document.documentElement.style.removeProperty('--color-canvas')
   })
 
   afterEach(async () => {
@@ -65,6 +66,7 @@ describe('useCandidateBranding', () => {
       sessionResponse({
         name: null,
         primary_color: '#123456',
+        background_color: null,
         logo_url: 'https://cdn.test/logo.png',
       })
     )
@@ -82,7 +84,7 @@ describe('useCandidateBranding', () => {
     // would drift the first time the palette changes.
     document.documentElement.style.setProperty('--color-primary', '#ffffff')
     candidateFetchMock.mockResolvedValue(
-      sessionResponse({ name: null, primary_color: null, logo_url: null })
+      sessionResponse({ name: null, primary_color: null, background_color: null, logo_url: null })
     )
 
     const store = await branding()
@@ -101,6 +103,7 @@ describe('useCandidateBranding', () => {
       sessionResponse({
         name: null,
         primary_color: 'red; } body { display: none } .x {',
+        background_color: null,
         logo_url: null,
       })
     )
@@ -130,7 +133,7 @@ describe('useCandidateBranding', () => {
     // `useExitRedirect` reads the same endpoint on page mount and hands the
     // result over, so the common path costs no extra request.
     const store = await branding()
-    store.prime({ primary_color: '#abcdef', logo_url: null, name: null })
+    store.prime({ primary_color: '#abcdef', background_color: null, logo_url: null, name: null })
 
     await store.ensureLoaded()
 
@@ -140,12 +143,70 @@ describe('useCandidateBranding', () => {
 
   it('single-flights concurrent callers into one request', async () => {
     candidateFetchMock.mockResolvedValue(
-      sessionResponse({ name: null, primary_color: null, logo_url: null })
+      sessionResponse({ name: null, primary_color: null, background_color: null, logo_url: null })
     )
 
     const store = await branding()
     await Promise.all([store.ensureLoaded(), store.ensureLoaded(), store.ensureLoaded()])
 
     expect(candidateFetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  describe('the background colour (the canvas)', () => {
+    const read = (token: string) => document.documentElement.style.getPropertyValue(token)
+
+    it('paints the canvas with the organization background', async () => {
+      candidateFetchMock.mockResolvedValue(
+        sessionResponse({
+          name: null,
+          primary_color: '#771aaf',
+          background_color: '#f1f5f9',
+          logo_url: null,
+        })
+      )
+
+      await (await branding()).ensureLoaded()
+
+      expect(read('--color-canvas')).toBe('#f1f5f9')
+      expect(read('--color-on-canvas')).toBe('#000000')
+      expect(read('--color-primary')).toBe('#771aaf')
+    })
+
+    it('REMOVES the canvas tokens when there is no background (dark default), never writes one', async () => {
+      document.documentElement.style.setProperty('--color-canvas', '#ffffff')
+      candidateFetchMock.mockResolvedValue(
+        sessionResponse({
+          name: null,
+          primary_color: '#771aaf',
+          background_color: null,
+          logo_url: null,
+        })
+      )
+
+      await (await branding()).ensureLoaded()
+
+      expect(read('--color-canvas')).toBe('')
+      expect(read('--color-on-canvas')).toBe('')
+    })
+
+    it('refuses a background that is not a plain six-digit hex', async () => {
+      const store = await branding()
+      store.prime({
+        primary_color: null,
+        background_color: 'red; } body { display: none } .x {',
+        logo_url: null,
+        name: null,
+      })
+
+      expect(read('--color-canvas')).toBe('')
+    })
+
+    it('reset() clears the canvas tokens', async () => {
+      const store = await branding()
+      store.prime({ primary_color: null, background_color: '#f1f5f9', logo_url: null, name: null })
+      store.reset()
+
+      expect(read('--color-canvas')).toBe('')
+    })
   })
 })

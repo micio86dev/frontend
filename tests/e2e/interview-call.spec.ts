@@ -64,8 +64,12 @@ interface CallApi {
 }
 
 /** The branded interview routes, the call-screen media, and the counters the specs read. */
-async function mockCallApi(page: Page, primaryColor: string | null = '#771aaf'): Promise<CallApi> {
-  await mockBrandedInterview(page, primaryColor)
+async function mockCallApi(
+  page: Page,
+  primaryColor: string | null = '#771aaf',
+  backgroundColor: string | null = null
+): Promise<CallApi> {
+  await mockBrandedInterview(page, primaryColor, backgroundColor)
   await injectCallMedia(page)
 
   let starts = 0
@@ -232,6 +236,7 @@ test.describe('the call stage (the default live interview)', () => {
             project: { exit_redirect_url: null },
             branding: {
               primary_color: '#771aaf',
+              background_color: null,
               logo_url: 'https://cdn.test/acme.png',
               name: 'Acme Selezione',
             },
@@ -680,13 +685,13 @@ test.describe('the call stage (the default live interview)', () => {
   })
 })
 
-for (const [label, colour] of [
-  ['light #ffd400', '#ffd400'],
-  ['dark #771aaf', '#771aaf'],
+for (const [label, colour, background] of [
+  ['yellow #ffd400 on the dark default', '#ffd400', null],
+  ['purple #771aaf on a light #f1f5f9', '#771aaf', '#f1f5f9'],
 ] as const) {
-  test.describe(`the call screen is legible (axe) on the client colour — ${label}`, () => {
+  test.describe(`the call screen is legible (axe) on the client colours — ${label}`, () => {
     test('live screen, open exit dialog and suspended screen', async ({ page }) => {
-      await mockCallApi(page, colour)
+      await mockCallApi(page, colour, background)
       await goLive(page)
 
       await checkA11y(page)
@@ -703,7 +708,7 @@ for (const [label, colour] of [
     test('the full panel: answer bar, progress and duration; the competency list is hidden', async ({
       page,
     }) => {
-      const api = await mockCallApi(page, colour)
+      const api = await mockCallApi(page, colour, background)
       await goLiveFullPanel(page, api)
       await expect(page.getByTestId('call-answer-bar')).toBeVisible()
       await expect(page.getByTestId('call-panel-progress')).toBeVisible()
@@ -714,7 +719,7 @@ for (const [label, colour] of [
     })
 
     test('live screen with a caption, then with captions off', async ({ page }) => {
-      await mockCallApi(page, colour)
+      await mockCallApi(page, colour, background)
       await goLive(page)
       await say(page, 'Tell me about a time you led a change.')
       await expect(page.getByTestId('call-question-speaker')).toBeVisible()

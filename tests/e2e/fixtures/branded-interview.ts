@@ -4,7 +4,8 @@ import type { Page } from '@playwright/test'
  * Routes for a candidate interview on a client's brand canvas: the SSO
  * exchange, the candidate session carrying the branding, the interview start
  * and the fire-and-forget telemetry endpoints. `primaryColor: null` is an
- * organization that configured no colour (the Quint fallback).
+ * organization that configured no colour (the Quint fallback); `backgroundColor:
+ * null` one that configured no background (the dark default canvas).
  */
 
 function base64url(input: string): string {
@@ -64,7 +65,11 @@ export const OUTLINE_RESPONSE = {
   ],
 }
 
-export async function mockBrandedInterview(page: Page, primaryColor: string | null): Promise<void> {
+export async function mockBrandedInterview(
+  page: Page,
+  primaryColor: string | null,
+  backgroundColor: string | null = null
+): Promise<void> {
   await page.route('**/api/sso/exchange*', (route) =>
     route.fulfill({
       status: 200,
@@ -79,7 +84,12 @@ export async function mockBrandedInterview(page: Page, primaryColor: string | nu
       body: JSON.stringify({
         data: {
           project: { exit_redirect_url: null },
-          branding: { primary_color: primaryColor, logo_url: null, name: 'Acme Selezione' },
+          branding: {
+            primary_color: primaryColor,
+            background_color: backgroundColor,
+            logo_url: null,
+            name: 'Acme Selezione',
+          },
         },
       }),
     })

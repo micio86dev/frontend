@@ -21,7 +21,8 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { deriveOnPrimaryTokens } from '../../app/composables/useBrandTheme'
+import { contrastRatio, ensureContrast } from '../../app/utils/brand-color'
+import { deriveCanvasTokens, deriveOnPrimaryTokens } from '../../app/composables/useBrandTheme'
 
 const CSS_PATH = resolve(__dirname, '../../app/assets/css/main.css')
 
@@ -103,6 +104,26 @@ describe('main.css — brand token reconciliation (D9)', () => {
     for (const [token, value] of Object.entries(deriveOnPrimaryTokens('#771aaf'))) {
       expectToken(cssSource, token, value)
     }
+  })
+
+  it('canvas tokens default to exactly what applyBrandCanvas derives for the dark #0f172a', () => {
+    // The default canvas is dark (DESIGN.md §3.1), declared once in @theme and
+    // asserted against the writer's derivation, like the on-primary family.
+    for (const [token, value] of Object.entries(deriveCanvasTokens('#0f172a'))) {
+      expectToken(cssSource, token, value)
+    }
+  })
+
+  it('--color-speaking-ring defaults to the primary lifted to 3:1 on the avatar panel', () => {
+    // ensureContrast('#771aaf', '#0f172a', 3): authored, so the no-colour path
+    // matches what applyBrandColor('#771aaf') would write.
+    expectToken(cssSource, '--color-speaking-ring', ensureContrast('#771aaf', '#0f172a', 3))
+  })
+
+  it('--color-primary-edge defaults to the edge the guard derives for Quint on the dark canvas', () => {
+    // Quint on #0f172a is under 3:1, so the default edge is the on-canvas white.
+    expect(contrastRatio('#771aaf', '#0f172a')).toBeLessThan(3)
+    expectToken(cssSource, '--color-primary-edge', '#ffffff')
   })
 
   it('--color-bg-gradient contains linear-gradient(135deg', () => {

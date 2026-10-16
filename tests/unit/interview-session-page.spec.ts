@@ -882,9 +882,9 @@ describe('interview/session.vue — expired-session variant (D-D)', () => {
 
 /**
  * The whole interview sits on the brand canvas (DESIGN.md §7.0.1, §7.2): the
- * client's colour is the page from the landing to the done screen, and the
+ * client's background colour is the page from the landing to the done screen, and the
  * avatar panel keeps its own dark surface inside it. Content lives on white
- * surfaces; only on-primary tokens are drawn on the bare canvas.
+ * surfaces; only on-canvas tokens are drawn on the bare canvas.
  */
 const ALL_STATES: ReadonlyArray<SessionState> = [
   'idle',
@@ -899,7 +899,7 @@ const ALL_STATES: ReadonlyArray<SessionState> = [
 ]
 
 const WHITE_PAGE_CLASSES =
-  /(^|\s)(text-primary|text-foreground|text-muted-foreground|text-destructive|bg-background)(\s|$)/
+  /(^|\s)(text-primary|text-on-primary(-muted)?|text-foreground|text-muted-foreground|text-destructive|bg-background)(\s|$)/
 
 /** Every element drawn on the bare canvas: outside any white surface and the avatar panel. */
 function bareCanvasElements(wrapper: Awaited<ReturnType<typeof mountPage>>): Element[] {
@@ -914,8 +914,8 @@ describe('interview session — on the brand canvas in every state', () => {
     const wrapper = await mountPage(makeSession({ state }))
 
     expect(wrapper.classes()).toContain('brand-canvas')
-    expect(wrapper.classes()).toContain('bg-primary')
-    expect(wrapper.classes()).toContain('text-on-primary')
+    expect(wrapper.classes()).toContain('bg-canvas')
+    expect(wrapper.classes()).toContain('text-on-canvas')
     expect(wrapper.get('main').attributes('aria-label')).toBe('interview.document_title')
   })
 

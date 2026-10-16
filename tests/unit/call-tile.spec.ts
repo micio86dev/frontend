@@ -20,7 +20,7 @@ function mountTile(props: Record<string, unknown> = {}, slots: Record<string, st
 }
 
 const RING_SHADOW =
-  'data-[speaking=true]:shadow-[0_0_0_2px_var(--color-avatar-bg),0_0_0_5px_var(--color-speaking-ring),0_0_0_7px_var(--color-avatar-bg),0_0_32px_rgb(255_255_255/0.3)]'
+  'data-[speaking=true]:shadow-[0_0_0_2px_var(--color-avatar-bg),0_0_0_5px_var(--color-speaking-ring),0_0_0_7px_var(--color-avatar-bg),0_0_32px_color-mix(in_srgb,var(--color-speaking-ring)_30%,transparent)]'
 
 describe('CallTile resting state', () => {
   it('is a dark frame with a 2px avatar-bg resting ring and renders its media slot', () => {

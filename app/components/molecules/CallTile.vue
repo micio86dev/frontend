@@ -45,10 +45,11 @@
  * Presentational only. It owns no signal and no copy: the parent decides who
  * is speaking and passes the already-localized `name` and `speakingLabel`.
  *
- * The ring is a box-shadow composite, outside in: 2px avatar-bg, 3px white,
- * 2px avatar-bg, then a decorative 32px white halo at 30%. The white band
- * sits between two dark bands, so its contrast does not depend on the brand
- * colour or the video behind it; no brand token appears here on purpose.
+ * The ring is a box-shadow composite, outside in: 2px avatar-bg, 3px
+ * speaking-ring, 2px avatar-bg, then a decorative 32px halo of the ring colour
+ * at 30%. `--color-speaking-ring` is the organization primary, lifted to 3:1
+ * against avatar-bg by useBrandTheme (DESIGN.md §3.1), and it sits between two
+ * dark bands, so its contrast does not depend on the video behind it.
  * Resting, the tile keeps only the 2px dark frame.
  *
  * Motion: a 150ms box-shadow transition under `motion-safe` only (DESIGN.md
@@ -72,7 +73,7 @@ withDefaults(
 const TILE_CLASSES = [
   'relative overflow-hidden rounded-surface bg-avatar-bg',
   'shadow-[0_0_0_2px_var(--color-avatar-bg)]',
-  'data-[speaking=true]:shadow-[0_0_0_2px_var(--color-avatar-bg),0_0_0_5px_var(--color-speaking-ring),0_0_0_7px_var(--color-avatar-bg),0_0_32px_rgb(255_255_255/0.3)]',
+  'data-[speaking=true]:shadow-[0_0_0_2px_var(--color-avatar-bg),0_0_0_5px_var(--color-speaking-ring),0_0_0_7px_var(--color-avatar-bg),0_0_32px_color-mix(in_srgb,var(--color-speaking-ring)_30%,transparent)]',
   'motion-safe:transition-shadow motion-safe:duration-150 motion-safe:ease-out',
 ]
 </script>

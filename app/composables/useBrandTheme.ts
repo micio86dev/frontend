@@ -1,5 +1,8 @@
 /**
- * Paint the organization's primary colour over the product's.
+ * Paint the organization's colours over the product's: the PRIMARY (accent of
+ * active states, buttons, the speaking ring) with `applyBrandColor`, and the
+ * BACKGROUND (the candidate canvas, dark `#0f172a` when unset) with
+ * `applyBrandCanvas`. The primary no longer paints the page (DESIGN.md §3.1).
  *
  * WHICH TOKENS, AND WHY THESE
  * ---------------------------
@@ -98,6 +101,7 @@ export const BRAND_DERIVED_TOKENS = [
   '--color-primary-caption',
   '--color-primary-dark',
   '--color-lavender',
+  '--color-speaking-ring',
 ] as const
 
 /**
@@ -113,9 +117,9 @@ export const BRAND_DERIVED_TOKENS = [
  * - `--color-primary-ink`: the primary darkened until it reads at 4.5:1 on a
  *   white surface — the brand colour as a link, a focus ring or a meter inside
  *   a card, where the raw primary can be invisible (yellow on white is 1.07:1).
- * - `--color-canvas-tone`: the primary moved AWAY from on-primary (deeper when
- *   the text is white, lighter when it is black). The canvas decoration paints
- *   only with it, so it can only raise the contrast of the text above it.
+ *
+ * The canvas family (`--color-canvas`, `--color-on-canvas`, ...) is derived
+ * from the BACKGROUND colour instead: see `BRAND_CANVAS_TOKENS`.
  *
  * Concrete hex only, never `color-mix()` (see `app/utils/brand-color`).
  */
@@ -125,11 +129,41 @@ export const BRAND_ON_PRIMARY_TOKENS = [
   '--color-primary-surface',
   '--color-on-primary-surface',
   '--color-primary-ink',
+] as const
+
+/**
+ * Tokens for the candidate canvas, derived from the organization's BACKGROUND
+ * colour (DESIGN.md §3.1 "Candidate brand canvas"):
+ *
+ * - `--color-canvas`: the background itself.
+ * - `--color-on-canvas`: black or white, whichever contrasts more.
+ * - `--color-on-canvas-muted`: on-canvas mixed toward the canvas as far as it
+ *   stays at 4.5:1.
+ * - `--color-canvas-tone`: the canvas moved AWAY from on-canvas (deeper when the
+ *   text is white, lighter when it is black). The canvas decoration paints only
+ *   with it, so it can only raise the contrast of the text above it.
+ */
+export const BRAND_CANVAS_TOKENS = [
+  '--color-canvas',
+  '--color-on-canvas',
+  '--color-on-canvas-muted',
   '--color-canvas-tone',
 ] as const
 
+/**
+ * A solid primary fill sitting DIRECTLY on the canvas (the current step disc)
+ * needs a visible edge when the two are close (DESIGN.md §3.1 rule 3): the
+ * primary itself (no visible border) when it reaches 3:1 against the canvas,
+ * the on-canvas colour otherwise. Depends on both colours, so both writers
+ * refresh it.
+ */
+export const BRAND_EDGE_TOKEN = '--color-primary-edge'
+
 /** WCAG AA for body text. */
 const TEXT_MIN_RATIO = 4.5
+
+/** WCAG 1.4.11 for a graphical object or a component edge. */
+const GRAPHICAL_MIN_RATIO = 3
 
 /** Share of on-primary kept when softening, softest first. */
 const MUTED_WEIGHTS = [0.78, 0.84, 0.9, 0.95] as const
@@ -151,17 +185,35 @@ export function deriveOnPrimaryTokens(
 
   const ink = ensureContrast(color, '#ffffff', TEXT_MIN_RATIO, '#000000')
 
-  // A channel lerp toward black only lowers every channel, toward white only
-  // raises it, so the tone is monotonically further from on-primary than the
-  // canvas is: any blend of the two reads at least as well as the bare canvas.
-  const tone = onPrimary === '#ffffff' ? mix(color, '#000000', 0.55) : mix(color, '#ffffff', 0.3)
-
   return {
     '--color-on-primary': onPrimary,
     '--color-on-primary-muted': muted,
     '--color-primary-surface': surface,
     '--color-on-primary-surface': onSurface,
     '--color-primary-ink': ink,
+  }
+}
+
+/** The canvas tokens for a validated `#rrggbb` background colour. */
+export function deriveCanvasTokens(
+  canvas: string
+): Record<(typeof BRAND_CANVAS_TOKENS)[number], string> {
+  const onCanvas = readableForeground(canvas)
+
+  const muted =
+    MUTED_WEIGHTS.map((weight) => mix(onCanvas, canvas, weight)).find(
+      (candidate) => contrastRatio(candidate, canvas) >= TEXT_MIN_RATIO
+    ) ?? onCanvas
+
+  // A channel lerp toward black only lowers every channel, toward white only
+  // raises it, so the tone is monotonically further from on-canvas than the
+  // canvas is: any blend of the two reads at least as well as the bare canvas.
+  const tone = onCanvas === '#ffffff' ? mix(canvas, '#000000', 0.55) : mix(canvas, '#ffffff', 0.3)
+
+  return {
+    '--color-canvas': canvas,
+    '--color-on-canvas': onCanvas,
+    '--color-on-canvas-muted': muted,
     '--color-canvas-tone': tone,
   }
 }
@@ -176,6 +228,14 @@ export function deriveOnPrimaryTokens(
  * stops it drifting.
  */
 const AVATAR_PANEL = '#0f172a'
+
+/**
+ * The stylesheet defaults the edge guard falls back to while one of the two
+ * colours is unset. Duplicated from `main.css` for the same reason as
+ * `AVATAR_PANEL` and bound to it by the same arch test.
+ */
+const DEFAULT_CANVAS = '#0f172a'
+const DEFAULT_PRIMARY = '#771aaf'
 
 /**
  * How each companion shade is built from the brand colour.
@@ -220,6 +280,34 @@ const DERIVE: Record<(typeof BRAND_DERIVED_TOKENS)[number], (color: string) => s
   // measures rather than the 3:1 floor, because this is the mark a candidate
   // reads as "the system is listening" and it is a hairline at rest.
   '--color-lavender': (color) => ensureContrast(mix(color, '#ffffff', 0.55), AVATAR_PANEL, 4.5),
+
+  // The band of the call tile's speaking ring: the PRIMARY, lightened only as
+  // far as 3:1 against the avatar panel needs (the ring sits between two panel
+  // coloured keyline bands, WCAG 1.4.11). A primary that already clears it is
+  // left alone; the Quint purple (2.1:1) is lifted to a lighter purple.
+  '--color-speaking-ring': (color) => ensureContrast(color, AVATAR_PANEL, 3),
+}
+
+/** The colours last applied, so each writer can refresh the edge guard. */
+let appliedPrimary: string | null = null
+let appliedCanvas: string | null = null
+
+function syncPrimaryEdge(): void {
+  const root = document.documentElement
+
+  if (appliedPrimary === null && appliedCanvas === null) {
+    root.style.removeProperty(BRAND_EDGE_TOKEN)
+
+    return
+  }
+
+  const primary = appliedPrimary ?? DEFAULT_PRIMARY
+  const canvas = appliedCanvas ?? DEFAULT_CANVAS
+
+  root.style.setProperty(
+    BRAND_EDGE_TOKEN,
+    contrastRatio(primary, canvas) >= GRAPHICAL_MIN_RATIO ? primary : readableForeground(canvas)
+  )
 }
 
 /**
@@ -242,6 +330,8 @@ export function applyBrandColor(color: string | null | undefined): void {
 
   const root = document.documentElement
 
+  appliedPrimary = color && HEX.test(color) ? color : null
+
   if (!color || !HEX.test(color)) {
     // Remove rather than reset: removing restores the stylesheet's own value,
     // while writing one here would hardcode a second copy of the brand colour.
@@ -255,6 +345,8 @@ export function applyBrandColor(color: string | null | undefined): void {
     ]) {
       root.style.removeProperty(token)
     }
+
+    syncPrimaryEdge()
 
     // Bumped on this path too. A refusal and a clear both CHANGE the
     // stylesheet — back to the product palette — so a cached reader is just as
@@ -282,6 +374,37 @@ export function applyBrandColor(color: string | null | undefined): void {
   for (const [token, value] of Object.entries(deriveOnPrimaryTokens(color))) {
     root.style.setProperty(token, value)
   }
+
+  syncPrimaryEdge()
+
+  brandColorRevision.value += 1
+}
+
+/**
+ * Paint the candidate canvas with the organization's background colour.
+ *
+ * Same contract as `applyBrandColor`: re-validated here because it writes into
+ * a stylesheet, and `null` / an invalid value REMOVES the tokens so the dark
+ * default declared in `main.css` comes back instead of a second copy of it.
+ */
+export function applyBrandCanvas(color: string | null | undefined): void {
+  if (typeof document === 'undefined') return
+
+  const root = document.documentElement
+
+  appliedCanvas = color && HEX.test(color) ? color : null
+
+  if (!color || !HEX.test(color)) {
+    for (const token of BRAND_CANVAS_TOKENS) {
+      root.style.removeProperty(token)
+    }
+  } else {
+    for (const [token, value] of Object.entries(deriveCanvasTokens(color))) {
+      root.style.setProperty(token, value)
+    }
+  }
+
+  syncPrimaryEdge()
 
   brandColorRevision.value += 1
 }

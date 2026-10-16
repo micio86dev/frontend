@@ -871,6 +871,7 @@ describe('InterviewSession — the live header', () => {
   it('draws the logo on the same plate on the consent screen and while live', async () => {
     useCandidateBranding().prime({
       primary_color: '#771aaf',
+      background_color: null,
       logo_url: 'https://cdn.test/acme.png',
       name: null,
     })

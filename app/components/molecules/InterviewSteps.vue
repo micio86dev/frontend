@@ -5,18 +5,18 @@
     class="flex items-center gap-2 text-sm"
   >
     <!--
-      Drawn straight on the brand canvas, so on-primary tokens only (DESIGN.md
-      §3.1 rule 1). The current step is a solid on-primary disc with the
-      numeral in the canvas colour: that pair is the canvas pair itself,
-      >= 4.5:1 for any client colour. Steps ahead are muted, steps behind
-      carry a check and a hidden "done" for screen readers.
+      Drawn straight on the brand canvas, so on-canvas tokens only (DESIGN.md
+      §3.1 rule 1). The current step is the primary accent: a solid primary
+      disc with the numeral in on-primary (>= 4.5:1 for any client colour),
+      edged with the canvas guard (§3.1 rule 3). Steps ahead are muted, steps
+      behind carry a check and a hidden "done" for screen readers.
     -->
     <li
       v-for="(step, index) in STEPS"
       :key="step"
       :aria-current="step === current ? 'step' : undefined"
       class="flex items-center gap-2"
-      :class="index > currentIndex ? 'text-on-primary-muted' : 'text-on-primary'"
+      :class="index > currentIndex ? 'text-on-canvas-muted' : 'text-on-canvas'"
     >
       <span
         aria-hidden="true"
@@ -73,13 +73,15 @@ const currentIndex = computed(() => STEPS.indexOf(props.current))
 
 <style scoped>
 /*
- * The current step: an on-primary disc with the numeral in the canvas colour.
- * Written here rather than as `text-primary` so no template ever carries the
- * class that is invisible on the canvas; the pair is the canvas pair itself.
+ * The current step: a primary disc with the numeral in on-primary. Written
+ * here rather than as `bg-primary` so no template carries a bare primary fill
+ * on the canvas: the disc is edged with `--color-primary-edge`, which is the
+ * on-canvas colour while the primary is under 3:1 against the canvas
+ * (DESIGN.md §3.1 rule 3) and the primary itself otherwise.
  */
 .interview-steps__disc--current {
-  background: var(--color-on-primary);
-  border-color: var(--color-on-primary);
-  color: var(--color-primary);
+  background: var(--color-primary);
+  border-color: var(--color-primary-edge);
+  color: var(--color-on-primary);
 }
 </style>

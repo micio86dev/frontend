@@ -238,7 +238,22 @@ describe('CallHeader — state colours', () => {
       ])
     )
     expect(off).toContain('bg-card')
-    expect(off).toContain('hover:bg-primary-surface/40')
+    expect(
+      off.some((c) => c.startsWith('hover:bg-[color-mix(in_oklab,var(--color-primary-surface)'))
+    ).toBe(true)
+  })
+
+  it('never uses a translucent hover fill: the controls sit on the canvas, which can be dark', () => {
+    // `hover:bg-primary-surface/40` replaces the opaque card fill, so on a dark
+    // canvas the dark label sat on a dark pixel (axe color-contrast, serious).
+    for (const wrapper of [
+      captions(mountHeader({ captionsEnabled: true })),
+      captions(mountHeader({ captionsEnabled: false })),
+      mic(mountHeader({ micMuted: false })),
+      mic(mountHeader({ micMuted: true })),
+    ]) {
+      expect(wrapper.classes().filter((c) => /^hover:bg-[a-z-]+\/\d+$/.test(c))).toEqual([])
+    }
   })
 })
 

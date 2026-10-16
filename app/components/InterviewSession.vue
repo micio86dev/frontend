@@ -272,7 +272,7 @@
         aria-hidden="true"
         class="aspect-video w-full rounded-surface bg-avatar-bg shadow-avatar"
       />
-      <p class="text-sm text-on-primary-muted">{{ $t('shell.loading.title') }}</p>
+      <p class="text-sm text-on-canvas-muted">{{ $t('shell.loading.title') }}</p>
     </section>
 
     <!--

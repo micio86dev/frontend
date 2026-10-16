@@ -103,7 +103,7 @@ describe('NoticeShell — on the brand canvas', () => {
     const wrapper = mountShell()
     const surface = wrapper.get('[data-slot="brand-canvas-surface"]')
 
-    expect(wrapper.classes()).toContain('bg-primary')
+    expect(wrapper.classes()).toContain('bg-canvas')
     expect(surface.find('h1').exists()).toBe(true)
     expect(surface.text()).toContain('A message')
   })
@@ -145,6 +145,7 @@ describe("NoticeShell — the organization's mark, or ours, but never nothing", 
     const { useCandidateBranding } = await import('../../app/composables/useCandidateBranding')
     useCandidateBranding().prime({
       primary_color: null,
+      background_color: null,
       logo_url: 'https://cdn.test/acme.png',
       name: null,
     })
@@ -185,6 +186,7 @@ describe('NoticeShell — the organization is named, not just drawn', () => {
     const { useCandidateBranding } = await import('../../app/composables/useCandidateBranding')
     useCandidateBranding().prime({
       primary_color: null,
+      background_color: null,
       logo_url: null,
       name: 'Acme Selezione',
     })
@@ -204,6 +206,7 @@ describe('NoticeShell — the organization is named, not just drawn', () => {
     const { useCandidateBranding } = await import('../../app/composables/useCandidateBranding')
     useCandidateBranding().prime({
       primary_color: null,
+      background_color: null,
       logo_url: 'https://cdn.test/acme.png',
       name: 'Acme Selezione',
     })

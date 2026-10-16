@@ -6,10 +6,11 @@
  * every colour of the screenshot matrix it asserts each text/background pair
  * the candidate canvas introduces, using the same `contrastRatio` the runtime
  * derivation uses. "None" is the Quint fallback, i.e. the stylesheet defaults,
- * which `token-parity.spec.ts` pins to the derivation for `#771aaf`.
+ * which `token-parity.spec.ts` pins to the derivation for `#771aaf` (primary)
+ * and `#0f172a` (the dark default canvas).
  */
 import { describe, it, expect } from 'vitest'
-import { deriveOnPrimaryTokens } from '../../app/composables/useBrandTheme'
+import { deriveCanvasTokens, deriveOnPrimaryTokens } from '../../app/composables/useBrandTheme'
 import { contrastRatio, mix } from '../../app/utils/brand-color'
 
 const QUINT = '#771aaf'
@@ -24,33 +25,30 @@ const MATRIX: ReadonlyArray<[label: string, color: string]> = [
   ['mid grey #777777', '#777777'],
 ]
 
+/** Backgrounds of the screenshot matrix: Light, Dark (the default), and edges. */
+const BACKGROUNDS: ReadonlyArray<[label: string, color: string]> = [
+  ['dark default #0f172a', '#0f172a'],
+  ['light #f1f5f9', '#f1f5f9'],
+  ['navy #1e3a5f', '#1e3a5f'],
+  ['yellow #ffd400', '#ffd400'],
+  ['pure white #ffffff', '#ffffff'],
+  ['pure black #000000', '#000000'],
+  ['mid grey #777777', '#777777'],
+]
+
 const WHITE = '#ffffff'
 /** `--card` is oklch(1 0 0), i.e. white: the elevated surface. */
 const CARD = WHITE
 
-describe.each(MATRIX)('brand canvas contrast — %s', (_label, primary) => {
+describe.each(MATRIX)('brand primary contrast — %s', (_label, primary) => {
   const tokens = deriveOnPrimaryTokens(primary)
 
-  it('on-primary text on the canvas clears 4.5:1', () => {
+  it('on-primary text on a primary fill (button, chip) clears 4.5:1', () => {
     expect(contrastRatio(tokens['--color-on-primary'], primary)).toBeGreaterThanOrEqual(4.5)
   })
 
-  it('on-primary-muted text on the canvas clears 4.5:1', () => {
+  it('on-primary-muted text on a primary fill clears 4.5:1', () => {
     expect(contrastRatio(tokens['--color-on-primary-muted'], primary)).toBeGreaterThanOrEqual(4.5)
-  })
-
-  it('the decorative tone layer can only raise on-primary contrast, at any opacity', () => {
-    const base = contrastRatio(tokens['--color-on-primary'], primary)
-
-    for (const alpha of [0, 0.1, 0.25, 0.5, 0.75, 1]) {
-      // `mix(a, b, r)` keeps `r` of `a`: a tone layer at `alpha` over the canvas.
-      const blended = mix(primary, tokens['--color-canvas-tone'], 1 - alpha)
-
-      expect(
-        contrastRatio(tokens['--color-on-primary'], blended),
-        `alpha ${alpha}`
-      ).toBeGreaterThanOrEqual(base - 0.01)
-    }
   })
 
   it('primary-ink clears 4.5:1 on the white surface', () => {
@@ -87,8 +85,8 @@ describe.each(MATRIX)('interview chrome contrast — %s', (_label, primary) => {
     expect(contrastRatio(tokens['--color-primary-ink'], TRACK)).toBeGreaterThanOrEqual(3)
   })
 
-  it('the current step numeral (primary on an on-primary disc) clears 4.5:1', () => {
-    expect(contrastRatio(primary, tokens['--color-on-primary'])).toBeGreaterThanOrEqual(4.5)
+  it('the current step numeral (on-primary on the primary disc) clears 4.5:1', () => {
+    expect(contrastRatio(tokens['--color-on-primary'], primary)).toBeGreaterThanOrEqual(4.5)
   })
 })
 
@@ -98,7 +96,67 @@ describe('interview chrome — constant pairs', () => {
   })
 })
 
-describe('brand canvas — derived ink and tone', () => {
+describe.each(BACKGROUNDS)('brand canvas contrast — background %s', (_label, background) => {
+  const tokens = deriveCanvasTokens(background)
+
+  it('on-canvas text clears 4.5:1', () => {
+    expect(contrastRatio(tokens['--color-on-canvas'], background)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('on-canvas-muted text clears 4.5:1', () => {
+    expect(contrastRatio(tokens['--color-on-canvas-muted'], background)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('the decorative tone layer can only raise on-canvas contrast, at any opacity', () => {
+    const base = contrastRatio(tokens['--color-on-canvas'], background)
+
+    for (const alpha of [0, 0.1, 0.25, 0.5, 0.75, 1]) {
+      // `mix(a, b, r)` keeps `r` of `a`: a tone layer at `alpha` over the canvas.
+      const blended = mix(background, tokens['--color-canvas-tone'], 1 - alpha)
+
+      expect(
+        contrastRatio(tokens['--color-on-canvas'], blended),
+        `alpha ${alpha}`
+      ).toBeGreaterThanOrEqual(base - 0.01)
+    }
+  })
+})
+
+describe('brand canvas — the primary accent against the canvas (DESIGN.md §3.1 rule 3)', () => {
+  // A primary fill drawn directly on the canvas is either >= 3:1 against it or
+  // carries an on-canvas edge that is itself >= 3:1.
+  it.each(MATRIX.flatMap(([pl, p]) => BACKGROUNDS.map(([bl, b]) => [pl, bl, p, b] as const)))(
+    'primary %s on background %s: legible by fill or by edge',
+    (_pl, _bl, primary, background) => {
+      const onCanvas = deriveCanvasTokens(background)['--color-on-canvas']
+      const fillReads = contrastRatio(primary, background) >= 3
+
+      expect(fillReads || contrastRatio(onCanvas, background) >= 3).toBe(true)
+    }
+  )
+})
+
+describe('brand canvas — derived canvas tokens', () => {
+  it('keeps the background verbatim as the canvas', () => {
+    expect(deriveCanvasTokens('#f1f5f9')['--color-canvas']).toBe('#f1f5f9')
+  })
+
+  it('flips the text to black on a light background and keeps it white on the dark default', () => {
+    expect(deriveCanvasTokens('#f1f5f9')['--color-on-canvas']).toBe('#000000')
+    expect(deriveCanvasTokens('#0f172a')['--color-on-canvas']).toBe('#ffffff')
+  })
+
+  it('deepens a canvas that carries white text and lifts one that carries black text', () => {
+    expect(deriveCanvasTokens('#0f172a')['--color-canvas-tone']).toBe(
+      mix('#0f172a', '#000000', 0.55)
+    )
+    expect(deriveCanvasTokens('#f1f5f9')['--color-canvas-tone']).toBe(
+      mix('#f1f5f9', '#ffffff', 0.3)
+    )
+  })
+})
+
+describe('brand primary — derived ink', () => {
   it('keeps the primary itself as ink when it already reads on white', () => {
     expect(deriveOnPrimaryTokens(QUINT)['--color-primary-ink']).toBe(QUINT)
   })
@@ -108,15 +166,6 @@ describe('brand canvas — derived ink and tone', () => {
 
     expect(ink).not.toBe('#ffd400')
     expect(contrastRatio(ink, WHITE)).toBeGreaterThanOrEqual(4.5)
-  })
-
-  it('deepens a canvas that carries white text and lifts one that carries black text', () => {
-    // Quint: white on-primary, so the tone is a deeper purple.
-    expect(deriveOnPrimaryTokens(QUINT)['--color-canvas-tone']).toBe(mix(QUINT, '#000000', 0.55))
-    // Yellow: black on-primary, so the tone is a lighter yellow.
-    expect(deriveOnPrimaryTokens('#ffd400')['--color-canvas-tone']).toBe(
-      mix('#ffd400', '#ffffff', 0.3)
-    )
   })
 
   it('records the mid-tone call DESIGN.md §7.0.1 makes: black wins on #2f6fed', () => {
