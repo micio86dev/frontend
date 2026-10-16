@@ -1055,14 +1055,16 @@ test.describe('the call stage fits the viewport', () => {
 
       const layer = await boxOf(page.locator('[data-slot="avatar-layer"]'))
       const panel = await boxOf(page.getByTestId('call-panel'))
-      // The panel is at least as tall as the video and never taller than the screen.
-      expect(panel.height).toBeGreaterThanOrEqual(layer.height - 1)
+      // The panel is exactly as tall as the video (top and bottom edges aligned) and never taller than the screen.
+      expect(Math.abs(panel.height - layer.height)).toBeLessThanOrEqual(1)
       expect(panel.bottom).toBeLessThanOrEqual(height)
       for (const id of ['call-panel-answer', 'call-panel-path', 'call-panel-duration']) {
         await expect(page.getByTestId(id)).toBeVisible()
       }
-      // The help link is the last thing in the panel: if it is inside the panel and on screen,
-      // nothing above it pushed the column past its bottom edge.
+      // The help link is the last thing in the panel. The panel is exactly the video's height, so a
+      // short window scrolls it inside; once scrolled to, the link must sit inside the panel and on
+      // screen: nothing above it pushed the column past its bottom edge.
+      await page.getByTestId('call-help-link').scrollIntoViewIfNeeded()
       const help = await boxOf(page.getByTestId('call-help-link'))
       expect(help.bottom).toBeLessThanOrEqual(panel.bottom)
       expect(help.bottom).toBeLessThanOrEqual(height)

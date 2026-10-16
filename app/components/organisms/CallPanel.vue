@@ -2,7 +2,7 @@
   <aside
     data-testid="call-panel"
     aria-labelledby="call-panel-title"
-    class="brand-canvas__surface flex flex-row flex-wrap items-center gap-x-8 gap-y-4 rounded-surface bg-card p-6 text-card-foreground shadow-surface xl:min-h-0 xl:flex-1 xl:flex-col xl:flex-nowrap xl:overflow-y-auto xl:items-stretch xl:gap-5"
+    class="brand-canvas__surface flex flex-row flex-wrap items-center gap-x-8 gap-y-4 rounded-surface bg-card p-6 text-card-foreground shadow-surface xl:min-h-0 xl:flex-1 xl:flex-col xl:flex-nowrap xl:overflow-y-auto xl:items-stretch xl:gap-4 xl:p-5"
   >
     <p
       id="call-panel-title"
@@ -45,7 +45,7 @@
       v-if="hasTotal || hasStoryboard"
       data-testid="call-panel-path"
       aria-labelledby="call-panel-path-label"
-      class="flex min-h-0 min-w-56 flex-1 flex-col gap-3 xl:flex-1"
+      class="flex min-h-0 min-w-56 flex-1 flex-col gap-3 xl:min-h-[5.5rem] xl:flex-1"
     >
       <p
         id="call-panel-path-label"
