@@ -38,14 +38,16 @@
 
     <!--
       Path: where the candidate is in the interview. The sentence and bar state the server's
-      total; the storyboard under them names the outline's competencies. A <p> label, not a
-      heading, so the page's heading outline is unchanged.
+      total. The storyboard under them, which names the outline's competencies, is NOT shown to
+      the candidate (owner decision): it stays mounted in a `display:none` wrapper, so it is
+      out of the visual and the accessibility tree alike, and can come back by dropping the
+      class. A <p> label, not a heading, so the page's heading outline is unchanged.
     -->
     <section
-      v-if="hasTotal || hasStoryboard"
+      v-if="hasTotal"
       data-testid="call-panel-path"
       aria-labelledby="call-panel-path-label"
-      class="flex min-h-0 min-w-56 flex-1 flex-col gap-3 xl:min-h-[5.5rem] xl:flex-1"
+      class="flex min-w-56 flex-1 flex-col gap-3 xl:flex-none"
     >
       <p
         id="call-panel-path-label"
@@ -64,8 +66,10 @@
           :value-text="$t('interview.call.path.progress', progress)"
         />
       </div>
-      <CallStoryboard v-if="hasStoryboard" :items="storyboard!" :primary-index="primaryIndex" />
     </section>
+    <div v-if="hasStoryboard" data-testid="call-panel-storyboard" class="hidden">
+      <CallStoryboard :items="storyboard!" :primary-index="primaryIndex" />
+    </div>
 
     <!--
       Interview duration. The heading, the figure, the bar and the sentence appear only once
@@ -127,7 +131,7 @@
       </div>
     </section>
 
-    <div class="flex flex-wrap items-center gap-x-6 gap-y-3 xl:flex-col xl:items-stretch">
+    <div class="flex basis-full flex-col xl:mt-auto">
       <slot name="help" />
     </div>
   </aside>
@@ -139,13 +143,13 @@
  * (candidate-interview-call-ui D7, D8; DESIGN.md §7.3).
  *
  * Titled "Interview". Top to bottom: "Answer time" (the answer timer, its chip and the
- * suggested-length bar), the "Path" section ("Competency 2 of 5", a thin
- * bar, and the named storyboard), how long it has taken against the stated maximum
+ * suggested-length bar), the "Path" section ("Competency 2 of 5" and a thin bar; the named
+ * storyboard is mounted but hidden with `display:none`), how long it has taken against the stated maximum
  * ("03:12 / 25:00"), the interview countdown, then the help link. Exit lives in the call
  * header.
  *
  * NAMES, NEVER A CODE (reversed from "numbers only", live-interview-call-chrome). The
- * storyboard shows the outline's competency NAMES, handed in already localized with a
+ * storyboard (hidden from the candidate) holds the outline's competency NAMES, handed in already localized with a
  * generic fallback. The panel imports no session and has no prop that could carry a code, so
  * no element, attribute or accessible name can reveal one. A unit test holds that line,
  * including against a store that does carry one.

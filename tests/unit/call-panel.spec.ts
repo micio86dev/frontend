@@ -548,11 +548,17 @@ describe('CallPanel — names appear, a code never does', () => {
     )
   }
 
-  it('shows the competency names from the storyboard', () => {
+  it('keeps the competency names out of sight: the storyboard sits in a display:none wrapper', () => {
     const wrapper = mountFromStore()
+    const hidden = wrapper.get('[data-testid="call-panel-storyboard"]')
 
-    expect(wrapper.text()).toContain('Pensiero strategico')
-    expect(wrapper.text()).toContain('Collaborazione')
+    expect(hidden.classes()).toContain('hidden')
+    expect(hidden.text()).toContain('Pensiero strategico')
+    // Nothing outside the hidden wrapper names a competency, so no accessible name reaches one.
+    hidden.element.remove()
+    expect(wrapper.text()).not.toContain('Pensiero strategico')
+    expect(wrapper.text()).not.toContain('Collaborazione')
+    expect(wrapper.html()).not.toContain('Collaborazione')
   })
 
   it('renders no code in any text node', () => {
@@ -668,14 +674,11 @@ describe('CallPanel — fake timers never leak between tests', () => {
 })
 
 describe('CallPanel - the panel fills the stage cell and the path scrolls inside it', () => {
-  it('takes the cell height from xl and lets the Percorso section shrink to scroll', () => {
+  it('takes the cell height from xl and scrolls inside it', () => {
     const wrapper = mountPanel({ ...TWENTY, storyboard: [item(1, 'A', 'current')] })
 
     expect(wrapper.get('aside').classes()).toEqual(
       expect.arrayContaining(['xl:min-h-0', 'xl:flex-1', 'xl:overflow-y-auto'])
-    )
-    expect(wrapper.get('[data-testid="call-panel-path"]').classes()).toEqual(
-      expect.arrayContaining(['min-h-0', 'xl:flex-1'])
     )
   })
 
@@ -687,10 +690,10 @@ describe('CallPanel - the panel fills the stage cell and the path scrolls inside
     expect(title).toEqual(expect.arrayContaining(['basis-full', 'xl:basis-auto']))
   })
 
-  it('keeps the other sections at their natural height, so only the storyboard gives way', () => {
+  it('keeps every section at its natural height: the hidden list needs no reserved room', () => {
     const wrapper = mountPanel(TWENTY)
 
-    for (const id of ['call-panel-answer', 'call-panel-duration']) {
+    for (const id of ['call-panel-answer', 'call-panel-path', 'call-panel-duration']) {
       expect(wrapper.get(`[data-testid="${id}"]`).classes()).toContain('xl:flex-none')
     }
   })
@@ -703,7 +706,7 @@ describe('CallPanel — the named path (Percorso)', () => {
     item(3, 'Collaborazione', 'upcoming'),
   ]
 
-  it('lists the outline names under the progress sentence and its bar', () => {
+  it('keeps the outline in a hidden wrapper under the progress sentence and its bar', () => {
     const wrapper = mountPanel({
       ended: 1,
       total: 5,
@@ -714,6 +717,7 @@ describe('CallPanel — the named path (Percorso)', () => {
     const html = wrapper.html()
 
     expect(wrapper.get('[data-testid="call-panel-path"]').text()).toContain('Percorso')
+    expect(wrapper.get('[data-testid="call-panel-storyboard"]').classes()).toContain('hidden')
     expect(wrapper.findAll('[data-testid="call-storyboard-item"]')).toHaveLength(3)
     expect(html.indexOf('call-panel-progress-text')).toBeLessThan(html.indexOf('call-storyboard'))
   })
@@ -771,7 +775,7 @@ describe('CallPanel — the named path (Percorso)', () => {
     expect(wrapper.find('ol').exists()).toBe(false)
   })
 
-  it('still shows the storyboard while the total is unknown; the bar and sentence wait', () => {
+  it('draws no Percorso section while the total is unknown: the list alone never earns one', () => {
     const wrapper = mountPanel({
       ended: null,
       total: null,
@@ -779,7 +783,7 @@ describe('CallPanel — the named path (Percorso)', () => {
       storyboard: THREE,
     })
 
-    expect(wrapper.findAll('[data-testid="call-storyboard-item"]')).toHaveLength(3)
+    expect(wrapper.find('[data-testid="call-panel-path"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="call-panel-progress"]').exists()).toBe(false)
     expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
   })

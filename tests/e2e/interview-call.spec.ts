@@ -698,11 +698,14 @@ for (const [label, colour] of [
       await checkA11y(page)
     })
 
-    test('the full panel: answer bar, storyboard and duration', async ({ page }) => {
+    test('the full panel: answer bar, progress and duration; the competency list is hidden', async ({
+      page,
+    }) => {
       const api = await mockCallApi(page, colour)
       await goLiveFullPanel(page, api)
       await expect(page.getByTestId('call-answer-bar')).toBeVisible()
-      await expect(page.getByTestId('call-storyboard')).toBeVisible()
+      await expect(page.getByTestId('call-panel-progress')).toBeVisible()
+      await expect(page.getByTestId('call-storyboard')).toBeHidden()
       await expect(page.getByTestId('call-panel-duration')).toBeVisible()
 
       await checkA11y(page)
@@ -1089,7 +1092,8 @@ test.describe('the call stage fits the viewport', () => {
       // A scroll position is a whole pixel while the content is fractional: allow that sub-pixel.
       expect(help.bottom).toBeLessThanOrEqual(panel.bottom + 1)
       expect(help.bottom).toBeLessThanOrEqual(height)
-      // The storyboard gives way (it scrolls) rather than the panel growing the page.
+      // The help link spans the panel's inner width (a full-width button-looking link).
+      expect(help.width).toBeGreaterThan(panel.width / 2)
       const path = await boxOf(page.getByTestId('call-panel-path'))
       expect(path.bottom).toBeLessThanOrEqual(panel.bottom)
     })
