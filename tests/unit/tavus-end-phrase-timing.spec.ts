@@ -11,7 +11,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { TavusProvider, COMPLETION_FALLBACK_MS } from '~/app/providers/tavus'
+import {
+  TavusProvider,
+  COMPLETION_FALLBACK_MS,
+  AVATAR_UTTERANCE_PENDING_MS,
+} from '~/app/providers/tavus'
+import { COMPLETION_SETTLE_MS, closingFallbackMs } from '~/app/utils/closing-completion'
 
 interface MockCallFrame {
   on: ReturnType<typeof vi.fn>
@@ -50,6 +55,9 @@ const endUtterance = (role: 'replica' | 'user' = 'replica') => ({
     properties: { role, speech: `Ottimo. ${PHRASES.endPhrase}` },
   },
 })
+
+const END_SPEECH = `Ottimo. ${PHRASES.endPhrase}`
+const toolCall = { data: { type: 'conversation.tool_call', name: 'end_interview' } }
 
 const replicaStarted = { data: { event_type: 'conversation.replica.started_speaking' } }
 const replicaStopped = { data: { event_type: 'conversation.replica.stopped_speaking' } }
@@ -94,18 +102,25 @@ describe('TavusProvider — the end phrase waits for the avatar to finish speaki
     frame._emit('app-message', replicaStarted)
     frame._emit('app-message', endUtterance())
     frame._emit('app-message', replicaStopped)
+    expect(states).not.toContain('complete')
+
+    vi.advanceTimersByTime(COMPLETION_SETTLE_MS)
 
     expect(states).toContain('complete')
   })
 
-  it('completes immediately when the end phrase arrives after the speech already ended', async () => {
+  it('holds an end phrase heard after the speech ended until the utterance gate and the settle window pass', async () => {
     await startProvider()
 
     frame._emit('app-message', replicaStarted)
     frame._emit('app-message', replicaStopped)
     frame._emit('app-message', endUtterance())
+    vi.advanceTimersByTime(AVATAR_UTTERANCE_PENDING_MS + COMPLETION_SETTLE_MS - 1)
+    expect(states).not.toContain('complete')
 
-    expect(states).toContain('complete')
+    vi.advanceTimersByTime(1)
+
+    expect(states.filter((state) => state === 'complete')).toHaveLength(1)
   })
 
   it('does not complete on stopped_speaking when no end phrase was heard', async () => {
@@ -124,7 +139,7 @@ describe('TavusProvider — the end phrase waits for the avatar to finish speaki
     frame._emit('app-message', endUtterance())
     expect(states).not.toContain('complete')
 
-    vi.advanceTimersByTime(COMPLETION_FALLBACK_MS)
+    vi.advanceTimersByTime(closingFallbackMs(END_SPEECH))
 
     expect(states).toContain('complete')
   })
@@ -146,6 +161,7 @@ describe('TavusProvider — the end phrase waits for the avatar to finish speaki
     frame._emit('app-message', endUtterance())
     frame._emit('app-message', endUtterance())
     frame._emit('app-message', replicaStopped)
+    vi.advanceTimersByTime(COMPLETION_SETTLE_MS * 3)
 
     expect(states.filter((state) => state === 'complete')).toHaveLength(1)
   })
@@ -156,7 +172,7 @@ describe('TavusProvider — the end phrase waits for the avatar to finish speaki
     frame._emit('app-message', replicaStarted)
     frame._emit('app-message', endUtterance())
     frame._emit('app-message', endUtterance())
-    vi.advanceTimersByTime(COMPLETION_FALLBACK_MS)
+    vi.advanceTimersByTime(closingFallbackMs(END_SPEECH))
 
     expect(states.filter((state) => state === 'complete')).toHaveLength(1)
   })
@@ -184,14 +200,19 @@ describe('TavusProvider — the end phrase waits for the avatar to finish speaki
       ...PHRASES,
     })
     frame._emit('app-message', endUtterance())
+    vi.advanceTimersByTime(AVATAR_UTTERANCE_PENDING_MS + COMPLETION_SETTLE_MS)
 
     expect(states).toContain('complete')
   })
 
-  it('completes the tool call immediately when the avatar is not speaking', async () => {
+  it('the tool call on a silent avatar completes after the settle window, not before', async () => {
     await startProvider()
 
-    frame._emit('app-message', { data: { type: 'conversation.tool_call', name: 'end_interview' } })
+    frame._emit('app-message', toolCall)
+    vi.advanceTimersByTime(COMPLETION_SETTLE_MS - 1)
+    expect(states).not.toContain('complete')
+
+    vi.advanceTimersByTime(1)
 
     expect(states).toContain('complete')
   })
@@ -200,12 +221,87 @@ describe('TavusProvider — the end phrase waits for the avatar to finish speaki
     await startProvider()
 
     frame._emit('app-message', replicaStarted)
-    frame._emit('app-message', { data: { type: 'conversation.tool_call', name: 'end_interview' } })
+    frame._emit('app-message', toolCall)
 
     expect(states).not.toContain('complete')
 
     frame._emit('app-message', replicaStopped)
+    vi.advanceTimersByTime(COMPLETION_SETTLE_MS)
 
     expect(states).toContain('complete')
+  })
+
+  it('holds an end phrase whose utterance arrives BEFORE started_speaking', async () => {
+    await startProvider()
+
+    frame._emit('app-message', endUtterance())
+    expect(states).not.toContain('complete')
+
+    frame._emit('app-message', replicaStarted)
+    vi.advanceTimersByTime(AVATAR_UTTERANCE_PENDING_MS + COMPLETION_SETTLE_MS)
+    expect(states).not.toContain('complete')
+
+    frame._emit('app-message', replicaStopped)
+    vi.advanceTimersByTime(COMPLETION_SETTLE_MS - 1)
+    expect(states).not.toContain('complete')
+
+    vi.advanceTimersByTime(1)
+
+    expect(states.filter((state) => state === 'complete')).toHaveLength(1)
+  })
+
+  it('a mid-speech stop followed by speech inside the settle window does not complete', async () => {
+    await startProvider()
+
+    frame._emit('app-message', replicaStarted)
+    frame._emit('app-message', endUtterance())
+    frame._emit('app-message', replicaStopped)
+    vi.advanceTimersByTime(COMPLETION_SETTLE_MS - 1)
+    frame._emit('app-message', replicaStarted)
+    vi.advanceTimersByTime(COMPLETION_SETTLE_MS * 2)
+    expect(states).not.toContain('complete')
+
+    frame._emit('app-message', replicaStopped)
+    vi.advanceTimersByTime(COMPLETION_SETTLE_MS)
+
+    expect(states.filter((state) => state === 'complete')).toHaveLength(1)
+  })
+
+  it('the fallback is the base window plus the estimated speech, and not earlier', async () => {
+    await startProvider()
+    const longSpeech = `${'a'.repeat(1000)} ${PHRASES.endPhrase}`
+
+    frame._emit('app-message', replicaStarted)
+    frame._emit('app-message', {
+      data: {
+        event_type: 'conversation.utterance',
+        properties: { role: 'replica', speech: longSpeech },
+      },
+    })
+    const fallback = closingFallbackMs(longSpeech)
+
+    expect(fallback).toBeGreaterThan(COMPLETION_FALLBACK_MS)
+    vi.advanceTimersByTime(fallback - 1)
+    expect(states).not.toContain('complete')
+
+    vi.advanceTimersByTime(1)
+
+    expect(states.filter((state) => state === 'complete')).toHaveLength(1)
+  })
+
+  it('caps the fallback at five minutes', () => {
+    expect(closingFallbackMs('a'.repeat(100_000))).toBe(5 * 60_000)
+  })
+
+  it('stop() clears the settle timer, so no complete follows it', async () => {
+    const provider = await startProvider()
+
+    frame._emit('app-message', replicaStarted)
+    frame._emit('app-message', endUtterance())
+    frame._emit('app-message', replicaStopped)
+    await provider.stop()
+    vi.advanceTimersByTime(closingFallbackMs(END_SPEECH) + COMPLETION_SETTLE_MS)
+
+    expect(states).not.toContain('complete')
   })
 })

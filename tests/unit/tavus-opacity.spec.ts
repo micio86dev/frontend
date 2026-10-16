@@ -16,8 +16,12 @@
  * finishing. A session that never completes is never scored.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { TavusProvider } from '~/app/providers/tavus'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  TavusProvider,
+  AVATAR_UTTERANCE_PENDING_MS,
+  COMPLETION_SETTLE_MS,
+} from '~/app/providers/tavus'
 
 interface MockCallObject {
   on: ReturnType<typeof vi.fn>
@@ -161,8 +165,13 @@ describe('TavusProvider — completion actually fires', () => {
   let states: string[]
 
   beforeEach(() => {
+    vi.useFakeTimers()
     call = createMockCallObject()
     states = []
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   function makeProvider() {
@@ -170,6 +179,11 @@ describe('TavusProvider — completion actually fires', () => {
     provider.on('state', (s) => states.push(s as string))
     return provider
   }
+
+  // The closing is held, never completed on the spot: advance past the
+  // utterance gate and the completion settle window.
+  const afterClosingSettles = () =>
+    vi.advanceTimersByTime(AVATAR_UTTERANCE_PENDING_MS + COMPLETION_SETTLE_MS)
 
   async function started() {
     const provider = makeProvider()
@@ -197,6 +211,8 @@ describe('TavusProvider — completion actually fires', () => {
     // Relying on a tool call meant relying on a message that is never sent —
     // so the interview simply never ended, and an interview that never ends is
     // never scored.
+    expect(states).not.toContain('complete')
+    afterClosingSettles()
     expect(states).toContain('complete')
   })
 
@@ -209,6 +225,8 @@ describe('TavusProvider — completion actually fires', () => {
         properties: { role: 'replica', speech: PHRASES.finalPhrase },
       },
     })
+
+    afterClosingSettles()
 
     expect(states).toContain('complete')
   })
@@ -238,6 +256,7 @@ describe('TavusProvider — completion actually fires', () => {
     // Kept as a second path rather than replaced. It costs three lines, and if
     // Tavus ever does register the tool the signal is more precise than
     // matching text.
+    vi.advanceTimersByTime(COMPLETION_SETTLE_MS)
     expect(states).toContain('complete')
   })
 })

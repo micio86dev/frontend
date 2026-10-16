@@ -6,7 +6,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { TavusProvider } from '~/app/providers/tavus'
+import {
+  TavusProvider,
+  AVATAR_UTTERANCE_PENDING_MS,
+  COMPLETION_SETTLE_MS,
+} from '~/app/providers/tavus'
 
 const PHRASES = { endPhrase: 'Passiamo alla prossima domanda.', finalPhrase: 'Grazie.' }
 
@@ -54,8 +58,13 @@ describe('TavusProvider legacy "pal" duplicate', () => {
   let ctx: ReturnType<typeof setup>
 
   beforeEach(async () => {
+    vi.useFakeTimers()
     ctx = setup()
     await ctx.start()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('emits ONE avatar transcript for a replica+pal pair with the same inference_id', () => {
@@ -70,6 +79,7 @@ describe('TavusProvider legacy "pal" duplicate', () => {
   it('fires complete ONCE when the pair carries the end phrase', () => {
     ctx.send('replica', PHRASES.endPhrase, { inference_id: 'e' })
     ctx.send('pal', PHRASES.endPhrase, { inference_id: 'e' })
+    vi.advanceTimersByTime(AVATAR_UTTERANCE_PENDING_MS + COMPLETION_SETTLE_MS)
 
     expect(ctx.states.filter((s) => s === 'complete')).toHaveLength(1)
     expect(ctx.transcripts).toHaveLength(1)
@@ -84,6 +94,7 @@ describe('TavusProvider legacy "pal" duplicate', () => {
 
   it('treats a lone pal as the avatar, never as the candidate', () => {
     ctx.send('pal', PHRASES.endPhrase, { inference_id: 'c' })
+    vi.advanceTimersByTime(AVATAR_UTTERANCE_PENDING_MS + COMPLETION_SETTLE_MS)
 
     expect(ctx.transcripts).toEqual([expect.objectContaining({ role: 'avatar' })])
     expect(ctx.states).toContain('complete')
