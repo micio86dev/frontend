@@ -27,7 +27,6 @@
     <template v-else-if="callStageLive" #header-end>
       <CallHeader
         :title="callTitle"
-        :elapsed-seconds="elapsedSeconds"
         :captions-enabled="captionsEnabled"
         :mic-muted="session.micMuted.value || session.handoverInFlight.value"
         :mic-disabled="session.handoverInFlight.value"
@@ -127,6 +126,16 @@
             layer, so the keyed players are never re-parented. Rendered only while live; when the
             candidate turns captions off it stays mounted as the screen-reader region.
           -->
+          <!--
+            The muted-microphone badge: top of the tile, only while live. Hidden while a handover
+            holds the microphone shut (the candidate did not mute and cannot unmute then).
+          -->
+          <CallMicMutedBadge
+            v-if="live"
+            class="absolute inset-x-3 top-3 z-10"
+            :visible="session.micMuted.value && !session.handoverInFlight.value"
+            @unmute="session.setMicMuted(false)"
+          />
           <CallQuestion
             v-if="live"
             ref="callQuestion"
@@ -263,7 +272,7 @@
         aria-hidden="true"
         class="aspect-video w-full rounded-surface bg-avatar-bg shadow-avatar"
       />
-      <p class="text-sm text-on-primary-muted">{{ $t('shell.loading.title') }}</p>
+      <p class="text-sm text-on-canvas-muted">{{ $t('shell.loading.title') }}</p>
     </section>
 
     <!--
@@ -587,6 +596,7 @@ import { INTERVIEW_CLOSING_GRACE_MS } from '~/app/utils/interview-budget'
 import CallSelfView from '~/components/molecules/CallSelfView.client.vue'
 import CallTile from '~/components/molecules/CallTile.vue'
 import CallHeader from '~/components/organisms/CallHeader.vue'
+import CallMicMutedBadge from '~/components/molecules/CallMicMutedBadge.vue'
 import CallPanel from '~/components/organisms/CallPanel.vue'
 import { useInterviewOutline } from '~/composables/useInterviewOutline'
 import { useAnswerTimer } from '~/composables/useAnswerTimer'
@@ -942,12 +952,11 @@ const answerTimer = useAnswerTimer({
 })
 
 /**
- * The suggested answer length: the server's interview limit split across every scripted primary
- * question. `null` (no bar) until BOTH inputs exist; the client's 300 s countdown seed is never
- * an input.
+ * The suggested answer length: the good-answer range the start response states (the active
+ * template's, default 1:30 to 2:30). `null` (no bar) until /start has stated it.
  */
 const budget = computed(() =>
-  answerBudget(session.interviewMaxSeconds.value, outlineApi.outline.value?.primary_total_all)
+  answerBudget(session.answerMinSeconds.value, session.answerMaxSeconds.value)
 )
 
 /** Whole seconds of live interview time, for "03:12 / 25:00". It stops while suspended. */

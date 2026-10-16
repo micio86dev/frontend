@@ -137,6 +137,8 @@ function makeSession(
     endedCompetencies: ref<number | null>(null),
     totalCompetencies: ref<number | null>(null),
     interviewMaxSeconds: ref<number | null>(null),
+    answerMinSeconds: ref<number | null>(null),
+    answerMaxSeconds: ref<number | null>(null),
     interviewBudgetSpent: ref(false),
     pendingUtterances: ref(0),
     activeProvider,
@@ -426,6 +428,27 @@ describe('interview/session.vue — timer expiry and skip', () => {
     const wrapper = await mountPage(makeSession({ state: 'live' }))
 
     expect(wrapper.get('[data-testid="call-exit"]').attributes('disabled')).toBeUndefined()
+  })
+
+  // The candidate did not mute during a handover (it holds the microphone shut)
+  // and cannot unmute then, so the "you are muted" badge must not show.
+  it('shows the muted-microphone badge on the live call when the candidate muted', async () => {
+    const session = makeSession({ state: 'live' })
+    session.micMuted.value = true
+    const wrapper = await mountPage(session)
+
+    expect(wrapper.find('[data-testid="call-mic-muted-badge"]').exists()).toBe(true)
+  })
+
+  it('hides the muted-microphone badge while a handover is in flight', async () => {
+    const session = makeSession({
+      state: 'live',
+      incoming: { dbSessionId: 99, provider: makeProvider(), config: CONFIG },
+    })
+    session.micMuted.value = true
+    const wrapper = await mountPage(session)
+
+    expect(wrapper.find('[data-testid="call-mic-muted-badge"]').exists()).toBe(false)
   })
 
   // Pausing a LIVE question keeps the provider session up (tearing it down would
@@ -880,9 +903,9 @@ describe('interview/session.vue — expired-session variant (D-D)', () => {
 
 /**
  * The whole interview sits on the brand canvas (DESIGN.md §7.0.1, §7.2): the
- * client's colour is the page from the landing to the done screen, and the
+ * client's background colour is the page from the landing to the done screen, and the
  * avatar panel keeps its own dark surface inside it. Content lives on white
- * surfaces; only on-primary tokens are drawn on the bare canvas.
+ * surfaces; only on-canvas tokens are drawn on the bare canvas.
  */
 const ALL_STATES: ReadonlyArray<SessionState> = [
   'idle',
@@ -897,7 +920,7 @@ const ALL_STATES: ReadonlyArray<SessionState> = [
 ]
 
 const WHITE_PAGE_CLASSES =
-  /(^|\s)(text-primary|text-foreground|text-muted-foreground|text-destructive|bg-background)(\s|$)/
+  /(^|\s)(text-primary|text-on-primary(-muted)?|text-foreground|text-muted-foreground|text-destructive|bg-background)(\s|$)/
 
 /** Every element drawn on the bare canvas: outside any white surface and the avatar panel. */
 function bareCanvasElements(wrapper: Awaited<ReturnType<typeof mountPage>>): Element[] {
@@ -912,8 +935,8 @@ describe('interview session — on the brand canvas in every state', () => {
     const wrapper = await mountPage(makeSession({ state }))
 
     expect(wrapper.classes()).toContain('brand-canvas')
-    expect(wrapper.classes()).toContain('bg-primary')
-    expect(wrapper.classes()).toContain('text-on-primary')
+    expect(wrapper.classes()).toContain('bg-canvas')
+    expect(wrapper.classes()).toContain('text-on-canvas')
     expect(wrapper.get('main').attributes('aria-label')).toBe('interview.document_title')
   })
 

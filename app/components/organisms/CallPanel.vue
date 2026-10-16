@@ -2,7 +2,7 @@
   <aside
     data-testid="call-panel"
     aria-labelledby="call-panel-title"
-    class="brand-canvas__surface flex flex-row flex-wrap items-center gap-x-8 gap-y-4 rounded-surface bg-card p-6 text-card-foreground shadow-surface xl:min-h-0 xl:flex-1 xl:flex-col xl:flex-nowrap xl:overflow-y-auto xl:items-stretch xl:gap-5"
+    class="brand-canvas__surface flex flex-row flex-wrap items-center gap-x-8 gap-y-4 rounded-surface bg-card p-6 text-card-foreground shadow-surface xl:min-h-0 xl:flex-1 xl:flex-col xl:flex-nowrap xl:overflow-y-auto xl:items-stretch xl:gap-4 xl:p-5"
   >
     <p
       id="call-panel-title"
@@ -13,7 +13,7 @@
     </p>
 
     <!--
-      Tempo di risposta: how long the current answer has been running, with the suggested-length
+      Answer time: how long the current answer has been running, with the suggested-length
       bar when a budget exists. Always present (the figure reads 00:00 until the interviewer has
       spoken); guidance only, it never ends an answer.
     -->
@@ -22,30 +22,35 @@
       aria-labelledby="call-panel-answer-label"
       class="flex min-w-56 flex-1 flex-col gap-3 xl:flex-none"
     >
-      <p
-        id="call-panel-answer-label"
-        class="text-xs font-semibold tracking-wide text-muted-foreground uppercase"
-      >
-        {{ $t('interview.call.answer.label') }}
-      </p>
       <CallAnswerTimer
         :seconds="answerSeconds"
         :phase="answerPhase"
         :budget="budget"
         :mic-muted="micMuted"
-      />
+      >
+        <template #label>
+          <p
+            id="call-panel-answer-label"
+            class="text-xs font-semibold tracking-wide text-muted-foreground uppercase"
+          >
+            {{ $t('interview.call.answer.label') }}
+          </p>
+        </template>
+      </CallAnswerTimer>
     </section>
 
     <!--
-      Percorso: where the candidate is in the interview. The sentence and bar state the server's
-      total; the storyboard under them names the outline's competencies. A <p> label, not a
-      heading, so the page's heading outline is unchanged.
+      Path: where the candidate is in the interview. The sentence and bar state the server's
+      total. The storyboard under them, which names the outline's competencies, is NOT shown to
+      the candidate (owner decision): it stays mounted in a `display:none` wrapper, so it is
+      out of the visual and the accessibility tree alike, and can come back by dropping the
+      class. A <p> label, not a heading, so the page's heading outline is unchanged.
     -->
     <section
-      v-if="hasTotal || hasStoryboard"
+      v-if="hasTotal"
       data-testid="call-panel-path"
       aria-labelledby="call-panel-path-label"
-      class="flex min-h-0 min-w-56 flex-1 flex-col gap-3 xl:flex-1"
+      class="flex min-w-56 flex-1 flex-col gap-3 xl:flex-none"
     >
       <p
         id="call-panel-path-label"
@@ -53,7 +58,7 @@
       >
         {{ $t('interview.call.path.label') }}
       </p>
-      <div v-if="hasTotal" data-testid="call-panel-progress" class="flex flex-col gap-2">
+      <div data-testid="call-panel-progress" class="flex flex-col gap-2">
         <p data-testid="call-panel-progress-text" class="text-base font-semibold">
           {{ $t('interview.call.path.progress', progress) }}
         </p>
@@ -64,18 +69,17 @@
           :value-text="$t('interview.call.path.progress', progress)"
         />
       </div>
-      <CallStoryboard v-if="hasStoryboard" :items="storyboard!" :primary-index="primaryIndex" />
     </section>
+    <div v-if="hasStoryboard" data-testid="call-panel-storyboard" class="hidden">
+      <CallStoryboard :items="storyboard!" :primary-index="primaryIndex" />
+    </div>
 
     <!--
-      Durata dell'intervista. The heading, the figure, the bar and the sentence appear only once
-      the SERVER has stated `interview_max_seconds`: the 300 s fallback seed of the countdown is
-      never a maximum. The countdown itself is the interview's ONLY timeout enforcement (`tick` /
-      `expired`), so it is never hidden: without a stated maximum the section shows that exact
-      figure alone, and an enforcing timeout is never invisible to the candidate.
-
-      The visible figure is hidden from assistive technology and the sentence that states the
-      MAXIMUM is read instead: "03:12 / 20:00" alone does not say that 20:00 is a ceiling.
+      Interview duration: the interview's ONE timer. The countdown is the big figure and the
+      only timeout enforcement (`tick` / `expired`), so it is never hidden. The heading, the
+      bar (elapsed over the maximum) and the stated maximum ("of 60 min") appear only once the
+      SERVER has stated `interview_max_seconds`: the 300 s fallback seed of the countdown is
+      never a maximum. Without one the section shows the countdown alone.
     -->
     <section
       data-testid="call-panel-duration"
@@ -89,45 +93,29 @@
       >
         {{ $t('interview.call.duration.label') }}
       </p>
-      <template v-if="hasMax">
-        <p
-          data-testid="call-panel-duration-value"
-          aria-hidden="true"
-          class="font-mono text-base font-semibold tabular-nums"
-        >
-          {{ $t('interview.call.duration.value', duration) }}
-        </p>
-        <span data-testid="call-panel-duration-sr" class="sr-only">{{
-          $t('interview.call.duration.sr', duration)
-        }}</span>
-        <ProgressBar
-          :current="elapsedClamped"
-          :total="maxCount"
-          hide-counts
-          :label="$t('interview.call.duration.label')"
-          :value-text="$t('interview.call.duration.sr', duration)"
-        />
-      </template>
-      <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
-        <p
-          v-if="hasMax && minutesLeft > 0"
-          data-testid="call-panel-remaining"
-          class="text-sm text-muted-foreground"
-        >
-          {{ $t('interview.call.duration.remaining', minutesLeft) }}
-        </p>
-        <InterviewTimer
-          v-if="questionSeconds !== undefined"
-          :key="timerKey ?? undefined"
-          :seconds="questionSeconds"
-          :label="$t('interview.call.remaining_label')"
-          @tick="emit('tick', $event)"
-          @expired="emit('expired')"
-        />
-      </div>
+      <InterviewTimer
+        v-if="questionSeconds !== undefined"
+        :key="timerKey ?? undefined"
+        :seconds="questionSeconds"
+        :label="$t('interview.call.remaining_label')"
+        :figure="hasMax"
+        @tick="emit('tick', $event)"
+        @expired="emit('expired')"
+      />
+      <ProgressBar
+        v-if="hasMax"
+        :current="elapsedClamped"
+        :total="maxCount"
+        hide-counts
+        :label="$t('interview.call.duration.label')"
+        :value-text="$t('interview.call.duration.sr', duration)"
+      />
+      <p v-if="hasMax" data-testid="call-panel-duration-max" class="text-sm text-muted-foreground">
+        {{ $t('interview.call.duration.of_max', { minutes: maxMinutes }) }}
+      </p>
     </section>
 
-    <div class="flex flex-wrap items-center gap-x-6 gap-y-3 xl:flex-col xl:items-stretch">
+    <div class="flex basis-full flex-col xl:mt-auto">
       <slot name="help" />
     </div>
   </aside>
@@ -138,28 +126,28 @@
  * CallPanel — the side panel of the candidate call screen
  * (candidate-interview-call-ui D7, D8; DESIGN.md §7.3).
  *
- * Titled "Intervista". Top to bottom: "Tempo di risposta" (the answer timer, its chip and the
- * suggested-length bar), the "Percorso" section ("Competenza 2 di 5", a thin
- * bar, and the named storyboard), how long it has taken against the stated maximum
- * ("03:12 / 25:00"), the interview countdown, then the help link. Exit lives in the call
+ * Titled "Interview". Top to bottom: "Answer time" (the answer timer, its chip and the
+ * suggested-length bar), the "Path" section ("Competency 2 of 5" and a thin bar; the named
+ * storyboard is mounted but hidden with `display:none`), the interview's ONE timer (the countdown, the elapsed/maximum bar under it and "of 25 min"),
+ * then the help link. Exit lives in the call
  * header.
  *
  * NAMES, NEVER A CODE (reversed from "numbers only", live-interview-call-chrome). The
- * storyboard shows the outline's competency NAMES, handed in already localized with a
+ * storyboard (hidden from the candidate) holds the outline's competency NAMES, handed in already localized with a
  * generic fallback. The panel imports no session and has no prop that could carry a code, so
  * no element, attribute or accessible name can reveal one. A unit test holds that line,
  * including against a store that does carry one.
  *
  * Props:
  *   ended            — competencies ended so far; null before the first /end counts as 0.
- *   total            — the server's total; null or 0 hides progress and duration (the
+ *   total            — the server's total; null or 0 hides the progress sentence and bar (the
  *                      figure is not known until the first /end, and a bar "of nothing"
- *                      would be a lie). The panel itself, the counter, Exit and help
+ *                      would be a lie). The duration section depends on `maxSeconds` instead. The panel itself, the counter, Exit and help
  *                      are NEVER hidden (Exit is in the call header, so a candidate can leave
  *                      during the first question).
  *   elapsedSeconds   — from `useInterviewClock()`; owned by the caller.
  *   questionSeconds  — what the interview countdown starts from (the seconds LEFT in the whole interview).
- *                      Omitted: no countdown. It also feeds "Restano circa N minuti".
+ *                      Omitted: no countdown.
  *                      The caller owns the remaining time (see InterviewTimer) and
  *                      re-keys this component's counter on a new competency session
  *                      (the countdown itself is the WHOLE interview's, so the key changes only
@@ -175,7 +163,7 @@
  *   answerSeconds    — the answer timer (`useAnswerTimer`), owned by the page.
  *   answerPhase      — idle / listening / waiting / answering: the chip beside the timer.
  *   micMuted         — the candidate's own mute INTENT, for the hint (not the forced-mute state).
- *   budget           — the suggested answer length (`answerBudget()`), or null for no bar.
+ *   budget           — the good-answer range and bar scale (`answerBudget()`), or null for no bar.
  *   maxSeconds       — the interview's real limit (the avatar template's, `interview_max_seconds`).
  *                      The duration section is shown ONLY once the server has stated it; the
  *                      client's 300 s fallback is never presented as a maximum.
@@ -256,8 +244,6 @@ const duration = computed(() => ({
   total: formatClock(maxCount.value),
 }))
 
-/** "About N minutes left": the ceiling of the countdown the page owns; 0 hides the sentence. */
-const minutesLeft = computed(() =>
-  props.questionSeconds === undefined ? 0 : Math.max(Math.ceil(props.questionSeconds / 60), 0)
-)
+/** The stated maximum in whole minutes, a partial minute rounded up ("of 60 min"). */
+const maxMinutes = computed(() => Math.ceil(maxCount.value / 60))
 </script>

@@ -4,7 +4,7 @@
       <Button
         data-testid="call-exit"
         variant="outline"
-        class="h-(--spacing-control) bg-card px-5 text-card-foreground"
+        class="h-(--spacing-control) border-error-dark bg-card px-5 text-error-dark transition-colors hover:bg-error-light hover:text-error-dark"
         :loading="loading"
         :aria-label="$t('interview.call.exit.label')"
       >

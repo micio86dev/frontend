@@ -102,6 +102,7 @@ import { ref, shallowRef, computed, readonly, watch, type ComputedRef, type Ref 
 import { createProvider } from '~/app/providers/factory'
 import { effectiveViewportWidth } from '~/app/utils/browser-gate'
 import { interviewMaxSecondsFrom } from '~/app/utils/interview-max-seconds'
+import { answerRangeFrom } from '~/app/utils/answer-budget'
 import { UtteranceOutbox, type PendingUtterance } from '~/app/utils/utterance-outbox'
 import {
   canSteerContext,
@@ -305,6 +306,10 @@ export interface UseInterviewSessionReturn {
   competencyOrdinal: Readonly<Ref<number | null>>
   /** The interview's total time limit from the active template, once a start response has named it. */
   interviewMaxSeconds: Ref<number | null>
+  /** The shortest good answer, in seconds, from the active template once a start response has named it. */
+  answerMinSeconds: Ref<number | null>
+  /** The longest good answer, in seconds; null until a start response has named the range. */
+  answerMaxSeconds: Ref<number | null>
   /** Set once the whole interview's time is spent: the question in progress finishes, and the server settles the interview. */
   interviewBudgetSpent: Ref<boolean>
   /** Transcript lines waiting for the network to come back. */
@@ -624,6 +629,8 @@ export function useInterviewSession(
   const competencyOrdinal = ref<number | null>(null)
   /** The interview's total time limit from the active template, once a start response has named it. */
   const interviewMaxSeconds = ref<number | null>(null)
+  const answerMinSeconds = ref<number | null>(null)
+  const answerMaxSeconds = ref<number | null>(null)
   /** Set once the whole interview's time is spent: the question in progress finishes, and nothing after it starts. */
   // Never reset: once the whole time is spent the interview is over, so every later /end (including a retry after a failed one) must say so.
   const interviewBudgetSpent = ref(false)
@@ -2030,6 +2037,11 @@ export function useInterviewSession(
       const maxSeconds = interviewMaxSecondsFrom(response.interview_max_seconds)
       if (maxSeconds !== null) interviewMaxSeconds.value = maxSeconds
 
+      // The good-answer range is guidance: an absent or invalid pair degrades to the default.
+      const answerRange = answerRangeFrom(response.answer_min_seconds, response.answer_max_seconds)
+      answerMinSeconds.value = answerRange.min
+      answerMaxSeconds.value = answerRange.max
+
       const handle: ProviderSession = {
         // C2: idempotent-wrapped at creation — the ONE place every
         // `ProviderSession` handle's `stop()` becomes safe to call more than
@@ -2379,6 +2391,8 @@ export function useInterviewSession(
     totalCompetencies,
     competencyOrdinal: readonly(competencyOrdinal),
     interviewMaxSeconds,
+    answerMinSeconds,
+    answerMaxSeconds,
     interviewBudgetSpent,
     pendingUtterances,
     activeProvider,

@@ -1439,7 +1439,7 @@ export interface paths {
         head?: never;
         /**
          * Update the organization
-         * @description Accepts `name`, the default webhook settings, `primary_color` and
+         * @description Accepts `name`, the default webhook settings, `primary_color`, `background_color` and
          *     `currency_code` (active catalogue codes only). Any other field in the body
          *     is ignored.
          */
@@ -3073,6 +3073,7 @@ export interface components {
             branding: {
                 name: string | null;
                 primary_color: string | null;
+                background_color: string | null;
                 logo_url: string | null;
             };
             project: {
@@ -3118,6 +3119,8 @@ export interface components {
             persona: {
                 display_name: string | null;
             };
+            answer_min_seconds: number;
+            answer_max_seconds: number;
         };
         /**
          * AvatarTemplateScope
@@ -3418,6 +3421,7 @@ export interface components {
             name: string;
             slug: string;
             primary_color: string | null;
+            background_color: string | null;
             currency_code: string;
             logo_url: string | null;
             default_webhook_url: string | null;
@@ -3507,6 +3511,7 @@ export interface components {
             branding: {
                 name: string | null;
                 primary_color: string | null;
+                background_color: string | null;
                 logo_url: string | null;
             };
             project: {
@@ -3576,6 +3581,8 @@ export interface components {
             persona: {
                 display_name: string | null;
             };
+            answer_min_seconds: number;
+            answer_max_seconds: number;
             usage: {
                 organization_count: number;
                 project_count: number;
@@ -4177,13 +4184,14 @@ export interface components {
          * UpdateManagedOrganizationRequest
          * @description Validates PATCH /api/admin/organizations/{id} (superadmin only).
          *
-         *     Only `name`, `primary_color` and `currency_code` are writable here. `slug` is a tenancy
+         *     Only `name`, `primary_color`, `background_color` and `currency_code` are writable here. `slug` is a tenancy
          *     identifier and is never editable; the webhook defaults and the logo keep
          *     their own tenant-facing endpoints.
          */
         UpdateManagedOrganizationRequest: {
             name?: string;
             primary_color?: string | null;
+            background_color?: string | null;
             currency_code?: string;
         };
         /**
@@ -4222,6 +4230,7 @@ export interface components {
              *     choosing a colour would be a one-way door.
              */
             primary_color?: string | null;
+            background_color?: string | null;
             currency_code?: string;
         };
         /**
@@ -5253,6 +5262,8 @@ export interface operations {
                     /** @description Bind a language model to the template. `llm_model_id` and `llm_credential_id` are both set or both null. */
                     llm_model_id?: number | null;
                     llm_credential_id?: number | null;
+                    answer_min_seconds?: number;
+                    answer_max_seconds?: number;
                     persona?: {
                         display_name?: string | null;
                     };
@@ -5366,6 +5377,8 @@ export interface operations {
                     /** @description Bind a language model to the template. `llm_model_id` and `llm_credential_id` are both set or both null; sending both as null clears the binding. */
                     llm_model_id?: number | null;
                     llm_credential_id?: number | null;
+                    answer_min_seconds?: number;
+                    answer_max_seconds?: number;
                     persona?: {
                         display_name?: string | null;
                     };
@@ -5451,6 +5464,8 @@ export interface operations {
                             config: unknown[];
                             /** @description Persona is optional: a template may be pure provider config. */
                             persona: unknown[] | null;
+                            answer_min_seconds: number;
+                            answer_max_seconds: number;
                             /** @description The language model binding, by model key and credential name; `null` when the template has none. */
                             llm: {
                                 model_key: string;
@@ -7556,6 +7571,8 @@ export interface operations {
                             total_competencies: number | null;
                         };
                         interview_max_seconds: number;
+                        answer_min_seconds: number;
+                        answer_max_seconds: number;
                         conversation_id?: string;
                         conversation_ttl_seconds?: number;
                         continuation?: {
@@ -8638,6 +8655,8 @@ export interface operations {
                     /** @description Bind a language model to the template. `llm_model_id` and `llm_credential_id` are both set or both null. */
                     llm_model_id?: number | null;
                     llm_credential_id?: number | null;
+                    answer_min_seconds?: number;
+                    answer_max_seconds?: number;
                     persona?: {
                         display_name?: string | null;
                     };
@@ -8744,6 +8763,8 @@ export interface operations {
                     /** @description Bind a language model to the template. `llm_model_id` and `llm_credential_id` are both set or both null; sending both as null clears the binding. */
                     llm_model_id?: number | null;
                     llm_credential_id?: number | null;
+                    answer_min_seconds?: number;
+                    answer_max_seconds?: number;
                     persona?: {
                         display_name?: string | null;
                     };

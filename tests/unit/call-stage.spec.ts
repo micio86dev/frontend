@@ -170,8 +170,8 @@ describe('CallStage - the hosted height cap', () => {
     )
   })
 
-  it('gives the panel the viewport height even when the 16:9 tile is width-limited', () => {
-    expect(classes()).toContain('xl:min-h-[calc(100dvh_-_9rem)]')
+  it('sets no min-height, so the row (and the panel) is exactly as tall as the 16:9 tile', () => {
+    expect(classes().filter((c) => /min-h-/.test(c))).toEqual([])
   })
 
   it('embedded: neither the cap nor the min-height, so the host can size the iframe', () => {

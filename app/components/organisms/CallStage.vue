@@ -55,14 +55,13 @@
  * Hosted, the stage's width is capped so the whole stage fits the viewport height
  * (no vertical scroll at 1280x800, 1440x900 or 1920x1080): the tile is 16:9, so its
  * width follows from the height left after the chrome (live-interview-call-chrome D15:
- * 9rem beside the panel, 22rem when the panel is a strip), plus the panel and gap. The
- * stage also takes at least the viewport height minus that chrome, so the panel gets the
- * full height even when the 16:9 tile is width-limited. These two numbers are the
- * calibration knob the e2e "fits the viewport" gate sets. The floor of 30rem keeps a very
+ * 9rem beside the panel, 22rem when the panel is a strip), plus the panel and gap. These two
+ * numbers are the calibration knob the e2e "fits the viewport" gate sets. The floor of 30rem keeps a very
  * short window from shrinking the tile to nothing.
  *
  * The panel cell is `h-0 min-h-full`: it never sets the row height, it fills whatever the
- * row is (the video's, or the viewport minus chrome), and the storyboard scrolls inside it.
+ * row is, and the storyboard scrolls inside it. The row is the video's height and nothing
+ * more (no stage min-height), so the panel's top and bottom edges line up with the tile's.
  */
 import { computed } from 'vue'
 
@@ -78,7 +77,6 @@ const props = withDefaults(
 const HOSTED_HEIGHT_CAP = [
   'max-w-[min(100%,max(30rem,calc((100dvh_-_22rem)*16/9)))]',
   'xl:max-w-[min(100%,max(30rem,calc((100dvh_-_9rem)*16/9_+_var(--spacing-call-panel)_+_1.5rem)))]',
-  'xl:min-h-[calc(100dvh_-_9rem)]',
 ]
 
 const LIVE_GRID = [

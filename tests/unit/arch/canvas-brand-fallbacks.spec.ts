@@ -93,4 +93,26 @@ describe('brand hexes restated outside the stylesheet', () => {
 
     expect(restated).toBe(authored)
   })
+
+  it('DEFAULT_CANVAS and DEFAULT_PRIMARY match the stylesheet', () => {
+    // The edge guard measures an unset colour against these; if they drift the
+    // computed edge is judged against a canvas the page no longer paints.
+    for (const [name, token] of [
+      ['DEFAULT_CANVAS', '--color-canvas'],
+      ['DEFAULT_PRIMARY', '--color-primary'],
+    ] as const) {
+      const authored = themeLiteral(CSS, token)
+      const restated = new RegExp(`const ${name} = '(#[0-9a-fA-F]{6})'`)
+        .exec(brandTheme)?.[1]
+        ?.toLowerCase()
+
+      expect(authored, `${token} not found in main.css @theme`).not.toBeNull()
+      expect(restated, `${name} not found in useBrandTheme`).not.toBeUndefined()
+      expect(restated).toBe(authored)
+    }
+  })
+
+  it('the default canvas is the avatar panel colour, so the live call sits on its own tone', () => {
+    expect(themeLiteral(CSS, '--color-canvas')).toBe(themeLiteral(CSS, '--color-avatar-bg'))
+  })
 })

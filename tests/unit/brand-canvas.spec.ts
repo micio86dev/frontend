@@ -2,10 +2,12 @@
  * BrandCanvas.vue — the candidate flow's shell (DESIGN.md §7.0.1).
  *
  * What is pinned here is what keeps the canvas legible on ANY client colour:
- * the canvas paints `bg-primary` with `text-on-primary`, content lives on an
- * elevated white surface, and no canvas-level element carries a class that
- * assumes a white page (`text-foreground`, `text-muted-foreground`) or is the
- * canvas colour itself (`text-primary`). The visuals beyond that are reviewed
+ * the canvas paints `bg-canvas` (the organization BACKGROUND colour, dark by
+ * default) with `text-on-canvas`, content lives on an elevated white surface,
+ * and no canvas-level element carries a class that assumes a white page
+ * (`text-foreground`, `text-muted-foreground`), is measured against the primary
+ * (`text-on-primary`) or is an arbitrary colour (`text-primary`). The visuals
+ * beyond that are reviewed
  * in screenshots, not asserted.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -57,7 +59,7 @@ function depthAt(css: string, at: number): number {
 }
 
 const WHITE_PAGE_CLASSES =
-  /(^|\s)(text-primary|text-foreground|text-muted-foreground|bg-background)(\s|$)/
+  /(^|\s)(text-primary|text-on-primary(-muted)?|text-foreground|text-muted-foreground|bg-background|bg-primary)(\s|$)/
 
 beforeEach(() => {
   useCandidateBranding().reset()
@@ -169,17 +171,26 @@ describe('BrandCanvas — the privacy policy link in the footer', () => {
   })
 })
 
-describe('BrandCanvas — the canvas is the client colour, and stays legible on it', () => {
-  it('paints the canvas with the primary and draws on it with on-primary', () => {
+describe('BrandCanvas — the canvas is the background colour, and stays legible on it', () => {
+  it('paints the canvas with the background and draws on it with on-canvas', () => {
     const wrapper = mountCanvas()
 
-    expect(wrapper.classes()).toContain('bg-primary')
-    expect(wrapper.classes()).toContain('text-on-primary')
+    expect(wrapper.classes()).toContain('bg-canvas')
+    expect(wrapper.classes()).toContain('text-on-canvas')
+    expect(wrapper.classes()).not.toContain('bg-primary')
+  })
+
+  it('draws the tagline and the privacy link with the on-canvas tokens', () => {
+    const footer = mountCanvas().get('footer')
+
+    expect(footer.classes()).toContain('text-on-canvas-muted')
+    expect(footer.classes()).not.toContain('text-on-primary-muted')
   })
 
   it('never puts a white-page or canvas-coloured text class on the canvas itself', async () => {
     useCandidateBranding().prime({
       primary_color: '#ffd400',
+      background_color: null,
       logo_url: 'https://cdn.test/acme.png',
       name: 'Acme',
     })
@@ -202,8 +213,13 @@ describe('BrandCanvas — the canvas is the client colour, and stays legible on 
   it.each([
     ['#ffd400', '#000000'],
     ['#771aaf', '#ffffff'],
-  ])('with a %s client the canvas text token resolves to %s', async (color, expected) => {
-    useCandidateBranding().prime({ primary_color: color, logo_url: null, name: null })
+  ])('with a %s primary the button text token resolves to %s', async (color, expected) => {
+    useCandidateBranding().prime({
+      primary_color: color,
+      background_color: null,
+      logo_url: null,
+      name: null,
+    })
     mountCanvas()
     await flushPromises()
 
@@ -211,13 +227,40 @@ describe('BrandCanvas — the canvas is the client colour, and stays legible on 
     expect(rootToken('--color-on-primary')).toBe(expected)
   })
 
-  it('with no client colour falls back to the stylesheet (Quint) defaults', async () => {
-    useCandidateBranding().prime({ primary_color: null, logo_url: null, name: null })
+  it.each([
+    ['#f1f5f9', '#000000'],
+    ['#0f172a', '#ffffff'],
+    ['#1e3a5f', '#ffffff'],
+  ])('with a %s background the canvas text token resolves to %s', async (background, expected) => {
+    useCandidateBranding().prime({
+      primary_color: '#771aaf',
+      background_color: background,
+      logo_url: null,
+      name: null,
+    })
+    mountCanvas()
+    await flushPromises()
+
+    expect(rootToken('--color-canvas')).toBe(background)
+    expect(rootToken('--color-on-canvas')).toBe(expected)
+    // The primary stays the accent: it no longer drives the canvas text.
+    expect(rootToken('--color-primary')).toBe('#771aaf')
+  })
+
+  it('with no colours falls back to the stylesheet defaults (Quint primary, dark canvas)', async () => {
+    useCandidateBranding().prime({
+      primary_color: null,
+      background_color: null,
+      logo_url: null,
+      name: null,
+    })
     mountCanvas()
     await flushPromises()
 
     expect(rootToken('--color-primary')).toBe('')
     expect(rootToken('--color-on-primary')).toBe('')
+    expect(rootToken('--color-canvas')).toBe('')
+    expect(rootToken('--color-on-canvas')).toBe('')
   })
 
   it('the decorative layer paints with the canvas tone only', () => {
@@ -246,7 +289,7 @@ describe('BrandCanvas — the canvas is the client colour, and stays legible on 
     expect(css.slice(0, guardAt)).not.toMatch(/\.brand-canvas__surface\s*\{[^}]*animation:/)
   })
 
-  it('draws the focus ring in on-primary on the bare canvas and in primary-ink inside the surface', () => {
+  it('draws the focus ring in on-canvas on the bare canvas and in primary-ink inside the surface', () => {
     // DESIGN.md §7.0.1. Unlayered on purpose (it must outrank the layered vendored
     // `outline-none`/ring utilities), so the two rules are read from the source.
     const css = readFileSync(resolve(__dirname, '../../app/assets/css/main.css'), 'utf-8')
@@ -259,7 +302,7 @@ describe('BrandCanvas — the canvas is the client colour, and stays legible on 
     const canvasFocus = ruleFor('.brand-canvas :focus-visible')
     const surfaceFocus = ruleFor('.brand-canvas__surface :focus-visible')
 
-    expect(canvasFocus).toMatch(/outline:\s*2px solid var\(--color-on-primary\)/)
+    expect(canvasFocus).toMatch(/outline:\s*2px solid var\(--color-on-canvas\)/)
     expect(canvasFocus).toMatch(/outline-offset:\s*2px/)
     expect(surfaceFocus).toMatch(/outline-color:\s*var\(--color-primary-ink\)/)
     // The vendored halo is a 50%-alpha grey, not an indicator: the outline replaces it.
@@ -345,6 +388,7 @@ describe("BrandCanvas — the organization's mark, or ours, but never nothing", 
   it('draws a configured logo on a white plate instead of the wordmark', async () => {
     useCandidateBranding().prime({
       primary_color: '#771aaf',
+      background_color: null,
       logo_url: 'https://cdn.test/acme.png',
       name: null,
     })
@@ -363,7 +407,12 @@ describe("BrandCanvas — the organization's mark, or ours, but never nothing", 
   })
 
   it('names the organization beside the mark when it is known', async () => {
-    useCandidateBranding().prime({ primary_color: null, logo_url: null, name: 'Acme Selezione' })
+    useCandidateBranding().prime({
+      primary_color: null,
+      background_color: null,
+      logo_url: null,
+      name: 'Acme Selezione',
+    })
     const wrapper = mountCanvas()
     await flushPromises()
 
@@ -373,6 +422,7 @@ describe("BrandCanvas — the organization's mark, or ours, but never nothing", 
   it('keeps the logo decorative when the name beside it already says who it is', async () => {
     useCandidateBranding().prime({
       primary_color: null,
+      background_color: null,
       logo_url: 'https://cdn.test/acme.png',
       name: 'Acme Selezione',
     })
@@ -392,6 +442,7 @@ describe("BrandCanvas — the organization's mark, or ours, but never nothing", 
   describe('the logo is always plated (one BrandLogo on every candidate page)', () => {
     const PRIMED = {
       primary_color: '#771aaf',
+      background_color: null,
       logo_url: 'https://cdn.test/acme.png',
       name: null,
     }

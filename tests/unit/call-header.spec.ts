@@ -2,10 +2,10 @@
  * CallHeader — the live call's top bar content (live-interview-call-chrome, D13;
  * DESIGN.md §7.0.1, §7.3).
  *
- * What is pinned here: the DOM and tab order (title, clock, Sottotitoli, Microfono,
+ * What is pinned here: the DOM and tab order (title, Sottotitoli, Microfono,
  * Esci), exactly three controls and no Camera / "Ripeti domanda" / Pausa, a clock
  * with an accessible name that is NOT a live region, `aria-pressed` toggles with a
- * constant visible label and a swapping icon, a microphone that is `aria-disabled`
+ * visible label that states the state and a swapping icon, a microphone that is `aria-disabled`
  * (still focusable) while an interview-owned mute is in force, 44 px targets and
  * it/en key parity.
  *
@@ -39,7 +39,6 @@ const translator =
 
 const BASE = {
   title: 'Colloquio di assessment · Responsabile Vendite',
-  elapsedSeconds: 192,
   captionsEnabled: true,
   micMuted: false,
   micDisabled: false,
@@ -65,11 +64,10 @@ const captions = (w: VueWrapper) => w.get('[data-testid="call-header-captions"]'
 const mic = (w: VueWrapper) => w.get('[data-testid="call-header-mic"]')
 
 describe('CallHeader — composition', () => {
-  it('renders the title, the clock and the three controls in this DOM order', () => {
+  it('renders the title and the three controls in this DOM order', () => {
     const wrapper = mountHeader()
     const order = [
       '[data-testid="call-header-title"]',
-      '[data-testid="call-header-clock"]',
       '[data-testid="call-header-captions"]',
       '[data-testid="call-header-mic"]',
       '[data-testid="slot-exit"]',
@@ -93,7 +91,7 @@ describe('CallHeader — composition', () => {
     const wrapper = mountHeader()
     const names = wrapper.findAll('button').map((b) => b.text())
 
-    expect(names).toEqual(['Sottotitoli', 'Microfono', 'Esci'])
+    expect(names).toEqual(['Sottotitoli attivi', 'Microfono attivo', 'Esci'])
     for (const forbidden of [/camera/i, /fotocamera/i, /ripeti/i, /repeat/i, /pausa/i, /pause/i]) {
       expect(wrapper.text()).not.toMatch(forbidden)
     }
@@ -103,46 +101,34 @@ describe('CallHeader — composition', () => {
     const wrapper = mountHeader({}, en)
 
     expect(wrapper.findAll('button').map((b) => b.text())).toEqual([
-      'Captions',
-      'Microphone',
+      'Captions on',
+      'Microphone on',
       'Esci',
     ])
   })
 })
 
-describe('CallHeader — the clock', () => {
-  it('is a plain <time> with an sr-only "Tempo trascorso" prefix, not a live region', () => {
-    const wrapper = mountHeader({ elapsedSeconds: 192 })
-    const clock = wrapper.get('[data-testid="call-header-clock"]')
+describe('CallHeader — no clock', () => {
+  it('draws no clock, time element or live region: the countdown in the panel is the one timer', () => {
+    const wrapper = mountHeader()
 
-    expect(clock.get('span.sr-only').text()).toBe('Tempo trascorso')
-    expect(clock.get('time').text()).toBe('03:12')
-    // Collapsed the way an accessibility tree reads it: the prefix and the time are separate words.
-    expect(clock.text().replace(/\s+/g, ' ')).toBe('Tempo trascorso 03:12')
+    expect(wrapper.find('[data-testid="call-header-clock"]').exists()).toBe(false)
+    expect(wrapper.find('time').exists()).toBe(false)
     expect(wrapper.find('[aria-live]').exists()).toBe(false)
     expect(wrapper.find('[role]').exists()).toBe(false)
-  })
-
-  it('does not wrap minutes at 60', () => {
-    expect(mountHeader({ elapsedSeconds: 5400 }).get('time').text()).toBe('90:00')
-  })
-
-  it('is named in English too', () => {
-    expect(mountHeader({}, en).get('[data-testid="call-header-clock"] span.sr-only').text()).toBe(
-      'Elapsed time'
-    )
+    expect(wrapper.text()).not.toMatch(/\d{2}:\d{2}/)
   })
 })
 
 describe('CallHeader — the toggles', () => {
-  it('reports captions pressed when on and unpressed when off, with a constant label', () => {
+  it('reports captions pressed when on and unpressed when off, and the label states the state', () => {
     const on = captions(mountHeader({ captionsEnabled: true }))
     const off = captions(mountHeader({ captionsEnabled: false }))
 
     expect(on.attributes('aria-pressed')).toBe('true')
     expect(off.attributes('aria-pressed')).toBe('false')
-    expect(on.text()).toBe('Sottotitoli')
-    expect(off.text()).toBe('Sottotitoli')
+    expect(on.text()).toBe('Sottotitoli attivi')
+    expect(off.text()).toBe('Sottotitoli spenti')
   })
 
   it('swaps the captions icon with the state, so it is never colour alone', () => {
@@ -162,7 +148,8 @@ describe('CallHeader — the toggles', () => {
     expect(open.get('[data-icon]').attributes('data-icon')).toBe('mic')
     expect(muted.attributes('aria-pressed')).toBe('false')
     expect(muted.get('[data-icon]').attributes('data-icon')).toBe('mic-off')
-    expect(muted.text()).toBe('Microfono')
+    expect(open.text()).toBe('Microfono attivo')
+    expect(muted.text()).toBe('Microfono spento')
   })
 
   it('emits toggle-captions and toggle-mic on click', async () => {
@@ -202,14 +189,83 @@ describe('CallHeader — the toggles', () => {
   })
 })
 
+describe('CallHeader — state colours', () => {
+  it('muted microphone: red border and text on a light red fill, with a red dot before the label', () => {
+    const button = mic(mountHeader({ micMuted: true }))
+
+    expect(button.classes()).toEqual(
+      expect.arrayContaining(['border-error-dark', 'text-error-dark', 'bg-error-light'])
+    )
+    const dot = button.get('[data-slot="mic-muted-dot"]')
+    expect(dot.attributes('aria-hidden')).toBe('true')
+    expect(dot.classes()).toContain('bg-error-dark')
+  })
+
+  it('live microphone: primary accent with a green live dot, no red and no muted dot', () => {
+    const button = mic(mountHeader({ micMuted: false }))
+
+    expect(button.classes()).toEqual(
+      expect.arrayContaining([
+        'bg-primary-surface',
+        'border-primary-ink',
+        'text-on-primary-surface',
+      ])
+    )
+    expect(button.classes().filter((c) => /error/.test(c))).toEqual([])
+    expect(button.find('[data-slot="mic-muted-dot"]').exists()).toBe(false)
+    const dot = button.get('[data-slot="mic-live-dot"]')
+    expect(dot.attributes('aria-hidden')).toBe('true')
+    expect(dot.classes()).toContain('bg-success-dark')
+  })
+
+  it('muted microphone has no live dot', () => {
+    expect(
+      mic(mountHeader({ micMuted: true }))
+        .find('[data-slot="mic-live-dot"]')
+        .exists()
+    ).toBe(false)
+  })
+
+  it('captions on: primary accent with an ink border; off: neutral card that tints on hover', () => {
+    const on = captions(mountHeader({ captionsEnabled: true })).classes()
+    const off = captions(mountHeader({ captionsEnabled: false })).classes()
+
+    expect(on).toEqual(
+      expect.arrayContaining([
+        'bg-primary-surface',
+        'border-primary-ink',
+        'text-on-primary-surface',
+      ])
+    )
+    expect(off).toContain('bg-card')
+    expect(
+      off.some((c) => c.startsWith('hover:bg-[color-mix(in_oklab,var(--color-primary-surface)'))
+    ).toBe(true)
+  })
+
+  it('never uses a translucent hover fill: the controls sit on the canvas, which can be dark', () => {
+    // `hover:bg-primary-surface/40` replaces the opaque card fill, so on a dark
+    // canvas the dark label sat on a dark pixel (axe color-contrast, serious).
+    for (const wrapper of [
+      captions(mountHeader({ captionsEnabled: true })),
+      captions(mountHeader({ captionsEnabled: false })),
+      mic(mountHeader({ micMuted: false })),
+      mic(mountHeader({ micMuted: true })),
+    ]) {
+      expect(wrapper.classes().filter((c) => /^hover:bg-[a-z-]+\/\d+$/.test(c))).toEqual([])
+    }
+  })
+})
+
 describe('CallHeader — copy', () => {
   const KEYS = [
     'interview.call.header.title',
     'interview.call.header.title_with_subject',
     'interview.call.header.potential',
-    'interview.call.header.elapsed_sr',
-    'interview.call.header.captions',
-    'interview.call.header.microphone',
+    'interview.call.header.captions_on',
+    'interview.call.header.captions_off',
+    'interview.call.header.microphone_on',
+    'interview.call.header.microphone_off',
     'interview.call.exit.short',
   ]
 

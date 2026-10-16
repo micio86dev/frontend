@@ -58,6 +58,23 @@ describe('InterviewTimer.vue', () => {
     expect(timerEl.exists()).toBe(true)
   })
 
+  it('with `figure` the caption is sr-only and the time is the big figure; without it neither', async () => {
+    const { default: Timer } = await import('../../app/components/InterviewTimer.vue')
+    const mountTimer = (figure: boolean) =>
+      mount(Timer, {
+        props: { seconds: 60, figure },
+        global: { mocks: { $t: (k: string) => k } },
+      })
+
+    const big = mountTimer(true)
+    expect(big.get('[data-testid="interview-timer-caption"]').classes()).toContain('sr-only')
+    expect(big.get('time').classes()).toContain('text-4xl')
+
+    const plain = mountTimer(false)
+    expect(plain.get('[data-testid="interview-timer-caption"]').classes()).not.toContain('sr-only')
+    expect(plain.get('time').classes()).not.toContain('text-4xl')
+  })
+
   // The countdown must survive an unmount. InterviewTimer lives inside the
   // `v-if="state === 'live'"` block, so pausing unmounts it and destroys its
   // internal `remaining`; resuming mounts a NEW instance that restarts from the

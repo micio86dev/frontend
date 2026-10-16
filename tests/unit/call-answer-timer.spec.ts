@@ -5,8 +5,8 @@
  *
  * Pinned here: the elapsed figure is a plain <time> (never a timer role, never a live region:
  * announcing every second would bury the question), the chip is text, the muted hint is plain
- * text, and the suggested-length bar exists only with a budget, is guidance (full and calm past
- * the max) and states min / ideal / max as text. `$t` is backed by the REAL `it.json` / `en.json`.
+ * text, and the suggested-length bar exists only with a budget, is guidance (full, with no alarm
+ * past the scale end: warning tokens and a text hint, never red or pulsing) and states the good-answer range as text. `$t` is backed by the REAL `it.json` / `en.json`.
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -38,13 +38,12 @@ function translator(locale: unknown) {
 type Phase = 'idle' | 'listening' | 'waiting' | 'answering'
 interface Budget {
   min: number
-  idealFrom: number
-  idealTo: number
   max: number
+  end: number
 }
 
-/** The spec example: 1200 s over 6 primaries. */
-const BUDGET: Budget = { min: 50, idealFrom: 75, idealTo: 150, max: 200 }
+/** The default range: a good answer lasts 1:30 to 2:30; the scale ends at 200 s. */
+const BUDGET: Budget = { min: 90, max: 150, end: 200 }
 
 const mounted: VueWrapper[] = []
 
@@ -91,6 +90,58 @@ describe('CallAnswerTimer - the figure', () => {
 
     expect(html).not.toMatch(/aria-live|role="(?:timer|status|alert|log)"/)
     expect(SOURCE).not.toMatch(/aria-live|role="(?:timer|status|alert|log)"/)
+  })
+})
+
+describe('CallAnswerTimer - layout order', () => {
+  const indexOf = (html: string, marker: string) => html.indexOf(marker)
+
+  it('puts the status chip and the hint on top, the bar next and the figure UNDER the bar', () => {
+    const html = mountTimer({ phase: 'answering', budget: BUDGET, micMuted: true }).html()
+    const chip = indexOf(html, 'data-testid="call-answer-chip"')
+    const hint = indexOf(html, 'data-testid="call-answer-muted"')
+    const bar = indexOf(html, 'data-testid="call-answer-bar"')
+    const time = indexOf(html, '<time')
+
+    expect(chip).toBeGreaterThan(-1)
+    expect(chip).toBeLessThan(hint)
+    expect(hint).toBeLessThan(bar)
+    expect(bar).toBeLessThan(time)
+  })
+
+  it('without a budget there is no bar: the chip, then the figure', () => {
+    const html = mountTimer({ phase: 'waiting', budget: null }).html()
+
+    expect(indexOf(html, 'data-testid="call-answer-chip"')).toBeLessThan(indexOf(html, '<time'))
+  })
+})
+
+describe('CallAnswerTimer - the label row', () => {
+  const mountWithLabel = (props: Parameters<typeof mountTimer>[0]) =>
+    mount(CallAnswerTimer, {
+      props: { seconds: 12, phase: 'waiting' as Phase, budget: null, micMuted: false, ...props },
+      slots: { label: '<p data-testid="the-label">Answer time</p>' },
+      global: { mocks: { $t: translator(en) } },
+    })
+
+  it('puts the label and the status chip in the same row, the label first', () => {
+    const wrapper = mountWithLabel({ phase: 'answering' })
+    const label = wrapper.get('[data-testid="the-label"]').element
+    const chip = wrapper.get('[data-testid="call-answer-chip"]').element
+
+    expect(label.parentElement).toBe(chip.parentElement)
+    expect(label.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(chip.className).toContain('ml-auto')
+  })
+
+  it('keeps the row, and so the bar position, the same while idle (no chip, no gap)', () => {
+    const idle = mountWithLabel({ phase: 'idle', budget: BUDGET })
+    const live = mountWithLabel({ phase: 'answering', budget: BUDGET })
+    const row = (w: VueWrapper) => w.get('[data-testid="the-label"]').element.parentElement!
+
+    expect(idle.find('[data-testid="call-answer-chip"]').exists()).toBe(false)
+    expect(row(idle).className).toBe(row(live).className)
+    expect(row(idle).className).toContain('min-h-6')
   })
 })
 
@@ -163,27 +214,24 @@ describe('CallAnswerTimer - the suggested-length bar', () => {
 
     expect(bar(wrapper).exists()).toBe(false)
     expect(wrapper.find('[data-testid="call-answer-labels"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="call-answer-note"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="call-answer-long"]').exists()).toBe(false)
     expect(wrapper.get('time').exists()).toBe(true)
     expect(wrapper.find('[data-testid="call-answer-chip"]').exists()).toBe(true)
   })
 
-  it('writes min, ideal range and max as text: "0:50 min · ideale 1:15–2:30 · 3:20 max"', () => {
+  it('states the good-answer range as text: "Risposta efficace: da 1:30 a 2:30"', () => {
     const wrapper = mountTimer({ budget: BUDGET })
 
     expect(wrapper.get('[data-testid="call-answer-labels"]').text()).toBe(
-      '0:50 min · ideale 1:15–2:30 · 3:20 max'
-    )
-    expect(wrapper.get('[data-testid="call-answer-note"]').text()).toBe(
-      'Tempi suggeriti, non vincolanti'
+      'Risposta efficace: da 1:30 a 2:30'
     )
   })
 
-  it('writes a second budget too (max 4:00): "1:00 min · ideale 1:30–3:00 · 4:00 max"', () => {
-    const wrapper = mountTimer({ budget: { min: 60, idealFrom: 90, idealTo: 180, max: 240 } })
+  it('follows another range (60 to 120)', () => {
+    const wrapper = mountTimer({ budget: { min: 60, max: 120, end: 160 } })
 
     expect(wrapper.get('[data-testid="call-answer-labels"]').text()).toBe(
-      '1:00 min · ideale 1:30–3:00 · 4:00 max'
+      'Risposta efficace: da 1:00 a 2:00'
     )
   })
 
@@ -191,30 +239,71 @@ describe('CallAnswerTimer - the suggested-length bar', () => {
     const wrapper = mountTimer({ budget: BUDGET }, en)
 
     expect(wrapper.get('[data-testid="call-answer-labels"]').text()).toBe(
-      '0:50 min · ideal 1:15–2:30 · 3:20 max'
-    )
-    expect(wrapper.get('[data-testid="call-answer-note"]').text()).toBe(
-      'Suggested times, not binding'
+      'Good answer: 1:30 to 2:30'
     )
   })
 
-  it('splits the track into four zones sized by [0,min), [min,ideal from), [ideal], (ideal,max]', () => {
+  it('splits the track into three zones: too short, good, long (scale 200 s)', () => {
     const zones = segments(mountTimer({ budget: BUDGET }))
 
-    expect(zones.map(widthOf)).toEqual([25, 12.5, 37.5, 25])
+    expect(zones.map(widthOf)).toEqual([45, 30, 25])
+    expect(zones.map((zone) => zone.attributes('data-zone'))).toEqual(['short', 'good', 'long'])
   })
 
-  it('zone widths follow a different budget (max 240)', () => {
-    const zones = segments(
-      mountTimer({ budget: { min: 60, idealFrom: 90, idealTo: 180, max: 240 } })
+  it('zone widths follow a different range (60 to 120, scale 160 s)', () => {
+    const zones = segments(mountTimer({ budget: { min: 60, max: 120, end: 160 } }))
+
+    expect(zones.map(widthOf)).toEqual([37.5, 37.5, 25])
+  })
+
+  it('highlights the good zone with the primary ink and tints the long one, never by colour alone', () => {
+    const zones = segments(mountTimer({ budget: BUDGET }))
+
+    expect(zones[0]!.classes()).toContain('bg-secondary')
+    expect(zones[1]!.classes()).toContain('bg-primary-ink/30')
+    expect(zones[2]!.classes()).toContain('bg-warning-light')
+  })
+
+  it('marks where the good zone starts and ends with two decorative icons on the boundaries', () => {
+    const wrapper = mountTimer({ budget: BUDGET })
+    const start = wrapper.get('[data-testid="call-answer-min-icon"]')
+    const end = wrapper.get('[data-testid="call-answer-max-icon"]')
+    const leftOf = (el: { attributes: (n: string) => string | undefined }) =>
+      Number.parseFloat(/left:\s*([\d.]+)%/.exec(el.attributes('style') ?? '')?.[1] ?? 'NaN')
+
+    // 90 s and 150 s on a 200 s scale: the same boundaries the zones are cut at.
+    expect(leftOf(start)).toBe(45)
+    expect(leftOf(end)).toBe(75)
+    expect(start.classes()).toEqual(expect.arrayContaining(['absolute', 'text-success-dark']))
+    expect(end.classes()).toEqual(expect.arrayContaining(['absolute', 'text-error-dark']))
+    for (const icon of [start, end]) {
+      expect(icon.get('svg').attributes('aria-hidden')).toBe('true')
+    }
+    expect(start.html()).toContain('lucide-circle-check')
+    expect(end.html()).toContain('lucide-alarm-clock')
+  })
+
+  it('keeps both icons inside the bar for any valid range', () => {
+    const wrapper = mountTimer({ budget: { min: 10, max: 600, end: 800 } })
+    const lefts = ['min', 'max'].map((name) =>
+      Number.parseFloat(
+        /left:\s*([\d.]+)%/.exec(
+          wrapper.get(`[data-testid="call-answer-${name}-icon"]`).attributes('style') ?? ''
+        )?.[1] ?? 'NaN'
+      )
     )
 
-    expect(zones.map(widthOf)).toEqual([25, 12.5, 37.5, 25])
-    const other = segments(mountTimer({ budget: { min: 10, idealFrom: 20, idealTo: 60, max: 80 } }))
-    expect(other.map(widthOf)).toEqual([12.5, 12.5, 50, 25])
+    expect(lefts).toEqual([1.25, 75])
   })
 
-  it('exposes the answer time against the maximum to assistive technology', () => {
+  it('draws no icons without a budget', () => {
+    const wrapper = mountTimer({ budget: null })
+
+    expect(wrapper.find('[data-testid="call-answer-min-icon"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="call-answer-max-icon"]').exists()).toBe(false)
+  })
+
+  it('exposes the answer time against the scale to assistive technology', () => {
     const wrapper = mountTimer({ seconds: 65, budget: BUDGET })
     const progress = bar(wrapper)
 
@@ -222,31 +311,63 @@ describe('CallAnswerTimer - the suggested-length bar', () => {
     expect(progress.attributes('aria-valuemin')).toBe('0')
     expect(progress.attributes('aria-valuemax')).toBe('200')
     expect(progress.attributes('aria-valuenow')).toBe('65')
-    expect(progress.attributes('aria-valuetext')).toBe('1:05 su un massimo suggerito di 3:20')
+    expect(progress.attributes('aria-valuetext')).toBe('1:05. Risposta efficace: da 1:30 a 2:30')
     expect(progress.attributes('aria-label')).toBe('Durata suggerita della risposta')
   })
 
-  it('fills each zone in turn: 60 s is a full first zone and 40% of the second', () => {
+  it('fills each zone in turn: 100 s is a full first zone and a third of the good one', () => {
     const fills = (wrapper: VueWrapper) =>
       wrapper.findAll('[data-testid="call-answer-fill"]').map(widthOf)
 
-    expect(fills(mountTimer({ seconds: 0, budget: BUDGET }))).toEqual([0, 0, 0, 0])
-    expect(fills(mountTimer({ seconds: 60, budget: BUDGET }))).toEqual([100, 40, 0, 0])
-    expect(fills(mountTimer({ seconds: 120, budget: BUDGET }))).toEqual([100, 100, 60, 0])
-    expect(fills(mountTimer({ seconds: 175, budget: BUDGET }))).toEqual([100, 100, 100, 50])
+    expect(fills(mountTimer({ seconds: 0, budget: BUDGET }))).toEqual([0, 0, 0])
+    expect(fills(mountTimer({ seconds: 100, budget: BUDGET }))).toEqual([100, 100 / 6, 0])
+    expect(fills(mountTimer({ seconds: 150, budget: BUDGET }))).toEqual([100, 100, 0])
+    expect(fills(mountTimer({ seconds: 175, budget: BUDGET }))).toEqual([100, 100, 50])
   })
 
-  it('past the max the bar stays full with no error or warning treatment (guidance only)', () => {
+  it('shows a text hint, in the warning ink, only once the answer passes the max', () => {
+    const hint = (wrapper: VueWrapper) => wrapper.find('[data-testid="call-answer-long"]')
+
+    expect(hint(mountTimer({ seconds: 150, budget: BUDGET })).exists()).toBe(false)
+    const long = hint(mountTimer({ seconds: 151, budget: BUDGET }))
+    expect(long.text()).toBe('Risposta lunga: puoi concludere')
+    expect(long.classes()).toContain('text-warning-dark')
+    expect(hint(mountTimer({ seconds: 151, budget: BUDGET }, en)).text()).toBe(
+      'Long answer: you can wrap up'
+    )
+  })
+
+  it('past the end of the scale the bar stays full with no alarm (guidance only)', () => {
     const wrapper = mountTimer({ seconds: 260, budget: BUDGET, phase: 'answering' })
-    const fills = wrapper.findAll('[data-testid="call-answer-fill"]').map(widthOf)
+    const fills = wrapper.findAll('[data-testid="call-answer-fill"]')
     const progress = bar(wrapper)
 
-    expect(fills).toEqual([100, 100, 100, 100])
+    expect(fills.map(widthOf)).toEqual([100, 100, 100])
     expect(progress.attributes('aria-valuenow')).toBe('200')
     expect(wrapper.get('time').text()).toBe('04:20')
-    // The chip is a Badge whose base class list names `destructive`; the bar and the figure are ours.
-    const drawn = bar(wrapper).html() + wrapper.get('time').html()
-    expect(drawn).not.toMatch(/destructive|recording|alert|warning|amber/)
+
+    // The intended warning treatment: the long zone is a warning track with a warning fill, and
+    // the red alarm icon is the max marker (a boundary, not an alert).
+    const long = segments(wrapper)[2]!
+    expect(long.classes()).toContain('bg-warning-light')
+    expect(fills[2]!.classes()).toContain('bg-warning')
+    expect(wrapper.get('[data-testid="call-answer-max-icon"]').classes()).toContain(
+      'text-error-dark'
+    )
+
+    // No red / destructive classes and no pulsing or animation on any fill or on the figure. The
+    // chip is a Badge whose base class list names `destructive`; the bar and the figure are ours.
+    // The whole bar (tracks and segments included) is scanned; only the max marker, which is the
+    // red alarm icon by design, is cut out first.
+    const barHtml = wrapper.get('[data-testid="call-answer-bar"]').html()
+    const maxIcon = wrapper.get('[data-testid="call-answer-max-icon"]').html()
+    const drawn = barHtml.replace(maxIcon, '') + wrapper.get('time').html()
+    expect(drawn).not.toMatch(/destructive|recording|alert|bg-error|text-error|animate|pulse/)
+
+    // The only cue past the end is the status text hint.
+    expect(wrapper.get('[data-testid="call-answer-long"]').text()).toBe(
+      'Risposta lunga: puoi concludere'
+    )
     expect(wrapper.emitted()).toEqual({})
   })
 
@@ -278,8 +399,8 @@ describe('CallAnswerTimer - locale parity', () => {
       'status.waiting',
       'status.answering',
       'muted_hint',
-      'budget_labels',
-      'budget_note',
+      'budget_range',
+      'budget_long',
       'budget_label',
       'budget_sr',
     ]

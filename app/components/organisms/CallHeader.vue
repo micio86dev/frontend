@@ -2,39 +2,44 @@
   <div data-testid="call-header" class="flex w-full min-w-0 items-center gap-4">
     <p
       data-testid="call-header-title"
-      class="mr-auto line-clamp-2 min-w-0 text-base font-semibold text-on-primary"
+      class="mr-auto line-clamp-2 min-w-0 text-base font-semibold text-on-canvas"
     >
       {{ title }}
     </p>
 
-    <!--
-      An accessible name, but NOT a live region and NOT role="timer": it must not announce each
-      second, and the page has exactly one timer role (the interview-time-remaining countdown).
-    -->
-    <p
-      data-testid="call-header-clock"
-      class="shrink-0 font-mono text-base font-semibold text-on-primary tabular-nums"
-    >
-      <span class="sr-only">{{ $t('interview.call.header.elapsed_sr') }}</span>
-      {{ ' ' }}
-      <time>{{ formatClock(elapsedSeconds) }}</time>
-    </p>
-
     <div class="flex shrink-0 items-center gap-2">
       <!--
-        White controls drawn from the CARD tokens, never `bg-background` / `text-foreground`:
-        on the brand canvas only the card pair keeps its measured contrast on any colour.
+        Controls drawn from the CARD tokens, never `bg-background` / `text-foreground`: on the
+        brand canvas only the card pair (and the primary surface pair) keeps its measured contrast
+        on any colour. The organization's PRIMARY colour is the accent of ACTIVE states: captions
+        on and microphone on = primary surface + ink border (the live microphone adds a green
+        dot); captions off = neutral card; microphone muted = error-dark on error-light with a
+        red dot. Colour is never the only cue: the visible label states the state, the icon
+        swaps and `aria-pressed` repeats it. Hover fills are OPAQUE mixes, never a `/NN` alpha of
+        the surface: the controls sit on the canvas, which can be dark, and a translucent fill
+        over it leaves the dark label on a dark pixel.
       -->
       <Button
         data-testid="call-header-captions"
         variant="outline"
         :aria-pressed="captionsEnabled ? 'true' : 'false'"
-        class="h-(--spacing-control) gap-2 bg-card px-4 text-card-foreground"
+        class="h-(--spacing-control) gap-2 px-4 transition-colors"
+        :class="
+          captionsEnabled
+            ? 'border-primary-ink bg-primary-surface text-on-primary-surface hover:bg-[color-mix(in_oklab,var(--color-primary-surface)_70%,white)]'
+            : 'bg-card text-card-foreground hover:bg-[color-mix(in_oklab,var(--color-primary-surface)_40%,white)]'
+        "
         @click="emit('toggle-captions')"
       >
         <CaptionsIcon v-if="captionsEnabled" data-icon="captions" aria-hidden="true" />
         <CaptionsOffIcon v-else data-icon="captions-off" aria-hidden="true" />
-        {{ $t('interview.call.header.captions') }}
+        {{
+          $t(
+            captionsEnabled
+              ? 'interview.call.header.captions_on'
+              : 'interview.call.header.captions_off'
+          )
+        }}
       </Button>
 
       <!--
@@ -46,12 +51,35 @@
         variant="outline"
         :aria-pressed="micMuted ? 'false' : 'true'"
         :aria-disabled="micDisabled ? 'true' : undefined"
-        class="h-(--spacing-control) gap-2 bg-card px-4 text-card-foreground aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
+        class="h-(--spacing-control) gap-2 px-4 transition-colors aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
+        :class="
+          micMuted
+            ? 'border-error-dark bg-error-light text-error-dark hover:bg-[color-mix(in_oklab,var(--color-error)_22%,white)] hover:text-error-dark'
+            : 'border-primary-ink bg-primary-surface text-on-primary-surface hover:bg-[color-mix(in_oklab,var(--color-primary-surface)_70%,white)]'
+        "
         @click="onToggleMic"
       >
         <MicOffIcon v-if="micMuted" data-icon="mic-off" aria-hidden="true" />
         <MicIcon v-else data-icon="mic" aria-hidden="true" />
-        {{ $t('interview.call.header.microphone') }}
+        <span
+          v-if="micMuted"
+          data-slot="mic-muted-dot"
+          aria-hidden="true"
+          class="size-2 shrink-0 rounded-full bg-error-dark"
+        />
+        <span
+          v-else
+          data-slot="mic-live-dot"
+          aria-hidden="true"
+          class="size-2 shrink-0 rounded-full bg-success-dark"
+        />
+        {{
+          $t(
+            micMuted
+              ? 'interview.call.header.microphone_off'
+              : 'interview.call.header.microphone_on'
+          )
+        }}
       </Button>
 
       <slot name="exit" />
@@ -65,12 +93,11 @@
  * DESIGN.md §7.0.1, §7.3).
  *
  * Presentational only. It sits in `BrandCanvas`'s `header-end` slot, which spans the row:
- * the already-localized title, the elapsed clock, then Sottotitoli, Microfono and the Exit
- * slot in this DOM and tab order. There is no Camera, "Ripeti domanda" or Pause control.
+ * the already-localized title, then Sottotitoli, Microfono and the Exit slot in this DOM and
+ * tab order. It carries NO clock: the panel's countdown is the interview's one timer. There is no Camera, "Ripeti domanda" or Pause control.
  *
  * Props:
  *   title           — already localized by the page.
- *   elapsedSeconds  — the live clock (`useInterviewClock`), owned by the caller.
  *   captionsEnabled — the stored preference; pressed means captions are on.
  *   micMuted        — the VISUAL state: the candidate's choice, or an interview-owned mute.
  *   micDisabled     — an interview-owned mute is in force (boundary or handover).
@@ -81,11 +108,9 @@
  */
 import { CaptionsIcon, CaptionsOffIcon, MicIcon, MicOffIcon } from '@lucide/vue'
 import { Button } from '~/components/ui/button'
-import { formatClock } from '~/app/composables/useInterviewClock'
 
 const props = defineProps<{
   title: string
-  elapsedSeconds: number
   captionsEnabled: boolean
   micMuted: boolean
   micDisabled: boolean

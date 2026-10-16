@@ -64,9 +64,10 @@
         "title": "Assessment interview",
         "title_with_subject": "Assessment interview · {subject}",
         "potential": "Potential",
-        "elapsed_sr": "Elapsed time",
-        "captions": "Captions",
-        "microphone": "Microphone"
+        "captions_on": "Captions on",
+        "captions_off": "Captions off",
+        "microphone_on": "Microphone on",
+        "microphone_off": "Microphone off"
       },
       "answer": {
         "label": "Answer time",
@@ -76,10 +77,10 @@
           "answering": "You are answering"
         },
         "muted_hint": "Microphone off: the interviewer cannot hear you",
-        "budget_labels": "{min} min · ideal {from}–{to} · {max} max",
-        "budget_note": "Suggested times, not binding",
+        "budget_range": "Good answer: {from} to {to}",
+        "budget_long": "Long answer: you can wrap up",
         "budget_label": "Suggested answer length",
-        "budget_sr": "{elapsed} of a suggested maximum of {max}"
+        "budget_sr": "{elapsed}. Good answer: {from} to {to}"
       },
       "storyboard": {
         "label": "Interview path",
@@ -95,9 +96,8 @@
       },
       "duration": {
         "label": "Interview duration",
-        "value": "{elapsed} / {total}",
-        "sr": "{elapsed} elapsed out of a maximum of {total}",
-        "remaining": "About {n} minute left | About {n} minutes left"
+        "of_max": "of {minutes} min",
+        "sr": "{elapsed} elapsed out of a maximum of {total}"
       },
       "remaining_label": "Time remaining",
       "interviewer_name": "AI interviewer",
@@ -106,6 +106,10 @@
       "candidate_speaking": "You are speaking",
       "self_view": "Your camera",
       "self_view_off": "Camera unavailable",
+      "mic_muted": {
+        "text": "Microphone off: the interviewer can't hear you.",
+        "action": "Unmute"
+      },
       "network_pending": "Connection is unstable. Your answers are sent as soon as it returns.",
       "exit": {
         "short": "Exit",
