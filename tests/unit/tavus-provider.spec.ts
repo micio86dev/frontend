@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { TavusProvider } from '~/app/providers/tavus'
+import { TavusProvider, COMPLETION_SETTLE_MS } from '~/app/providers/tavus'
 
 // Mock Daily.co call frame shape
 interface MockCallFrame {
@@ -96,7 +96,8 @@ describe('TavusProvider', () => {
 
   // ---- Completion detection: tool_call ----
 
-  it('emits state complete on conversation.tool_call with name=end_interview', async () => {
+  it('emits state complete on conversation.tool_call with name=end_interview, after the settle window', async () => {
+    vi.useFakeTimers()
     const { provider } = makeProvider()
     const el = document.createElement('div')
     await provider.start(el, { dbSessionId: 1, conversationUrl: CONVERSATION_URL, ...PHRASES })
@@ -105,7 +106,10 @@ describe('TavusProvider', () => {
       data: { type: 'conversation.tool_call', name: 'end_interview' },
     })
 
+    vi.advanceTimersByTime(COMPLETION_SETTLE_MS)
+
     expect(emittedStates).toContain('complete')
+    vi.useRealTimers()
   })
 
   it('does NOT emit complete for tool_call with different name', async () => {

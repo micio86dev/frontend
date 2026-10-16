@@ -37,9 +37,17 @@ import type {
   StartConfig,
   TranscriptEntry,
 } from '~/app/types/interview-provider'
+import { COMPLETION_SETTLE_MS, closingFallbackMs } from '~/app/utils/closing-completion'
 import { matchesEndPhrase } from '~/app/utils/proctor-config'
 
 type EventCallback = (payload: unknown) => void
+
+/**
+ * How long an avatar transcription counts as speech-pending while waiting for its
+ * `avatar.speak_started`. The transcription can precede it; this bound keeps a
+ * missing event from ever holding the completion.
+ */
+export const HEYGEN_SPEECH_PENDING_MS = 2_000
 
 /**
  * Minimal shape of the LiveAvatarSession used by this provider.
@@ -114,12 +122,17 @@ export class HeyGenProvider implements InterviewProvider {
   private session: HeyGenSession | null = null
   private phrases: { endPhrase: string; finalPhrase: string } | null = null
   private avatarSpeaking = false
+  /** An avatar transcription arrived and its `speak_started` has not yet. */
+  private speechPending = false
+  private speechPendingTimer: ReturnType<typeof setTimeout> | null = null
   /**
-   * Set when the closing phrase is transcribed while the avatar is still talking.
-   * The actual 'complete' is emitted on AVATAR_SPEAK_ENDED so the sentence finishes
-   * in the candidate's ear before the question tears down.
+   * Set when the closing phrase is heard. The 'complete' is released only after the
+   * avatar has been continuously silent for COMPLETION_SETTLE_MS (or by the
+   * lost-event fallback), so a long closing finishes in the candidate's ear.
    */
   private pendingComplete = false
+  private completionTimer: ReturnType<typeof setTimeout> | null = null
+  private completionSettleTimer: ReturnType<typeof setTimeout> | null = null
   /**
    * Set the moment WE ask the session to stop.
    *
@@ -215,7 +228,7 @@ export class HeyGenProvider implements InterviewProvider {
     this.phrases = { endPhrase: cfg.endPhrase, finalPhrase: cfg.finalPhrase }
     this.avatarSpeaking = false
     this.stopping = false
-    this.pendingComplete = false
+    this.clearCompletion()
     this.emitState('connecting')
 
     try {
@@ -251,6 +264,7 @@ export class HeyGenProvider implements InterviewProvider {
       session.on(SDK_EVENT.disconnected, (reason: never) => {
         this.session = null
         this.avatarSpeaking = false
+        this.clearCompletion()
 
         // Either WE asked for this, or the reason says the client did. Both are
         // ordinary teardown. Only an unexpected drop — one that arrives while we
@@ -278,6 +292,7 @@ export class HeyGenProvider implements InterviewProvider {
         this.emitState('listening')
         if (!this.avatarSpeaking) return
         this.avatarSpeaking = false
+        this.reevaluateCompletion()
         try {
           session.interrupt()
           this.logEvent('interrupted')
@@ -289,18 +304,19 @@ export class HeyGenProvider implements InterviewProvider {
       session.on(SDK_EVENT.avatarSpeakStarted, () => {
         this.logEvent('avatar_speak_started')
         this.avatarSpeaking = true
+        this.clearSpeechPending()
+        this.reevaluateCompletion()
         this.emitState('speaking')
       })
 
       session.on(SDK_EVENT.avatarSpeakEnded, () => {
         this.logEvent('avatar_speak_ended', { pendingComplete: this.pendingComplete })
         this.avatarSpeaking = false
+        this.clearSpeechPending()
         this.emitState('ready')
-        // The closing phrase has now been spoken in full → the question is done.
-        if (this.pendingComplete) {
-          this.pendingComplete = false
-          this.emitState('complete')
-        }
+        // Not the end of the closing yet: speak_ended can fire between chunks of a
+        // long text. The settle window decides.
+        this.reevaluateCompletion()
       })
 
       // ── Transcripts ─────────────────────────────────────────────────────────
@@ -312,11 +328,14 @@ export class HeyGenProvider implements InterviewProvider {
 
         this.emit('transcript', { role: 'avatar', text, ts: Date.now() } satisfies TranscriptEntry)
 
+        // The transcription can precede its audio's speak_started: count the avatar
+        // as speaking from now, bounded by a timeout.
+        this.markSpeechPending()
+
         // Completion detection: the avatar marks a question done by SPEAKING the
-        // configured phrase. Defer to AVATAR_SPEAK_ENDED if it is still mid-sentence.
+        // configured phrase. Always held, never completed on the spot.
         if (this.phrases && matchesEndPhrase(text, this.phrases)) {
-          if (this.avatarSpeaking) this.pendingComplete = true
-          else this.emitState('complete')
+          this.holdCompletion(text)
         }
       })
 
@@ -349,6 +368,56 @@ export class HeyGenProvider implements InterviewProvider {
     }
   }
 
+  private markSpeechPending(): void {
+    this.speechPending = true
+    if (this.speechPendingTimer !== null) clearTimeout(this.speechPendingTimer)
+    this.speechPendingTimer = setTimeout(() => {
+      this.clearSpeechPending()
+      this.reevaluateCompletion()
+    }, HEYGEN_SPEECH_PENDING_MS)
+    this.reevaluateCompletion()
+  }
+
+  private clearSpeechPending(): void {
+    this.speechPending = false
+    if (this.speechPendingTimer !== null) {
+      clearTimeout(this.speechPendingTimer)
+      this.speechPendingTimer = null
+    }
+  }
+
+  private holdCompletion(text: string): void {
+    this.pendingComplete = true
+    this.completionTimer ??= setTimeout(() => this.finishCompletion(), closingFallbackMs(text))
+    this.reevaluateCompletion()
+  }
+
+  /** (Re)starts the settle window when the avatar is quiet; cancels it otherwise. */
+  private reevaluateCompletion(): void {
+    if (this.completionSettleTimer !== null) {
+      clearTimeout(this.completionSettleTimer)
+      this.completionSettleTimer = null
+    }
+    if (!this.pendingComplete || this.avatarSpeaking || this.speechPending) return
+
+    this.completionSettleTimer = setTimeout(() => this.finishCompletion(), COMPLETION_SETTLE_MS)
+  }
+
+  private finishCompletion(): void {
+    this.clearCompletion()
+    this.emitState('complete')
+  }
+
+  /** Drops the held completion, its timers and the pending-speech state. */
+  private clearCompletion(): void {
+    this.clearSpeechPending()
+    if (this.completionTimer !== null) clearTimeout(this.completionTimer)
+    if (this.completionSettleTimer !== null) clearTimeout(this.completionSettleTimer)
+    this.completionTimer = null
+    this.completionSettleTimer = null
+    this.pendingComplete = false
+  }
+
   /**
    * Mute/unmute the always-on conversational microphone.
    *
@@ -374,6 +443,7 @@ export class HeyGenProvider implements InterviewProvider {
     // Set BEFORE awaiting: the disconnect can land while stop() is still in
     // flight, and that one is the most expected of all.
     this.stopping = true
+    this.clearCompletion()
 
     if (this.session) {
       try {
