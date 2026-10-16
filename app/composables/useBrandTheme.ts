@@ -288,7 +288,14 @@ const DERIVE: Record<(typeof BRAND_DERIVED_TOKENS)[number], (color: string) => s
   '--color-speaking-ring': (color) => ensureContrast(color, AVATAR_PANEL, 3),
 }
 
-/** The colours last applied, so each writer can refresh the edge guard. */
+/**
+ * MODULE-LEVEL MUTABLE STATE: the colours last applied, so each writer can
+ * refresh the edge guard (it depends on both). It lives beside the properties
+ * it mirrors on `document.documentElement`, so the two must be cleared
+ * together: a spec that strips style properties directly leaves this state
+ * behind and the next test inherits a phantom primary or canvas. Clear through
+ * `resetBrandTheme()` (or the writers with `null`), never by hand.
+ */
 let appliedPrimary: string | null = null
 let appliedCanvas: string | null = null
 
@@ -408,4 +415,10 @@ export function applyBrandCanvas(color: string | null | undefined): void {
   syncPrimaryEdge()
 
   brandColorRevision.value += 1
+}
+
+/** Test seam: forget both colours and every property they painted. */
+export function resetBrandTheme(): void {
+  applyBrandColor(null)
+  applyBrandCanvas(null)
 }

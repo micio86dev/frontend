@@ -24,6 +24,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import {
   applyBrandCanvas,
   applyBrandColor,
+  resetBrandTheme,
   BRAND_CANVAS_TOKENS,
   BRAND_COLOR_TOKENS,
   BRAND_DERIVED_TOKENS,
@@ -567,5 +568,24 @@ describe('the primary edge on the canvas (DESIGN.md §3.1 rule 3)', () => {
     applyBrandCanvas(null)
 
     expect(read(BRAND_EDGE_TOKEN)).toBe('')
+  })
+})
+
+describe('resetBrandTheme', () => {
+  it('forgets both colours, so no phantom state feeds the next edge guard', () => {
+    applyBrandColor('#e45526')
+    applyBrandCanvas('#ffd400')
+    expect(read(BRAND_EDGE_TOKEN)).not.toBe('')
+
+    resetBrandTheme()
+
+    expect(read(BRAND_EDGE_TOKEN)).toBe('')
+    expect(read('--color-primary')).toBe('')
+    expect(read('--color-canvas')).toBe('')
+
+    // Only the primary applied after the reset: the canvas must be the default,
+    // not the stale #ffd400 (an orange on yellow would force an on-canvas edge).
+    applyBrandColor('#e45526')
+    expect(read(BRAND_EDGE_TOKEN)).toBe('#e45526')
   })
 })

@@ -12,6 +12,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { operations } from '~~/types/api'
+import { resetBrandTheme } from '../../app/composables/useBrandTheme'
 
 const candidateFetchMock = vi.fn()
 
@@ -53,12 +54,12 @@ describe('useCandidateBranding', () => {
   beforeEach(async () => {
     candidateFetchMock.mockReset()
     ;(await branding()).reset()
-    document.documentElement.style.removeProperty('--color-primary')
-    document.documentElement.style.removeProperty('--color-canvas')
+    resetBrandTheme()
   })
 
   afterEach(async () => {
     ;(await branding()).reset()
+    resetBrandTheme()
   })
 
   it('paints the organization colour over the product one', async () => {

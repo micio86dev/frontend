@@ -9,8 +9,15 @@
  * which `token-parity.spec.ts` pins to the derivation for `#771aaf` (primary)
  * and `#0f172a` (the dark default canvas).
  */
-import { describe, it, expect } from 'vitest'
-import { deriveCanvasTokens, deriveOnPrimaryTokens } from '../../app/composables/useBrandTheme'
+import { afterEach, describe, it, expect } from 'vitest'
+import {
+  applyBrandCanvas,
+  applyBrandColor,
+  BRAND_EDGE_TOKEN,
+  deriveCanvasTokens,
+  deriveOnPrimaryTokens,
+  resetBrandTheme,
+} from '../../app/composables/useBrandTheme'
 import { contrastRatio, mix } from '../../app/utils/brand-color'
 
 const QUINT = '#771aaf'
@@ -123,15 +130,34 @@ describe.each(BACKGROUNDS)('brand canvas contrast — background %s', (_label, b
 })
 
 describe('brand canvas — the primary accent against the canvas (DESIGN.md §3.1 rule 3)', () => {
-  // A primary fill drawn directly on the canvas is either >= 3:1 against it or
-  // carries an on-canvas edge that is itself >= 3:1.
-  it.each(MATRIX.flatMap(([pl, p]) => BACKGROUNDS.map(([bl, b]) => [pl, bl, p, b] as const)))(
-    'primary %s on background %s: legible by fill or by edge',
-    (_pl, _bl, primary, background) => {
-      const onCanvas = deriveCanvasTokens(background)['--color-on-canvas']
-      const fillReads = contrastRatio(primary, background) >= 3
+  // Driven through the real writers: the edge is `--color-primary-edge`, as
+  // `syncPrimaryEdge` derives it. A fill drawn directly on the canvas is either
+  // >= 3:1 against it (and the edge is the primary itself, no visible border)
+  // or the edge is a different colour that is itself >= 3:1.
+  const PAIRS: ReadonlyArray<readonly [string, string]> = [
+    ...MATRIX.flatMap(([, p]) => BACKGROUNDS.map(([, b]) => [p, b] as const)),
+    // Close pairs, where the fill alone cannot read.
+    ['#771aaf', '#2a0f3a'],
+    ['#ffd400', '#f1f5f9'],
+    ['#771aaf', '#0f172a'],
+  ]
 
-      expect(fillReads || contrastRatio(onCanvas, background) >= 3).toBe(true)
+  afterEach(() => resetBrandTheme())
+
+  it.each(PAIRS)(
+    'primary %s on background %s: legible by fill or by edge',
+    (primary, background) => {
+      applyBrandColor(primary)
+      applyBrandCanvas(background)
+
+      const edge = document.documentElement.style.getPropertyValue(BRAND_EDGE_TOKEN)
+
+      if (contrastRatio(primary, background) >= 3) {
+        expect(edge).toBe(primary)
+      } else {
+        expect(edge).not.toBe(primary)
+        expect(contrastRatio(edge, background)).toBeGreaterThanOrEqual(3)
+      }
     }
   )
 })
