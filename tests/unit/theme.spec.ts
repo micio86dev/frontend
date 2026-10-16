@@ -111,7 +111,7 @@ function computedBackgroundColor(compiledCss: string, className: string): string
 function computedStyleProperty(
   compiledCss: string,
   className: string,
-  property: 'backgroundColor' | 'borderColor' | 'height'
+  property: 'backgroundColor' | 'borderColor' | 'color' | 'height'
 ): string {
   const window = new Window()
   const document = window.document
@@ -154,6 +154,14 @@ describe('brand theme tokens (D10)', () => {
 
   it('resolves the computed background of bg-accent to Quint orange #e45526', () => {
     expect(computedBackgroundColor(bgAccentCss, 'bg-accent')).toBe('#e45526')
+  })
+
+  it('resolves bg-canvas to the dark default #0f172a and text-on-canvas to white', async () => {
+    const css = await compileForCandidates(['bg-canvas', 'text-on-canvas', 'text-on-canvas-muted'])
+
+    expect(computedBackgroundColor(css, 'bg-canvas')).toBe('#0f172a')
+    expect(computedStyleProperty(css, 'text-on-canvas', 'color')).toBe('#ffffff')
+    expect(computedStyleProperty(css, 'text-on-canvas-muted', 'color')).toBe('#caccd0')
   })
 
   // Regression guard, not exercising main.css: reconstructs the exact confirmed

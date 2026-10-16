@@ -8,6 +8,8 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import ProgressBar from '../../app/components/ProgressBar.vue'
 import InterviewTimer from '../../app/components/InterviewTimer.vue'
 import InterviewSteps from '../../app/components/molecules/InterviewSteps.vue'
@@ -39,7 +41,12 @@ beforeEach(() => {
 
 describe.each(MATRIX)('interview chrome — %s', (_label, color, onPrimary) => {
   beforeEach(() => {
-    useCandidateBranding().prime({ primary_color: color, logo_url: null, name: null })
+    useCandidateBranding().prime({
+      primary_color: color,
+      background_color: null,
+      logo_url: null,
+      name: null,
+    })
   })
 
   it('resolves the canvas text token for this colour (or leaves the Quint default)', () => {
@@ -66,14 +73,43 @@ describe.each(MATRIX)('interview chrome — %s', (_label, color, onPrimary) => {
     urgent.unmount()
   })
 
-  it('draws the step indicator with on-primary tokens only, on the bare canvas', () => {
+  it('draws the step indicator with on-canvas tokens only, on the bare canvas', () => {
     const wrapper = mount(InterviewSteps, { props: { current: 'device_check' }, global })
 
     for (const classes of allClasses(wrapper)) {
       expect(classes).not.toMatch(
-        /(^|\s)(text-primary|text-foreground|text-muted-foreground|bg-background)(\s|$)/
+        /(^|\s)(text-primary|text-on-primary(-muted)?|text-foreground|text-muted-foreground|bg-background)(\s|$)/
       )
     }
+    const [done, current, ahead] = wrapper.findAll('li')
+
+    expect(done!.classes()).toContain('text-on-canvas')
+    expect(current!.classes()).toContain('text-on-canvas')
+    expect(ahead!.classes()).toContain('text-on-canvas-muted')
+  })
+
+  it('draws the current step as a primary disc with the on-primary numeral and the canvas edge guard', () => {
+    const wrapper = mount(InterviewSteps, { props: { current: 'device_check' }, global })
+    const disc = wrapper.get('li[aria-current="step"] > span')
+
+    expect(disc.classes()).toContain('interview-steps__disc--current')
+  })
+})
+
+describe('InterviewSteps — the current step disc (scoped CSS contract)', () => {
+  const source = readFileSync(
+    resolve(__dirname, '../../app/components/molecules/InterviewSteps.vue'),
+    'utf-8'
+  )
+  const rule = source.slice(source.indexOf('.interview-steps__disc--current'))
+
+  it('fills the disc with the primary and labels it with on-primary', () => {
+    expect(rule).toMatch(/background:\s*var\(--color-primary\)/)
+    expect(rule).toMatch(/color:\s*var\(--color-on-primary\)/)
+  })
+
+  it('edges it with the guard token: on-canvas when the primary is close to the canvas', () => {
+    expect(rule).toMatch(/border-color:\s*var\(--color-primary-edge\)/)
   })
 })
 

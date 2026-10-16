@@ -122,7 +122,12 @@ function sessionResponse(overrides: {
       started_at: null,
       completed_at: null,
       created_at: null,
-      branding: overrides.branding ?? { name: null, primary_color: null, logo_url: null },
+      branding: overrides.branding ?? {
+        name: null,
+        primary_color: null,
+        background_color: null,
+        logo_url: null,
+      },
       project,
     },
   }

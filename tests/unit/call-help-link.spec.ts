@@ -86,13 +86,27 @@ describe('CallHelpLink', () => {
     expect(link.attributes('target')).toBeUndefined()
   })
 
-  it('is a 44 px target in the brand ink with a visible 2 px focus ring', () => {
+  it('is a full-width bordered button-looking link with a bold dark label and a visible focus ring', () => {
     const link = mountLink('https://help.example.com/')
 
-    expect(link.classes()).toContain('min-h-(--spacing-control)')
-    expect(link.classes()).toContain('text-primary-ink')
-    expect(link.classes()).toContain('underline')
-    expect(link.classes()).toContain('focus-visible:ring-2')
-    expect(link.classes()).toContain('focus-visible:ring-primary-ink')
+    expect(link.classes()).toEqual(
+      expect.arrayContaining([
+        'flex',
+        'w-full',
+        'justify-center',
+        'min-h-(--spacing-control)',
+        'border',
+        'border-border',
+        'rounded-lg',
+        'bg-transparent',
+        'font-semibold',
+        'text-foreground',
+        'hover:bg-muted/40',
+        'focus-visible:ring-2',
+        'focus-visible:ring-primary-ink',
+      ])
+    )
+    expect(link.classes()).not.toContain('underline')
+    expect(link.classes()).not.toContain('text-primary-ink')
   })
 })

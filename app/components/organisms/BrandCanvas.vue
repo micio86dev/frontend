@@ -1,18 +1,18 @@
 <template>
   <div
-    class="brand-canvas relative isolate flex min-h-screen flex-col overflow-hidden bg-primary text-on-primary"
+    class="brand-canvas relative isolate flex min-h-screen flex-col overflow-hidden bg-canvas text-on-canvas"
   >
     <!--
-      The candidate flow's page (DESIGN.md §7.0.1): the CLIENT's primary colour is
-      the canvas, and everything drawn straight on it uses the on-primary tokens,
-      which `applyBrandColor()` derives so they read on any colour an operator
-      picks. Content never sits on the bare canvas: it sits on the one elevated
+      The candidate flow's page (DESIGN.md §7.0.1): the CLIENT's background colour
+      is the canvas (dark `#0f172a` when unset), and everything drawn straight on
+      it uses the on-canvas tokens, which `applyBrandCanvas()` derives so they
+      read on any colour an operator picks. Content never sits on the bare canvas: it sits on the one elevated
       white surface below, where the ordinary card tokens keep their measured
       contrast whatever the brand is.
     -->
     <!--
       ONE decorative layer, CSS only. It paints with `--color-canvas-tone`
-      alone, a shade of the primary moved away from on-primary, so it can deepen
+      alone, a shade of the background moved away from on-canvas, so it can deepen
       or lift the canvas without ever lowering the contrast of the text on it.
     -->
     <div
@@ -67,7 +67,7 @@
 
     <footer
       v-if="footer"
-      class="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 pb-6 text-sm text-on-primary-muted lg:px-10"
+      class="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 pb-6 text-sm text-on-canvas-muted lg:px-10"
     >
       <span>{{ $t('shell.tagline') }}</span>
       <a
@@ -76,7 +76,7 @@
         target="_blank"
         rel="noopener noreferrer"
         data-testid="privacy-policy-link"
-        class="text-on-primary underline underline-offset-4"
+        class="text-on-canvas underline underline-offset-4"
       >
         {{ $t('shell.privacyPolicy') }}
       </a>

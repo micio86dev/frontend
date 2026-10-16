@@ -20,13 +20,13 @@
  * FALLING BACK IS A FEATURE, NOT A FAILURE. An organization that has
  * configured neither renders in the product's own palette and wordmark
  * (CLAUDE.md ruling 9: "no logo configured" must never mean "no logo at all").
- * Nothing here invents a default: `applyBrandColor` REMOVES the override rather
- * than writing the Quint purple, so the stylesheet's own value stands and the
- * brand constant lives in exactly one place.
+ * Nothing here invents a default: `applyBrandColor` and `applyBrandCanvas` REMOVE
+ * the override rather than writing the Quint purple or the dark canvas, so the
+ * stylesheet's own value stands and each constant lives in exactly one place.
  */
 
 import { readonly, ref } from 'vue'
-import { applyBrandColor } from '~/app/composables/useBrandTheme'
+import { applyBrandCanvas, applyBrandColor } from '~/app/composables/useBrandTheme'
 import { candidateFetch } from '~/app/utils/candidate-api'
 import type { operations } from '~~/types/api'
 
@@ -67,6 +67,7 @@ export function useCandidateBranding() {
     // one should be.
     organizationName.value = branding?.name?.trim() || null
     applyBrandColor(branding?.primary_color)
+    applyBrandCanvas(branding?.background_color)
   }
 
   /**
@@ -104,6 +105,7 @@ export function useCandidateBranding() {
     logoUrl.value = null
     organizationName.value = null
     applyBrandColor(null)
+    applyBrandCanvas(null)
   }
 
   return {

@@ -13,7 +13,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { contrastRatio } from '../../app/utils/brand-color'
-import { deriveOnPrimaryTokens } from '../../app/composables/useBrandTheme'
+import { deriveCanvasTokens, deriveOnPrimaryTokens } from '../../app/composables/useBrandTheme'
 
 const root = resolve(__dirname, '../..')
 const sonnerSource = readFileSync(resolve(root, 'app/components/ui/sonner/Sonner.vue'), 'utf8')
@@ -37,6 +37,9 @@ const MATRIX: ReadonlyArray<[label: string, color: string | null]> = [
   ['none (Quint fallback)', null],
 ]
 
+/** The page behind the toast: the Light preset, the Dark default, a mid navy. */
+const BACKGROUNDS = ['#f1f5f9', '#0f172a', '#1e3a5f'] as const
+
 describe('integrity toast — the wrapper paints with the card tokens', () => {
   it('resolves the tokens this spec computes with', () => {
     expect(token('--card')).toBe('oklch(1 0 0)')
@@ -56,6 +59,18 @@ describe('integrity toast — the wrapper paints with the card tokens', () => {
   it('never paints the toast with a brand token, so no pair can follow the client colour', () => {
     expect(sonnerSource).not.toMatch(/var\(--(color-)?primary/)
     expect(sonnerSource).not.toMatch(/var\(--color-on-primary/)
+    expect(sonnerSource).not.toMatch(/var\(--color-(on-)?canvas/)
+  })
+})
+
+describe.each(BACKGROUNDS)('integrity toast over the background %s', (background) => {
+  // The surface is opaque white, so the pairs above hold on any background; the
+  // derivation is only asserted to be a real canvas the toast floats over.
+  it('floats over a derived canvas whose own text is legible, and its pairs do not change', () => {
+    const tokens = deriveCanvasTokens(background)
+
+    expect(contrastRatio(tokens['--color-on-canvas'], background)).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(CARD_FOREGROUND, CARD)).toBeGreaterThanOrEqual(4.5)
   })
 })
 

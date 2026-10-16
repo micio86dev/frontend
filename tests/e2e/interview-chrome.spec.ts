@@ -7,9 +7,10 @@ import { mockBrandedInterview } from './fixtures/branded-interview'
  * The interview chrome on the brand canvas (DESIGN.md §7.0.1, §7.2).
  *
  * The client colour is arbitrary, so the consent, device check and live
- * screens are run through axe under a light client colour, where on-primary is
- * black, and a dark one, where it is white. Either can break a pair the other
- * never exercises: white text on yellow, a yellow fill on a white surface.
+ * screens are run through axe under a light primary on the dark default canvas
+ * and a dark primary on a light background (`#f1f5f9`), where on-canvas is
+ * black. Either can break a pair the other never exercises: the current step
+ * disc on a canvas close to the primary, a yellow fill on a white surface.
  */
 
 const TOKEN = 'chrome-token-abc123'
@@ -79,17 +80,18 @@ async function focusRingContrast(target: Locator): Promise<number> {
   })
 }
 
-for (const [label, colour, rgb] of [
-  ['light #ffd400', '#ffd400', 'rgb(255, 212, 0)'],
-  ['dark #771aaf', '#771aaf', 'rgb(119, 26, 175)'],
+for (const [label, colour, background, rgb] of [
+  ['light primary #ffd400 on the dark default', '#ffd400', null, 'rgb(15, 23, 42)'],
+  ['dark primary #771aaf on a light #f1f5f9', '#771aaf', '#f1f5f9', 'rgb(241, 245, 249)'],
+  ['dark primary #771aaf on the dark default', '#771aaf', null, 'rgb(15, 23, 42)'],
 ] as const) {
   test.describe(`interview chrome on the brand canvas — ${label}`, () => {
     test.beforeEach(async ({ page }) => {
-      await mockBrandedInterview(page, colour)
+      await mockBrandedInterview(page, colour, background)
       await injectDeviceMocks(page)
     })
 
-    test('consent, device check and live screens are legible (axe) on the client colour', async ({
+    test('consent, device check and live screens are legible (axe) on the client colours', async ({
       page,
     }) => {
       await page.goto(`/en/interview/${TOKEN}`)

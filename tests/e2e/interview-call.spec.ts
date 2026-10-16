@@ -30,6 +30,8 @@ function startResponse(sessionId: number, competency: string) {
     // The server states the interview limit: the duration section, the countdown and the
     // suggested-length bar all render, so the panel is as tall as it ever gets.
     interview_max_seconds: 1200,
+    answer_min_seconds: 90,
+    answer_max_seconds: 150,
     question_context: {
       question_index: sessionId - 1,
       total_questions: 3,
@@ -62,8 +64,12 @@ interface CallApi {
 }
 
 /** The branded interview routes, the call-screen media, and the counters the specs read. */
-async function mockCallApi(page: Page, primaryColor: string | null = '#771aaf'): Promise<CallApi> {
-  await mockBrandedInterview(page, primaryColor)
+async function mockCallApi(
+  page: Page,
+  primaryColor: string | null = '#771aaf',
+  backgroundColor: string | null = null
+): Promise<CallApi> {
+  await mockBrandedInterview(page, primaryColor, backgroundColor)
   await injectCallMedia(page)
 
   let starts = 0
@@ -216,7 +222,7 @@ test.describe('the call stage (the default live interview)', () => {
     await expect(page.getByRole('button', { name: /^pause$/i })).toHaveCount(0)
   })
 
-  test('the header names the interview, shows a clock and offers exactly three controls', async ({
+  test('the header names the interview, shows no clock and offers exactly three controls', async ({
     page,
   }) => {
     await mockCallApi(page)
@@ -230,6 +236,7 @@ test.describe('the call stage (the default live interview)', () => {
             project: { exit_redirect_url: null },
             branding: {
               primary_color: '#771aaf',
+              background_color: null,
               logo_url: 'https://cdn.test/acme.png',
               name: 'Acme Selezione',
             },
@@ -250,8 +257,10 @@ test.describe('the call stage (the default live interview)', () => {
     await expect(page.getByTestId('call-header-title')).toHaveText(
       'Assessment interview · Sales Manager'
     )
-    await expect(header.getByRole('button')).toHaveText(['Captions', 'Microphone', 'Exit'])
-    await expect(page.getByTestId('call-header-clock').locator('time')).toHaveText(/^\d{2,}:\d{2}$/)
+    await expect(header.getByRole('button')).toHaveText(['Captions on', 'Microphone on', 'Exit'])
+    // No clock in the header: the countdown in the panel is the interview's one timer.
+    await expect(page.getByTestId('call-header-clock')).toHaveCount(0)
+    await expect(page.getByTestId('call-panel-duration').getByRole('timer')).toHaveCount(1)
     await expect(header.getByRole('timer')).toHaveCount(0)
     await expect(page.getByRole('timer')).toHaveCount(1)
     await expect(page.getByTestId('call-header-captions')).toHaveAttribute('aria-pressed', 'true')
@@ -623,6 +632,24 @@ test.describe('the call stage (the default live interview)', () => {
     expect(await bandFocusCount()).toBe(1)
   })
 
+  test('a muted microphone shows the badge, and its Unmute action opens the microphone and removes it', async ({
+    page,
+  }) => {
+    await mockCallApi(page)
+    await goLive(page)
+    const mic = page.getByTestId('call-header-mic')
+    const badge = page.getByTestId('call-mic-muted-badge')
+    await expect(badge).toHaveCount(0)
+
+    await mic.click()
+    await expect(badge).toBeVisible()
+    await expect(badge).toContainText('interviewer')
+
+    await page.getByTestId('call-mic-muted-unmute').click()
+    await expect(badge).toHaveCount(0)
+    await expect(mic).toHaveAttribute('aria-pressed', 'true')
+  })
+
   test('a muted microphone stays muted across a competency boundary, and an open one stays open', async ({
     page,
   }) => {
@@ -658,13 +685,13 @@ test.describe('the call stage (the default live interview)', () => {
   })
 })
 
-for (const [label, colour] of [
-  ['light #ffd400', '#ffd400'],
-  ['dark #771aaf', '#771aaf'],
+for (const [label, colour, background] of [
+  ['yellow #ffd400 on the dark default', '#ffd400', null],
+  ['purple #771aaf on a light #f1f5f9', '#771aaf', '#f1f5f9'],
 ] as const) {
-  test.describe(`the call screen is legible (axe) on the client colour — ${label}`, () => {
+  test.describe(`the call screen is legible (axe) on the client colours — ${label}`, () => {
     test('live screen, open exit dialog and suspended screen', async ({ page }) => {
-      await mockCallApi(page, colour)
+      await mockCallApi(page, colour, background)
       await goLive(page)
 
       await checkA11y(page)
@@ -678,18 +705,21 @@ for (const [label, colour] of [
       await checkA11y(page)
     })
 
-    test('the full panel: answer bar, storyboard and duration', async ({ page }) => {
-      const api = await mockCallApi(page, colour)
+    test('the full panel: answer bar, progress and duration; the competency list is hidden', async ({
+      page,
+    }) => {
+      const api = await mockCallApi(page, colour, background)
       await goLiveFullPanel(page, api)
       await expect(page.getByTestId('call-answer-bar')).toBeVisible()
-      await expect(page.getByTestId('call-storyboard')).toBeVisible()
+      await expect(page.getByTestId('call-panel-progress')).toBeVisible()
+      await expect(page.getByTestId('call-storyboard')).toBeHidden()
       await expect(page.getByTestId('call-panel-duration')).toBeVisible()
 
       await checkA11y(page)
     })
 
     test('live screen with a caption, then with captions off', async ({ page }) => {
-      await mockCallApi(page, colour)
+      await mockCallApi(page, colour, background)
       await goLive(page)
       await say(page, 'Tell me about a time you led a change.')
       await expect(page.getByTestId('call-question-speaker')).toBeVisible()
@@ -1055,18 +1085,22 @@ test.describe('the call stage fits the viewport', () => {
 
       const layer = await boxOf(page.locator('[data-slot="avatar-layer"]'))
       const panel = await boxOf(page.getByTestId('call-panel'))
-      // The panel is at least as tall as the video and never taller than the screen.
-      expect(panel.height).toBeGreaterThanOrEqual(layer.height - 1)
+      // The panel is exactly as tall as the video (top and bottom edges aligned) and never taller than the screen.
+      expect(Math.abs(panel.height - layer.height)).toBeLessThanOrEqual(1)
       expect(panel.bottom).toBeLessThanOrEqual(height)
       for (const id of ['call-panel-answer', 'call-panel-path', 'call-panel-duration']) {
         await expect(page.getByTestId(id)).toBeVisible()
       }
-      // The help link is the last thing in the panel: if it is inside the panel and on screen,
-      // nothing above it pushed the column past its bottom edge.
+      // The help link is the last thing in the panel. The panel is exactly the video's height, so a
+      // short window scrolls it inside; once scrolled to, the link must sit inside the panel and on
+      // screen: nothing above it pushed the column past its bottom edge.
+      await page.getByTestId('call-help-link').scrollIntoViewIfNeeded()
       const help = await boxOf(page.getByTestId('call-help-link'))
-      expect(help.bottom).toBeLessThanOrEqual(panel.bottom)
+      // A scroll position is a whole pixel while the content is fractional: allow that sub-pixel.
+      expect(help.bottom).toBeLessThanOrEqual(panel.bottom + 1)
       expect(help.bottom).toBeLessThanOrEqual(height)
-      // The storyboard gives way (it scrolls) rather than the panel growing the page.
+      // The help link spans the panel's inner width (a full-width button-looking link).
+      expect(help.width).toBeGreaterThan(panel.width / 2)
       const path = await boxOf(page.getByTestId('call-panel-path'))
       expect(path.bottom).toBeLessThanOrEqual(panel.bottom)
     })
@@ -1241,7 +1275,7 @@ async function expectSingleColumn(
 /**
  * The live call, pixel for pixel, at 1440x900 on a light and a dark client colour
  * (design D14, "Visual regression"; DESIGN §7.3). The self-view video is masked (a
- * canvas-backed stream, never the same two frames), and so are the two clocks that
+ * canvas-backed stream, never the same two frames), and so are the two times that
  * count in real time; CSS animations are disabled. Baselines live next to this
  * spec for both browsers, darwin and linux, and are regenerated only in the pinned
  * container (`task e2e:update`).
@@ -1263,7 +1297,6 @@ test.describe('the call stage, pixel for pixel', () => {
         animations: 'disabled',
         mask: [
           page.locator('[data-slot="call-stage-self"] video'),
-          page.getByTestId('call-panel-duration-value'),
           page.getByTestId('call-panel').locator('time'),
         ],
       })

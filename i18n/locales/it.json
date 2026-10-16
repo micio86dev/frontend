@@ -64,9 +64,10 @@
         "title": "Colloquio di assessment",
         "title_with_subject": "Colloquio di assessment · {subject}",
         "potential": "Potenziale",
-        "elapsed_sr": "Tempo trascorso",
-        "captions": "Sottotitoli",
-        "microphone": "Microfono"
+        "captions_on": "Sottotitoli attivi",
+        "captions_off": "Sottotitoli spenti",
+        "microphone_on": "Microfono attivo",
+        "microphone_off": "Microfono spento"
       },
       "answer": {
         "label": "Tempo di risposta",
@@ -76,10 +77,10 @@
           "answering": "Stai rispondendo"
         },
         "muted_hint": "Microfono disattivato: l'intervistatore non ti sente",
-        "budget_labels": "{min} min · ideale {from}–{to} · {max} max",
-        "budget_note": "Tempi suggeriti, non vincolanti",
+        "budget_range": "Risposta efficace: da {from} a {to}",
+        "budget_long": "Risposta lunga: puoi concludere",
         "budget_label": "Durata suggerita della risposta",
-        "budget_sr": "{elapsed} su un massimo suggerito di {max}"
+        "budget_sr": "{elapsed}. Risposta efficace: da {from} a {to}"
       },
       "storyboard": {
         "label": "Percorso del colloquio",
@@ -95,9 +96,8 @@
       },
       "duration": {
         "label": "Durata dell'intervista",
-        "value": "{elapsed} / {total}",
-        "sr": "{elapsed} trascorsi su un massimo di {total}",
-        "remaining": "Restano circa {n} minuto | Restano circa {n} minuti"
+        "of_max": "di {minutes} min",
+        "sr": "{elapsed} trascorsi su un massimo di {total}"
       },
       "remaining_label": "Tempo rimanente",
       "interviewer_name": "Intervistatore AI",
@@ -106,6 +106,10 @@
       "candidate_speaking": "Stai parlando",
       "self_view": "La tua fotocamera",
       "self_view_off": "Fotocamera non disponibile",
+      "mic_muted": {
+        "text": "Microfono spento: l'intervistatore non ti sente.",
+        "action": "Riattiva"
+      },
       "network_pending": "La connessione è instabile. Le tue risposte vengono inviate appena torna disponibile.",
       "exit": {
         "short": "Esci",

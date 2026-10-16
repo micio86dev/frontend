@@ -99,10 +99,21 @@ exports[`brand theme token source (regression guard) > @theme literal block matc
   --color-on-primary-muted: #e1cded;
   --color-primary-surface: #f4edf9;
   --color-on-primary-surface: #0f172a;
-  /* The brand as text/marks on a white surface, and the only colour the
-     canvas decoration may use (DESIGN.md §3.1 "Candidate brand canvas"). */
+  /* The brand as text/marks on a white surface (DESIGN.md §3.1). */
   --color-primary-ink: #771aaf;
-  --color-canvas-tone: #410e60;
+  /* Canvas family: what the candidate page is painted with. The organization's
+     background colour overrides these (useBrandTheme.ts applyBrandCanvas); with
+     none configured the canvas is the dark default. token-parity.spec.ts
+     asserts they equal that derivation for #0f172a. canvas-tone is the only
+     colour the canvas decoration may use. */
+  --color-canvas: #0f172a;
+  --color-on-canvas: #ffffff;
+  --color-on-canvas-muted: #caccd0;
+  --color-canvas-tone: #080d17;
+  /* Edge of a primary fill drawn straight on the canvas (DESIGN.md §3.1 rule
+     3): on-canvas while the primary is under 3:1 against the canvas (Quint on
+     the dark default is 2.1:1), the primary itself otherwise. */
+  --color-primary-edge: #ffffff;
   --color-accent: #e45526;
   --color-accent-light: #f19823;
   /* Aliased to --color-primary-dark, not a second literal: the "active /
@@ -155,10 +166,11 @@ exports[`brand theme token source (regression guard) > @theme literal block matc
 
   --color-recording: #dc2626;
   --color-avatar-bg: #0f172a;
-  /* The white band of the call tile's speaking ring (DESIGN.md §3.1, §3.5).
-     Always drawn between two avatar-bg bands, so it clears 3:1 on any brand
-     colour and any video; a constant, never derived and never tinted. */
-  --color-speaking-ring: #ffffff;
+  /* The band of the call tile's speaking ring (DESIGN.md §3.1, §3.5): the
+     primary lifted to 3:1 against avatar-bg, equal to
+     ensureContrast('#771aaf', '#0f172a', 3). Always drawn between two avatar-bg
+     bands; useBrandTheme.ts derives it per organization. */
+  --color-speaking-ring: #9c59c5;
 
   /* === Typography === */
   /* Open Sans — self-hosted via @fontsource/open-sans (GDPR-safe; no Google Fonts runtime call) */
