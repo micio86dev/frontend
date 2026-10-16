@@ -105,8 +105,8 @@ export const BRAND_DERIVED_TOKENS = [
 ] as const
 
 /**
- * Tokens for anything drawn ON the tenant's primary colour (the candidate
- * canvas). The primary is arbitrary, so the text on it cannot be a constant:
+ * Tokens for anything drawn ON the tenant's primary colour (a primary
+ * button, the info chip, the current step disc). The primary is arbitrary, so the text on it cannot be a constant:
  * white on saturated yellow is unreadable.
  *
  * - `--color-on-primary`: black or white, whichever contrasts more.
@@ -321,9 +321,10 @@ function syncPrimaryEdge(): void {
  * — it would quietly produce `NaN` channels and a colour nobody chose.
  *
  * A plain hex is a valid CSS colour in every browser this product supports
- * (DESIGN.md §2), so the override needs no conversion. Contrast against
- * `--primary-foreground` is the operator's responsibility once they choose a
- * colour of their own; the product cannot verify a colour it did not pick.
+ * (DESIGN.md §2), so the override needs no conversion. The text that sits on
+ * the primary needs no operator care either: `--color-on-primary` (which
+ * `--primary-foreground` follows) is derived below as black or white, whichever
+ * reads, so a primary button is legible on any colour an operator picks.
  */
 export function applyBrandColor(color: string | null | undefined): void {
   if (typeof document === 'undefined') return
