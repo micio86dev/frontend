@@ -1,12 +1,17 @@
 <template>
   <div data-testid="call-answer-timer" class="flex flex-col gap-3">
-    <!-- The row keeps its height while idle, so the chip appearing never pushes the bar down. -->
-    <div class="flex min-h-6 flex-wrap items-center gap-x-3 gap-y-2">
+    <!--
+      The section label and the status chip share one row: label left, chip right. The row is
+      the label's own line, tall enough for the chip, so the chip appearing never moves the bar
+      and there is no reserved empty row while idle.
+    -->
+    <div class="flex min-h-6 items-center gap-x-3">
+      <slot name="label" />
       <Badge
         v-if="phase !== 'idle'"
         data-testid="call-answer-chip"
         variant="secondary"
-        class="h-auto px-2.5 py-1 text-xs"
+        class="ml-auto h-auto px-2.5 py-1 text-xs"
         >{{ $t(STATUS_KEYS[phase]) }}</Badge
       >
     </div>
@@ -123,7 +128,8 @@
  * range is also written as text under it, and a text hint appears once the answer runs long,
  * so colour is never the only carrier.
  *
- * Top to bottom: the status chip (and the muted hint), the bar with its two markers, then the
+ * Top to bottom: the label row (the `label` slot, the status chip right-aligned on the same
+ * line), the muted hint, the bar with its two markers, then the
  * elapsed time as plain text UNDER the bar, the range sentence and the long-answer hint.
  *
  * The bar is three zones: too short [0, min), good answer [min, max], long (max, end]. Each

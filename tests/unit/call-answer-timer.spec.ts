@@ -116,6 +116,35 @@ describe('CallAnswerTimer - layout order', () => {
   })
 })
 
+describe('CallAnswerTimer - the label row', () => {
+  const mountWithLabel = (props: Parameters<typeof mountTimer>[0]) =>
+    mount(CallAnswerTimer, {
+      props: { seconds: 12, phase: 'waiting' as Phase, budget: null, micMuted: false, ...props },
+      slots: { label: '<p data-testid="the-label">Answer time</p>' },
+      global: { mocks: { $t: translator(en) } },
+    })
+
+  it('puts the label and the status chip in the same row, the label first', () => {
+    const wrapper = mountWithLabel({ phase: 'answering' })
+    const label = wrapper.get('[data-testid="the-label"]').element
+    const chip = wrapper.get('[data-testid="call-answer-chip"]').element
+
+    expect(label.parentElement).toBe(chip.parentElement)
+    expect(label.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(chip.className).toContain('ml-auto')
+  })
+
+  it('keeps the row, and so the bar position, the same while idle (no chip, no gap)', () => {
+    const idle = mountWithLabel({ phase: 'idle', budget: BUDGET })
+    const live = mountWithLabel({ phase: 'answering', budget: BUDGET })
+    const row = (w: VueWrapper) => w.get('[data-testid="the-label"]').element.parentElement!
+
+    expect(idle.find('[data-testid="call-answer-chip"]').exists()).toBe(false)
+    expect(row(idle).className).toBe(row(live).className)
+    expect(row(idle).className).toContain('min-h-6')
+  })
+})
+
 describe('CallAnswerTimer - the status chip', () => {
   const chip = (wrapper: VueWrapper) => wrapper.find('[data-testid="call-answer-chip"]')
 

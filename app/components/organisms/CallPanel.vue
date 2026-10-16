@@ -22,18 +22,21 @@
       aria-labelledby="call-panel-answer-label"
       class="flex min-w-56 flex-1 flex-col gap-3 xl:flex-none"
     >
-      <p
-        id="call-panel-answer-label"
-        class="text-xs font-semibold tracking-wide text-muted-foreground uppercase"
-      >
-        {{ $t('interview.call.answer.label') }}
-      </p>
       <CallAnswerTimer
         :seconds="answerSeconds"
         :phase="answerPhase"
         :budget="budget"
         :mic-muted="micMuted"
-      />
+      >
+        <template #label>
+          <p
+            id="call-panel-answer-label"
+            class="text-xs font-semibold tracking-wide text-muted-foreground uppercase"
+          >
+            {{ $t('interview.call.answer.label') }}
+          </p>
+        </template>
+      </CallAnswerTimer>
     </section>
 
     <!--
@@ -55,7 +58,7 @@
       >
         {{ $t('interview.call.path.label') }}
       </p>
-      <div v-if="hasTotal" data-testid="call-panel-progress" class="flex flex-col gap-2">
+      <div data-testid="call-panel-progress" class="flex flex-col gap-2">
         <p data-testid="call-panel-progress-text" class="text-base font-semibold">
           {{ $t('interview.call.path.progress', progress) }}
         </p>
