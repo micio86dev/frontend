@@ -169,6 +169,9 @@ export default defineNuxtConfig({
       appEnv: 'local',
       // Set NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK=true in E2E to inject the mock provider (D2, W3)
       interviewProviderMock: '',
+      // Set NUXT_PUBLIC_HR_AVATAR_ENABLED=true to let createProvider return the third
+      // provider. OFF by default: with it unset the adapter and its SDK are never loaded.
+      hrAvatarEnabled: '',
       // Where the candidate's support links lead (candidate-interview-call-ui,
       // D10). Set NUXT_PUBLIC_SUPPORT_URL to an https: page or a mailto: address;
       // EMPTY (or any other scheme) keeps mailto:support@beai.app. Read through

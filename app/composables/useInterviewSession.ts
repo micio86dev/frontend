@@ -2026,6 +2026,15 @@ export function useInterviewSession(
         dbSessionId,
         sessionToken: response.provider_token ?? undefined,
         conversationUrl: response.conversation_url ?? undefined,
+        // The third provider's join inputs; the key is absent for every other provider.
+        ...(response.hr_avatar
+          ? {
+              hrAvatar: {
+                baseUrl: response.hr_avatar.base_url,
+                publishableKey: response.hr_avatar.publishable_key,
+              },
+            }
+          : {}),
         endPhrase: end_phrase,
         finalPhrase: final_phrase,
         // Omitted, not set to undefined-as-a-value: the provider treats an absent

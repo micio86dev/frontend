@@ -50,15 +50,16 @@ export function createProvider(name: ProviderName, mock: boolean): InterviewProv
       return new HeyGenProvider()
     case 'tavus':
       return new TavusProvider()
-    default: {
-      // TypeScript narrows `name` to `never` here, but we add a runtime guard
-      // for defensive safety in case the API returns an unexpected provider value.
-      const exhaustive: never = name
-      throw new Error(
-        `[createProvider] Unknown provider: "${String(exhaustive)}". Expected 'heygen' or 'tavus'.`
-      )
-    }
+    case 'hr_avatar':
+      // Not reachable yet: the flag-gated arm lands with the adapter. Until then it fails
+      // closed through the same error as any unexpected provider value.
+      break
   }
+
+  // Defensive runtime guard in case the API returns an unexpected provider value.
+  throw new Error(
+    `[createProvider] Unknown provider: "${String(name)}". Expected 'heygen' or 'tavus'.`
+  )
 }
 
 /**

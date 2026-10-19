@@ -13,6 +13,10 @@ WORKDIR /app
 # Copy dependency manifests first for layer caching
 COPY package.json bun.lock ./
 
+# The vendored @hr-avatar/sdk tarball is a `file:` dependency: it must be on disk
+# before `bun install`, or the frozen install cannot resolve it.
+COPY vendor ./vendor
+
 # Install all dependencies (including devDependencies for build)
 RUN bun install --frozen-lockfile
 

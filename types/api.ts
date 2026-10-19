@@ -7579,6 +7579,10 @@ export interface operations {
                             conversation_id: string;
                             competency_code: string;
                         };
+                        hr_avatar?: {
+                            base_url: string;
+                            publishable_key: string;
+                        };
                     };
                 };
             };
