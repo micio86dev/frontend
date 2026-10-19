@@ -16,6 +16,7 @@
 
 import type {
   InterviewProvider,
+  ProviderEvent,
   ProviderName,
   SteeringResult,
   SupportsContextSteering,
@@ -28,11 +29,12 @@ import { TavusProvider } from '~/app/providers/tavus'
 /**
  * Create an InterviewProvider for the given provider name.
  *
- * @param name - Provider identifier from the /start response ('heygen' | 'tavus')
+ * @param name - Provider identifier from the /start response ('heygen' | 'tavus' | 'hr_avatar')
  * @param mock - When true, return the mock provider instead of a real SDK provider.
  *               Driven by useRuntimeConfig().public.interviewProviderMock === 'true'.
  * @returns An InterviewProvider instance ready to call .start() on.
- * @throws Error for unknown provider names (defensive runtime guard; TS prevents at compile time).
+ * @throws Error for unknown provider names, and for 'hr_avatar' while its runtime flag is off
+ *         (defensive runtime guard; TS prevents the first at compile time).
  */
 export function createProvider(name: ProviderName, mock: boolean): InterviewProvider {
   if (mock) {
@@ -50,16 +52,75 @@ export function createProvider(name: ProviderName, mock: boolean): InterviewProv
       return new HeyGenProvider()
     case 'tavus':
       return new TavusProvider()
-    case 'hr_avatar':
-      // Not reachable yet: the flag-gated arm lands with the adapter. Until then it fails
-      // closed through the same error as any unexpected provider value.
+    case 'hr_avatar': {
+      // The flag is read HERE and nowhere else, so the other arms never touch it. Nuxt
+      // coerces NUXT_PUBLIC_* with destr before this runs, hence a boolean `true` for
+      // `true`/`TRUE`/`True`; anything else (unset, '', 1, 'yes') keeps the arm off and
+      // falls through to the unknown-provider error below, exactly as before the adapter.
+      const flag = (useRuntimeConfig().public as Record<string, unknown>).hrAvatarEnabled
+      if (flag === true || flag === 'true') return createDeferredHrAvatar()
       break
+    }
   }
 
   // Defensive runtime guard in case the API returns an unexpected provider value.
   throw new Error(
     `[createProvider] Unknown provider: "${String(name)}". Expected 'heygen' or 'tavus'.`
   )
+}
+
+/**
+ * The third provider as a handle that exists before its code does.
+ *
+ * `createProvider` is synchronous and its callers wire events before the player mounts,
+ * but the adapter and its SDK must not be loaded unless this arm is actually taken. So the
+ * handle buffers `on()` subscriptions and imports the adapter on `start()`, which runs on
+ * the client only. Controls called before the load are no-ops; a `stop()` that lands before
+ * the load finishes keeps the adapter from starting at all.
+ */
+function createDeferredHrAvatar(): InterviewProvider {
+  const subscriptions: Array<[ProviderEvent, (payload: unknown) => void]> = []
+  let adapter: InterviewProvider | null = null
+  let stopped = false
+
+  return {
+    on(evt, cb) {
+      if (adapter) adapter.on(evt, cb)
+      else subscriptions.push([evt, cb])
+    },
+    async start(mountEl, cfg) {
+      /* v8 ignore next 3 — dead branch: start() is only reached from the client-only player */
+      if (import.meta.server) {
+        throw new Error('[createProvider] The provider can only start in the browser.')
+      }
+      try {
+        const { HrAvatarProvider } = await import('~/app/providers/hr-avatar')
+        if (stopped) return {}
+        adapter = new HrAvatarProvider()
+        for (const [evt, cb] of subscriptions) adapter.on(evt, cb)
+      } catch {
+        // A stable code, never the loader's text.
+        for (const [evt, cb] of subscriptions) {
+          if (evt === 'error') cb({ code: 'sdk_error', message: 'provider_unavailable' })
+        }
+        return {}
+      }
+      return adapter.start(mountEl, cfg)
+    },
+    async stop() {
+      stopped = true
+      await adapter?.stop()
+    },
+    async toggleMic() {
+      await adapter?.toggleMic()
+    },
+    async setMicMuted(muted) {
+      await adapter?.setMicMuted(muted)
+    },
+    async whenAvatarSilent(maxMs) {
+      await adapter?.whenAvatarSilent?.(maxMs)
+    },
+  }
 }
 
 /**
