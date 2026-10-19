@@ -19,7 +19,12 @@ import type {
   TranscriptEntry,
 } from '~/app/types/interview-provider'
 import { AVATAR_SETTLE_MS } from '~/app/providers/tavus'
-import { COMPLETION_FALLBACK_MS } from '~/app/utils/closing-completion'
+import {
+  COMPLETION_FALLBACK_MS,
+  COMPLETION_SETTLE_MS,
+  closingFallbackMs,
+} from '~/app/utils/closing-completion'
+import { matchesEndPhrase } from '~/app/utils/proctor-config'
 
 type EventCallback = (payload: unknown) => void
 
@@ -45,6 +50,17 @@ export class HrAvatarProvider implements InterviewProvider {
   private lastState: ProviderState | null = null
   private micMuted = false
   private stopping = false
+  private phrases: { endPhrase: string; finalPhrase: string } | null = null
+  /**
+   * The one terminal outcome of this start. Set once; every later terminal input is ignored,
+   * so `complete` fires at most once and `stopped` never follows `complete` or `error`.
+   * Reset only by `start()`.
+   */
+  private terminal: 'complete' | 'error' | 'stopped' | null = null
+  /** A phrase match is settling: an SDK end during the wait completes instead of stopping. */
+  private completing = false
+  /** Bumped by every `start()`, so a timer or wait armed by an earlier start does nothing. */
+  private generation = 0
 
   private readonly sdkLoader: () => Promise<SdkEntry>
 
@@ -94,6 +110,10 @@ export class HrAvatarProvider implements InterviewProvider {
 
     this.stopping = false
     this.lastState = null
+    this.terminal = null
+    this.completing = false
+    this.generation += 1
+    this.phrases = { endPhrase: cfg.endPhrase, finalPhrase: cfg.finalPhrase }
     this.emitState('connecting')
 
     try {
@@ -126,13 +146,26 @@ export class HrAvatarProvider implements InterviewProvider {
   }
 
   private wire(conversation: SdkConversation): void {
+    const generation = this.generation
+
     conversation.on('state', (state) => {
       if (state === 'connecting') this.emitState('connecting')
       else if (state === 'live') this.emitState('ready')
       else if (state === 'ended') {
-        // Deferred one macrotask so a same-tick completion can win over `stopped`.
-        setTimeout(() => this.emitState('stopped'), 0)
-      } else this.emitError('sdk_error')
+        // Deferred one macrotask: the SDK reports the state before the reasoned `ended` event
+        // in the same tick, and a completion must be able to win over `stopped`.
+        setTimeout(() => this.settle('stopped', generation), 0)
+      } else this.settle('error', generation)
+    })
+
+    conversation.on('error', () => this.settle('error', generation))
+
+    conversation.on('ended', ({ reason }) => {
+      if (reason === 'completion_phrase') this.settle('complete', generation)
+      else if (reason === 'error') this.settle('error', generation)
+      // Unrequested ends. A closing phrase still settling counts as heard: the conversation is
+      // over, so waiting for silence is moot.
+      else this.settle(this.completing ? 'complete' : 'stopped', generation)
     })
 
     conversation.on('transcript', (entry) => {
@@ -143,7 +176,40 @@ export class HrAvatarProvider implements InterviewProvider {
         text: entry.text,
         ts: Number.isNaN(parsed) ? Date.now() : parsed,
       } satisfies TranscriptEntry)
+
+      // Only the AVATAR's words complete a question, never the candidate's.
+      if (entry.role === 'avatar' && this.phrases && matchesEndPhrase(entry.text, this.phrases)) {
+        this.holdCompletion(conversation, entry.text, generation)
+      }
     })
+  }
+
+  /**
+   * A closing phrase was heard: complete once the avatar has been silent for the settle
+   * window, or after the lost-event fallback, whichever comes first.
+   */
+  private holdCompletion(conversation: SdkConversation, text: string, generation: number): void {
+    if (this.completing || this.terminal !== null) return
+    this.completing = true
+
+    const done = (): void => this.settle('complete', generation)
+    const fallback = setTimeout(done, closingFallbackMs(text))
+    conversation
+      .whenAvatarSilent(COMPLETION_SETTLE_MS)
+      .catch(() => {})
+      .then(() => {
+        clearTimeout(fallback)
+        done()
+      })
+  }
+
+  /** Applies a terminal outcome unless this start already has one or the start is stale. */
+  private settle(outcome: 'complete' | 'error' | 'stopped', generation: number): void {
+    if (generation !== this.generation || this.terminal !== null) return
+    this.terminal = outcome
+    this.completing = false
+    if (outcome === 'error') this.emitError('sdk_error')
+    else this.emitState(outcome)
   }
 
   /** Flips the microphone; the SDK returns the new muted state, which the mirror follows. */
