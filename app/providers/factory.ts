@@ -5,9 +5,9 @@
  * returned by the POST /candidate/interview/start response.
  *
  * Mock injection point (W3 decision):
- *   When NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK === 'true', the factory returns the
- *   MockInterviewProvider from tests/e2e/fixtures/interview-provider.ts instead of
- *   a real SDK provider. This is the E2E test injection mechanism.
+ *   When NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK === 'true', the factory returns the inline
+ *   mock built by createMockProvider() below instead of a real SDK provider, and exposes
+ *   it on `window` for Playwright. This is the E2E test injection mechanism.
  *
  * SSR note: this factory is only called from useInterviewSession on the client side
  * (the interview page is ssr:false). The factory itself has no direct SDK imports
@@ -38,10 +38,9 @@ import { TavusProvider } from '~/app/providers/tavus'
  */
 export function createProvider(name: ProviderName, mock: boolean): InterviewProvider {
   if (mock) {
-    // Lazy import of mock provider to avoid including it in the production bundle.
-    // The mock is a lightweight in-memory implementation — no real SDK deps.
-    // NOTE: In Vitest unit tests this import resolves synchronously from the test module.
-    // In E2E (Playwright), NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK=true activates this path.
+    // The mock is a lightweight in-memory implementation built inline: no SDK and no
+    // test-fixture import. In E2E (Playwright), NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK=true
+    // activates this path.
     const provider = createMockProvider()
     exposeMockProviderForE2E(provider)
     return provider
