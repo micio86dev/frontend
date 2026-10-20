@@ -1280,7 +1280,7 @@
                                                                 "type": "string"
                                                             },
                                                             "type": {
-                                                                "type": "string"
+                                                                "$ref": "#/components/schemas/FieldType"
                                                             },
                                                             "label_key": {
                                                                 "type": "string"
@@ -1371,7 +1371,98 @@
                                                                 "type": "string"
                                                             },
                                                             "type": {
+                                                                "$ref": "#/components/schemas/FieldType"
+                                                            },
+                                                            "label_key": {
                                                                 "type": "string"
+                                                            },
+                                                            "hint_key": {
+                                                                "type": "string"
+                                                            },
+                                                            "required": {
+                                                                "type": "boolean"
+                                                            },
+                                                            "options": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "min": {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "type": "integer"
+                                                                    },
+                                                                    {
+                                                                        "type": "number"
+                                                                    }
+                                                                ]
+                                                            },
+                                                            "max": {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "type": "integer"
+                                                                    },
+                                                                    {
+                                                                        "type": "number"
+                                                                    }
+                                                                ]
+                                                            },
+                                                            "step": {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "type": "integer"
+                                                                    },
+                                                                    {
+                                                                        "type": "number"
+                                                                    }
+                                                                ]
+                                                            },
+                                                            "catalogue_resource": {
+                                                                "type": "string"
+                                                            },
+                                                            "options_depend_on": {
+                                                                "type": "string"
+                                                            },
+                                                            "options_by_value": {
+                                                                "type": "object",
+                                                                "additionalProperties": {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "string"
+                                                                    }
+                                                                }
+                                                            },
+                                                            "superadmin_only": {
+                                                                "type": "boolean"
+                                                            },
+                                                            "superseded_by_key": {
+                                                                "type": "string"
+                                                            },
+                                                            "superseded_by_values": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "key",
+                                                            "type",
+                                                            "label_key"
+                                                        ]
+                                                    }
+                                                },
+                                                "hr_avatar": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "key": {
+                                                                "type": "string"
+                                                            },
+                                                            "type": {
+                                                                "$ref": "#/components/schemas/FieldType"
                                                             },
                                                             "label_key": {
                                                                 "type": "string"
@@ -1479,7 +1570,7 @@
         "/avatar-templates/catalogue": {
             "get": {
                 "operationId": "avatarTemplate.catalogue",
-                "description": "Returns what the provider offers for one resource type (voices, avatars, replicas or\npersonas), as the data source of the template picker. A provider failure is reported as\n`{status: \"unavailable\", items: []}`, not as an error; an unrecognized `provider`/`resource`\npair answers `422`.",
+                "description": "Returns what the provider offers for one resource type (voices, avatars, replicas,\npersonas, or the organization's HR-Avatar configs), as the data source of the template picker.\nA provider failure is reported as `{status: \"provider_error\", items: [], code: \"<safe code>\"}`,\nnot as an error; an unrecognized `provider`/`resource` pair answers `422`.",
                 "summary": "List a provider's catalogue",
                 "tags": [
                     "AvatarTemplate"
@@ -1496,7 +1587,8 @@
                                 "heygen",
                                 "tavus",
                                 "cartesia",
-                                "elevenlabs"
+                                "elevenlabs",
+                                "hr_avatar"
                             ]
                         }
                     },
@@ -1510,7 +1602,8 @@
                                 "voice",
                                 "avatar",
                                 "replica",
-                                "pal"
+                                "pal",
+                                "avatar_config"
                             ]
                         }
                     },
@@ -1535,14 +1628,115 @@
                                             "type": "object",
                                             "properties": {
                                                 "status": {
-                                                    "type": "string"
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "ok",
+                                                        "empty",
+                                                        "provider_error"
+                                                    ]
                                                 },
                                                 "items": {
                                                     "type": "array",
-                                                    "items": {}
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "id": {
+                                                                "type": "string"
+                                                            },
+                                                            "provider": {
+                                                                "type": "string"
+                                                            },
+                                                            "label": {
+                                                                "type": "string"
+                                                            },
+                                                            "name": {
+                                                                "type": "string"
+                                                            },
+                                                            "language": {
+                                                                "type": [
+                                                                    "string",
+                                                                    "null"
+                                                                ]
+                                                            },
+                                                            "locale": {
+                                                                "type": [
+                                                                    "string",
+                                                                    "null"
+                                                                ]
+                                                            },
+                                                            "accent": {
+                                                                "type": [
+                                                                    "string",
+                                                                    "null"
+                                                                ]
+                                                            },
+                                                            "italian": {
+                                                                "type": [
+                                                                    "string",
+                                                                    "null"
+                                                                ],
+                                                                "enum": [
+                                                                    "native",
+                                                                    "multilingual",
+                                                                    null
+                                                                ]
+                                                            },
+                                                            "preview_image_url": {
+                                                                "type": [
+                                                                    "string",
+                                                                    "null"
+                                                                ]
+                                                            },
+                                                            "preview_audio_url": {
+                                                                "type": [
+                                                                    "string",
+                                                                    "null"
+                                                                ]
+                                                            },
+                                                            "preview_audio_via_api": {
+                                                                "type": "boolean"
+                                                            },
+                                                            "preview_video_url": {
+                                                                "type": [
+                                                                    "string",
+                                                                    "null"
+                                                                ]
+                                                            },
+                                                            "editable": {
+                                                                "type": [
+                                                                    "boolean",
+                                                                    "null"
+                                                                ]
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "id",
+                                                            "provider",
+                                                            "label",
+                                                            "name",
+                                                            "language",
+                                                            "locale",
+                                                            "accent",
+                                                            "italian",
+                                                            "preview_image_url",
+                                                            "preview_audio_url",
+                                                            "preview_audio_via_api",
+                                                            "preview_video_url"
+                                                        ]
+                                                    }
                                                 },
                                                 "code": {
-                                                    "type": "string"
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "provider_key_missing",
+                                                        "provider_unauthorized",
+                                                        "provider_rate_limited",
+                                                        "provider_unavailable",
+                                                        "provider_unreachable",
+                                                        "provider_rejected",
+                                                        "provider_bad_response",
+                                                        "unsupported_catalogue"
+                                                    ]
                                                 }
                                             },
                                             "required": [
@@ -1598,6 +1792,23 @@
                                     "properties": {
                                         "data": {
                                             "$ref": "#/components/schemas/AvatarTemplateResource"
+                                        },
+                                        "warning": {
+                                            "type": "string",
+                                            "enum": [
+                                                "tavus_key_missing",
+                                                "pal_id_missing",
+                                                "pal_not_editable",
+                                                "pal_sync_rejected",
+                                                "pal_sync_unauthorized",
+                                                "pal_not_found",
+                                                "pal_sync_failed",
+                                                "pal_sync_unreachable",
+                                                "llm_provider_unreachable",
+                                                "llm_credential_missing",
+                                                "llm_secret_failed",
+                                                "llm_config_failed"
+                                            ]
                                         }
                                     },
                                     "required": [
@@ -1726,15 +1937,15 @@
                                         "description": "Literal list \u2014 see catalogue()'s validation for why implode(self::PROVIDERS) is not used.",
                                         "enum": [
                                             "heygen",
-                                            "tavus"
+                                            "tavus",
+                                            "hr_avatar"
                                         ]
                                     },
                                     "config": {
                                         "type": "array",
                                         "items": {
                                             "type": "string"
-                                        },
-                                        "minItems": 1
+                                        }
                                     },
                                     "llm_model_id": {
                                         "type": [
@@ -1769,12 +1980,19 @@
                                                 ]
                                             }
                                         }
+                                    },
+                                    "hr_avatar_config_id": {
+                                        "type": [
+                                            "string",
+                                            "null"
+                                        ],
+                                        "pattern": "^avc_[0-9A-Za-z]+$",
+                                        "maxLength": 64
                                     }
                                 },
                                 "required": [
                                     "name",
-                                    "provider",
-                                    "config"
+                                    "provider"
                                 ]
                             }
                         }
@@ -1790,6 +2008,23 @@
                                     "properties": {
                                         "data": {
                                             "$ref": "#/components/schemas/AvatarTemplateResource"
+                                        },
+                                        "warning": {
+                                            "type": "string",
+                                            "enum": [
+                                                "tavus_key_missing",
+                                                "pal_id_missing",
+                                                "pal_not_editable",
+                                                "pal_sync_rejected",
+                                                "pal_sync_unauthorized",
+                                                "pal_not_found",
+                                                "pal_sync_failed",
+                                                "pal_sync_unreachable",
+                                                "llm_provider_unreachable",
+                                                "llm_credential_missing",
+                                                "llm_secret_failed",
+                                                "llm_config_failed"
+                                            ]
                                         }
                                     },
                                     "required": [
@@ -1925,6 +2160,14 @@
                                                 ]
                                             }
                                         }
+                                    },
+                                    "hr_avatar_config_id": {
+                                        "type": [
+                                            "string",
+                                            "null"
+                                        ],
+                                        "pattern": "^avc_[0-9A-Za-z]+$",
+                                        "maxLength": 64
                                     }
                                 }
                             }
@@ -1941,6 +2184,23 @@
                                     "properties": {
                                         "data": {
                                             "$ref": "#/components/schemas/AvatarTemplateResource"
+                                        },
+                                        "warning": {
+                                            "type": "string",
+                                            "enum": [
+                                                "tavus_key_missing",
+                                                "pal_id_missing",
+                                                "pal_not_editable",
+                                                "pal_sync_rejected",
+                                                "pal_sync_unauthorized",
+                                                "pal_not_found",
+                                                "pal_sync_failed",
+                                                "pal_sync_unreachable",
+                                                "llm_provider_unreachable",
+                                                "llm_credential_missing",
+                                                "llm_secret_failed",
+                                                "llm_config_failed"
+                                            ]
                                         }
                                     },
                                     "required": [
@@ -2184,7 +2444,6 @@
                                                             "array",
                                                             "null"
                                                         ],
-                                                        "description": "Persona is optional: a template may be pure provider config.",
                                                         "items": {}
                                                     },
                                                     "answer_min_seconds": {
@@ -2198,7 +2457,6 @@
                                                             "object",
                                                             "null"
                                                         ],
-                                                        "description": "The language model binding, by model key and credential name; `null` when the template has none.",
                                                         "properties": {
                                                             "model_key": {
                                                                 "type": "string"
@@ -2211,6 +2469,9 @@
                                                             "model_key",
                                                             "credential_name"
                                                         ]
+                                                    },
+                                                    "hr_avatar_config_id": {
+                                                        "type": "string"
                                                     }
                                                 },
                                                 "required": [
@@ -8781,7 +9042,7 @@
                                                                 "type": "string"
                                                             },
                                                             "type": {
-                                                                "type": "string"
+                                                                "$ref": "#/components/schemas/FieldType"
                                                             },
                                                             "label_key": {
                                                                 "type": "string"
@@ -8872,7 +9133,7 @@
                                                                 "type": "string"
                                                             },
                                                             "type": {
-                                                                "type": "string"
+                                                                "$ref": "#/components/schemas/FieldType"
                                                             },
                                                             "label_key": {
                                                                 "type": "string"
@@ -9108,6 +9369,23 @@
                                     "properties": {
                                         "data": {
                                             "$ref": "#/components/schemas/PlatformAvatarTemplateResource"
+                                        },
+                                        "warning": {
+                                            "type": "string",
+                                            "enum": [
+                                                "tavus_key_missing",
+                                                "pal_id_missing",
+                                                "pal_not_editable",
+                                                "pal_sync_rejected",
+                                                "pal_sync_unauthorized",
+                                                "pal_not_found",
+                                                "pal_sync_failed",
+                                                "pal_sync_unreachable",
+                                                "llm_provider_unreachable",
+                                                "llm_credential_missing",
+                                                "llm_secret_failed",
+                                                "llm_config_failed"
+                                            ]
                                         }
                                     },
                                     "required": [
@@ -9262,6 +9540,23 @@
                                     "properties": {
                                         "data": {
                                             "$ref": "#/components/schemas/PlatformAvatarTemplateResource"
+                                        },
+                                        "warning": {
+                                            "type": "string",
+                                            "enum": [
+                                                "tavus_key_missing",
+                                                "pal_id_missing",
+                                                "pal_not_editable",
+                                                "pal_sync_rejected",
+                                                "pal_sync_unauthorized",
+                                                "pal_not_found",
+                                                "pal_sync_failed",
+                                                "pal_sync_unreachable",
+                                                "llm_provider_unreachable",
+                                                "llm_credential_missing",
+                                                "llm_secret_failed",
+                                                "llm_config_failed"
+                                            ]
                                         }
                                     },
                                     "required": [
@@ -14869,12 +15164,29 @@
                                 "type": [
                                     "string",
                                     "null"
+                                ],
+                                "enum": [
+                                    "skipped",
+                                    "synced",
+                                    "warning",
+                                    null
                                 ]
                             },
                             "code": {
                                 "type": [
                                     "string",
                                     "null"
+                                ],
+                                "enum": [
+                                    "tavus_key_missing",
+                                    "pal_id_missing",
+                                    "pal_not_editable",
+                                    "pal_sync_rejected",
+                                    "pal_sync_unauthorized",
+                                    "pal_not_found",
+                                    "pal_sync_failed",
+                                    "pal_sync_unreachable",
+                                    null
                                 ]
                             },
                             "synced_at": {
@@ -14909,6 +15221,9 @@
                     },
                     "answer_max_seconds": {
                         "type": "integer"
+                    },
+                    "hr_avatar_config_id": {
+                        "type": "string"
                     }
                 },
                 "required": [
@@ -15700,6 +16015,17 @@
                     ]
                 },
                 "title": "EvaluationResource"
+            },
+            "FieldType": {
+                "type": "string",
+                "description": "How a template field is entered and validated: free `text`, a `number` within `min`/`max`, one of a `select`'s `options`, or a `checkbox`.\n",
+                "enum": [
+                    "text",
+                    "number",
+                    "select",
+                    "checkbox"
+                ],
+                "title": "FieldType"
             },
             "ForgotPasswordRequest": {
                 "type": "object",
@@ -16708,12 +17034,29 @@
                                 "type": [
                                     "string",
                                     "null"
+                                ],
+                                "enum": [
+                                    "skipped",
+                                    "synced",
+                                    "warning",
+                                    null
                                 ]
                             },
                             "code": {
                                 "type": [
                                     "string",
                                     "null"
+                                ],
+                                "enum": [
+                                    "tavus_key_missing",
+                                    "pal_id_missing",
+                                    "pal_not_editable",
+                                    "pal_sync_rejected",
+                                    "pal_sync_unauthorized",
+                                    "pal_not_found",
+                                    "pal_sync_failed",
+                                    "pal_sync_unreachable",
+                                    null
                                 ]
                             },
                             "synced_at": {
@@ -16748,6 +17091,9 @@
                     },
                     "answer_max_seconds": {
                         "type": "integer"
+                    },
+                    "hr_avatar_config_id": {
+                        "type": "string"
                     },
                     "usage": {
                         "type": "object",

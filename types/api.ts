@@ -333,10 +333,10 @@ export interface paths {
         };
         /**
          * List a provider's catalogue
-         * @description Returns what the provider offers for one resource type (voices, avatars, replicas or
-         *     personas), as the data source of the template picker. A provider failure is reported as
-         *     `{status: "unavailable", items: []}`, not as an error; an unrecognized `provider`/`resource`
-         *     pair answers `422`.
+         * @description Returns what the provider offers for one resource type (voices, avatars, replicas,
+         *     personas, or the organization's HR-Avatar configs), as the data source of the template picker.
+         *     A provider failure is reported as `{status: "provider_error", items: [], code: "<safe code>"}`,
+         *     not as an error; an unrecognized `provider`/`resource` pair answers `422`.
          */
         get: operations["avatarTemplate.catalogue"];
         put?: never;
@@ -3112,8 +3112,10 @@ export interface components {
                 } | null;
             };
             pal_sync: {
-                status: string | null;
-                code: string | null;
+                /** @enum {string|null} */
+                status: "skipped" | "synced" | "warning" | null;
+                /** @enum {string|null} */
+                code: "tavus_key_missing" | "pal_id_missing" | "pal_not_editable" | "pal_sync_rejected" | "pal_sync_unauthorized" | "pal_not_found" | "pal_sync_failed" | "pal_sync_unreachable" | null;
                 synced_at: string | null;
             };
             persona: {
@@ -3121,6 +3123,7 @@ export interface components {
             };
             answer_min_seconds: number;
             answer_max_seconds: number;
+            hr_avatar_config_id?: string;
         };
         /**
          * AvatarTemplateScope
@@ -3364,6 +3367,12 @@ export interface components {
             };
         };
         /**
+         * FieldType
+         * @description How a template field is entered and validated: free `text`, a `number` within `min`/`max`, one of a `select`'s `options`, or a `checkbox`.
+         * @enum {string}
+         */
+        FieldType: "text" | "number" | "select" | "checkbox";
+        /**
          * ForgotPasswordRequest
          * @description The body of `POST /api/auth/forgot-password`. Only the format of the email address is
          *     validated, so the response never reveals whether an account exists.
@@ -3574,8 +3583,10 @@ export interface components {
                 } | null;
             };
             pal_sync: {
-                status: string | null;
-                code: string | null;
+                /** @enum {string|null} */
+                status: "skipped" | "synced" | "warning" | null;
+                /** @enum {string|null} */
+                code: "tavus_key_missing" | "pal_id_missing" | "pal_not_editable" | "pal_sync_rejected" | "pal_sync_unauthorized" | "pal_not_found" | "pal_sync_failed" | "pal_sync_unreachable" | null;
                 synced_at: string | null;
             };
             persona: {
@@ -3583,6 +3594,7 @@ export interface components {
             };
             answer_min_seconds: number;
             answer_max_seconds: number;
+            hr_avatar_config_id?: string;
             usage: {
                 organization_count: number;
                 project_count: number;
@@ -5084,7 +5096,7 @@ export interface operations {
                         data: {
                             heygen: {
                                 key: string;
-                                type: string;
+                                type: components["schemas"]["FieldType"];
                                 label_key: string;
                                 hint_key?: string;
                                 required?: boolean;
@@ -5103,7 +5115,26 @@ export interface operations {
                             }[];
                             tavus: {
                                 key: string;
-                                type: string;
+                                type: components["schemas"]["FieldType"];
+                                label_key: string;
+                                hint_key?: string;
+                                required?: boolean;
+                                options?: string[];
+                                min?: number;
+                                max?: number;
+                                step?: number;
+                                catalogue_resource?: string;
+                                options_depend_on?: string;
+                                options_by_value?: {
+                                    [key: string]: string[];
+                                };
+                                superadmin_only?: boolean;
+                                superseded_by_key?: string;
+                                superseded_by_values?: string[];
+                            }[];
+                            hr_avatar?: {
+                                key: string;
+                                type: components["schemas"]["FieldType"];
                                 label_key: string;
                                 hint_key?: string;
                                 required?: boolean;
@@ -5132,8 +5163,8 @@ export interface operations {
         parameters: {
             query: {
                 /** @description The provider to query: `heygen`, `tavus`, `cartesia` or `elevenlabs`. */
-                provider: "heygen" | "tavus" | "cartesia" | "elevenlabs";
-                resource: "voice" | "avatar" | "replica" | "pal";
+                provider: "heygen" | "tavus" | "cartesia" | "elevenlabs" | "hr_avatar";
+                resource: "voice" | "avatar" | "replica" | "pal" | "avatar_config";
                 /**
                  * @description Keep only genuinely Italian voices (`italian` = native). The
                  *     list is already sorted Italian-first without it.
@@ -5153,9 +5184,26 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: {
-                            status: string;
-                            items: unknown[];
-                            code?: string;
+                            /** @enum {string} */
+                            status: "ok" | "empty" | "provider_error";
+                            items: {
+                                id: string;
+                                provider: string;
+                                label: string;
+                                name: string;
+                                language: string | null;
+                                locale: string | null;
+                                accent: string | null;
+                                /** @enum {string|null} */
+                                italian: "native" | "multilingual" | null;
+                                preview_image_url: string | null;
+                                preview_audio_url: string | null;
+                                preview_audio_via_api: boolean;
+                                preview_video_url: string | null;
+                                editable?: boolean | null;
+                            }[];
+                            /** @enum {string} */
+                            code?: "provider_key_missing" | "provider_unauthorized" | "provider_rate_limited" | "provider_unavailable" | "provider_unreachable" | "provider_rejected" | "provider_bad_response" | "unsupported_catalogue";
                         };
                     };
                 };
@@ -5184,6 +5232,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["AvatarTemplateResource"];
+                        /** @enum {string} */
+                        warning?: "tavus_key_missing" | "pal_id_missing" | "pal_not_editable" | "pal_sync_rejected" | "pal_sync_unauthorized" | "pal_not_found" | "pal_sync_failed" | "pal_sync_unreachable" | "llm_provider_unreachable" | "llm_credential_missing" | "llm_secret_failed" | "llm_config_failed";
                     };
                 };
             };
@@ -5257,8 +5307,8 @@ export interface operations {
                      * @description Literal list — see catalogue()'s validation for why implode(self::PROVIDERS) is not used.
                      * @enum {string}
                      */
-                    provider: "heygen" | "tavus";
-                    config: string[];
+                    provider: "heygen" | "tavus" | "hr_avatar";
+                    config?: string[];
                     /** @description Bind a language model to the template. `llm_model_id` and `llm_credential_id` are both set or both null. */
                     llm_model_id?: number | null;
                     llm_credential_id?: number | null;
@@ -5267,6 +5317,7 @@ export interface operations {
                     persona?: {
                         display_name?: string | null;
                     };
+                    hr_avatar_config_id?: string | null;
                 };
             };
         };
@@ -5279,6 +5330,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["AvatarTemplateResource"];
+                        /** @enum {string} */
+                        warning?: "tavus_key_missing" | "pal_id_missing" | "pal_not_editable" | "pal_sync_rejected" | "pal_sync_unauthorized" | "pal_not_found" | "pal_sync_failed" | "pal_sync_unreachable" | "llm_provider_unreachable" | "llm_credential_missing" | "llm_secret_failed" | "llm_config_failed";
                     };
                 };
             };
@@ -5382,6 +5435,7 @@ export interface operations {
                     persona?: {
                         display_name?: string | null;
                     };
+                    hr_avatar_config_id?: string | null;
                 };
             };
         };
@@ -5394,6 +5448,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["AvatarTemplateResource"];
+                        /** @enum {string} */
+                        warning?: "tavus_key_missing" | "pal_id_missing" | "pal_not_editable" | "pal_sync_rejected" | "pal_sync_unauthorized" | "pal_not_found" | "pal_sync_failed" | "pal_sync_unreachable" | "llm_provider_unreachable" | "llm_credential_missing" | "llm_secret_failed" | "llm_config_failed";
                     };
                 };
             };
@@ -5462,15 +5518,14 @@ export interface operations {
                             description: string | null;
                             provider: string;
                             config: unknown[];
-                            /** @description Persona is optional: a template may be pure provider config. */
                             persona: unknown[] | null;
                             answer_min_seconds: number;
                             answer_max_seconds: number;
-                            /** @description The language model binding, by model key and credential name; `null` when the template has none. */
                             llm: {
                                 model_key: string;
                                 credential_name: string;
                             } | null;
+                            hr_avatar_config_id?: string;
                         }[];
                     };
                 };
@@ -8571,7 +8626,7 @@ export interface operations {
                         data: {
                             heygen: {
                                 key: string;
-                                type: string;
+                                type: components["schemas"]["FieldType"];
                                 label_key: string;
                                 hint_key?: string;
                                 required?: boolean;
@@ -8590,7 +8645,7 @@ export interface operations {
                             }[];
                             tavus: {
                                 key: string;
-                                type: string;
+                                type: components["schemas"]["FieldType"];
                                 label_key: string;
                                 hint_key?: string;
                                 required?: boolean;
@@ -8676,6 +8731,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["PlatformAvatarTemplateResource"];
+                        /** @enum {string} */
+                        warning?: "tavus_key_missing" | "pal_id_missing" | "pal_not_editable" | "pal_sync_rejected" | "pal_sync_unauthorized" | "pal_not_found" | "pal_sync_failed" | "pal_sync_unreachable" | "llm_provider_unreachable" | "llm_credential_missing" | "llm_secret_failed" | "llm_config_failed";
                     };
                 };
             };
@@ -8784,6 +8841,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["PlatformAvatarTemplateResource"];
+                        /** @enum {string} */
+                        warning?: "tavus_key_missing" | "pal_id_missing" | "pal_not_editable" | "pal_sync_rejected" | "pal_sync_unauthorized" | "pal_not_found" | "pal_sync_failed" | "pal_sync_unreachable" | "llm_provider_unreachable" | "llm_credential_missing" | "llm_secret_failed" | "llm_config_failed";
                     };
                 };
             };
