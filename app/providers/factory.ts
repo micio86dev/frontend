@@ -93,10 +93,57 @@ function createDeferredHrAvatar(): InterviewProvider {
   // newest start() has resolved; `generation` lets an older start that resolves late skip it.
   // A toggle is kept as a flip, not resolved into a mute: the handle cannot read the adapter's
   // mic, so the flip is applied through the adapter's own toggle once it exists.
+  //
+  // `live` is the newest adapter whose start() connected. When the newest start fails, control
+  // goes back to it (or to an older start that connects later) instead of queueing forever.
+  // While the queued choices are being applied (`flushing`), new controls join the queue, so a
+  // user's toggle is never overtaken by the absolute choice that was queued before it.
   let started = false
+  let flushing = false
   let generation = 0
+  let live: { adapter: InterviewProvider; generation: number } | null = null
+  let newestFailed = false
   let pendingMuted: boolean | null = null
   let pendingFlip = false
+
+  async function flushQueued() {
+    while (adapter && (pendingMuted !== null || pendingFlip) && !stopped) {
+      const muted = pendingMuted
+      const flip = pendingFlip
+      pendingMuted = null
+      pendingFlip = false
+      try {
+        if (muted !== null) await adapter.setMicMuted(muted)
+        if (flip) await adapter.toggleMic()
+      } catch {
+        // The mic is not worth the interview: logged under a stable reason (never the
+        // adapter's text, which can name the engine and its host), and nothing is raised.
+        console.warn('[hr_avatar] a queued mic choice was not applied', {
+          reason: 'mic_apply_failed',
+        })
+      }
+    }
+  }
+
+  /** Hands the mic to `target` and applies what was queued; no await sits before `flushing` is set. */
+  async function adopt(target: InterviewProvider) {
+    adapter = target
+    started = true
+    if (flushing) return
+    flushing = true
+    try {
+      await flushQueued()
+    } finally {
+      flushing = false
+    }
+  }
+
+  /** The newest start failed: back to the adapter that is still connected, if there is one. */
+  async function failed(gen: number) {
+    if (gen !== generation) return
+    newestFailed = true
+    if (live) await adopt(live.adapter)
+  }
 
   return {
     on(evt, cb) {
@@ -109,38 +156,32 @@ function createDeferredHrAvatar(): InterviewProvider {
         throw new Error('[createProvider] The provider can only start in the browser.')
       }
       const gen = ++generation
+      newestFailed = false
       started = false
+      let mine: InterviewProvider
       try {
         const { HrAvatarProvider } = await import('~/app/providers/hr-avatar')
         if (stopped) return {}
-        adapter = new HrAvatarProvider()
-        for (const [evt, cb] of subscriptions) adapter.on(evt, cb)
+        mine = new HrAvatarProvider()
+        adapter = mine
+        for (const [evt, cb] of subscriptions) mine.on(evt, cb)
       } catch {
         // A stable code, never the loader's text.
         for (const [evt, cb] of subscriptions) {
           if (evt === 'error') cb({ code: 'sdk_error', message: 'provider_unavailable' })
         }
+        await failed(gen)
         return {}
       }
-      const result = await adapter.start(mountEl, cfg)
-      if (gen !== generation) return result
-      started = true
-      if ((pendingMuted !== null || pendingFlip) && !stopped) {
-        const muted = pendingMuted
-        const flip = pendingFlip
-        pendingMuted = null
-        pendingFlip = false
-        try {
-          if (muted !== null) await adapter.setMicMuted(muted)
-          if (flip) await adapter.toggleMic()
-        } catch {
-          // The mic is not worth the interview: logged under a stable reason (never the
-          // adapter's text, which can name the engine and its host), and nothing is raised.
-          console.warn('[hr_avatar] a queued mic choice was not applied', {
-            reason: 'mic_apply_failed',
-          })
-        }
+      let result: Awaited<ReturnType<InterviewProvider['start']>>
+      try {
+        result = await mine.start(mountEl, cfg)
+      } catch (error) {
+        await failed(gen)
+        throw error
       }
+      if (!live || gen > live.generation) live = { adapter: mine, generation: gen }
+      if (gen === generation || newestFailed) await adopt(live.adapter)
       return result
     },
     async stop() {
@@ -148,11 +189,11 @@ function createDeferredHrAvatar(): InterviewProvider {
       await adapter?.stop()
     },
     async toggleMic() {
-      if (adapter && started) await adapter.toggleMic()
+      if (adapter && started && !flushing) await adapter.toggleMic()
       else pendingFlip = !pendingFlip
     },
     async setMicMuted(muted) {
-      if (adapter && started) await adapter.setMicMuted(muted)
+      if (adapter && started && !flushing) await adapter.setMicMuted(muted)
       else {
         pendingMuted = muted
         pendingFlip = false

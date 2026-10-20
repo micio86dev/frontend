@@ -304,6 +304,191 @@ describe('a queued mic choice the adapter refuses', () => {
   })
 })
 
+/**
+ * Adapters built one per start(), each following its own script: `ok` connects at once, `fail` rejects, `gate`
+ * stays connecting until released, `gatefail` stays connecting until released and then rejects. Every mic call is recorded as `<adapter index>:<call>`.
+ */
+function mockScriptedAdapters(scripts: Array<'ok' | 'fail' | 'gate' | 'gatefail'>) {
+  const calls: string[] = []
+  const gates: Array<() => void> = []
+  let built = 0
+  class FakeAdapter {
+    private readonly index = built++
+    on() {}
+    start() {
+      const script = scripts[this.index] ?? 'ok'
+      if (script === 'fail') return Promise.reject(new Error('connect refused'))
+      if (script === 'ok') return Promise.resolve({})
+      return new Promise<Record<string, never>>((resolve, reject) =>
+        gates.push(() => (script === 'gate' ? resolve({}) : reject(new Error('connect refused'))))
+      )
+    }
+    async stop() {}
+    async toggleMic() {
+      calls.push(`${this.index}:toggleMic`)
+    }
+    async setMicMuted(muted: boolean) {
+      calls.push(`${this.index}:setMicMuted:${muted}`)
+    }
+  }
+  vi.doMock('~/app/providers/hr-avatar', () => ({ HrAvatarProvider: FakeAdapter }))
+  vi.stubGlobal('useRuntimeConfig', () => ({ public: { hrAvatarEnabled: true } }))
+  return { calls, gates }
+}
+
+describe('a re-start that fails', () => {
+  it('leaves the adapter that is still connected in control of the mic', async () => {
+    const { calls } = mockScriptedAdapters(['ok', 'fail'])
+    const provider = createProvider('hr_avatar', false)
+    await provider.start(document.createElement('video'), cfg)
+
+    await expect(provider.start(document.createElement('video'), cfg)).rejects.toThrow(
+      'connect refused'
+    )
+    await provider.setMicMuted(true)
+    await provider.toggleMic()
+
+    expect(calls).toEqual(['0:setMicMuted:true', '0:toggleMic'])
+  })
+
+  it('applies a choice made while it was connecting to the adapter that is still connected', async () => {
+    const { calls, gates } = mockScriptedAdapters(['ok', 'gatefail'])
+    const provider = createProvider('hr_avatar', false)
+    await provider.start(document.createElement('video'), cfg)
+    const second = provider.start(document.createElement('video'), cfg)
+    await connecting(gates, 1)
+    await provider.setMicMuted(true)
+    expect(calls).toEqual([])
+
+    gates[0]!()
+    await expect(second).rejects.toThrow('connect refused')
+
+    expect(calls).toEqual(['0:setMicMuted:true'])
+  })
+
+  it('keeps a choice for the retry when no adapter has ever connected', async () => {
+    const { calls } = mockScriptedAdapters(['fail', 'ok'])
+    const provider = createProvider('hr_avatar', false)
+    await expect(provider.start(document.createElement('video'), cfg)).rejects.toThrow(
+      'connect refused'
+    )
+    await provider.setMicMuted(true)
+    expect(calls).toEqual([])
+
+    await provider.start(document.createElement('video'), cfg)
+
+    expect(calls).toEqual(['1:setMicMuted:true'])
+  })
+
+  it('does not take the mic back from a newer start when an older one fails late', async () => {
+    const { calls, gates } = mockScriptedAdapters(['gatefail', 'ok'])
+    const provider = createProvider('hr_avatar', false)
+    const older = provider.start(document.createElement('video'), cfg)
+    await connecting(gates, 1)
+    await provider.start(document.createElement('video'), cfg)
+
+    gates[0]!()
+    await expect(older).rejects.toThrow('connect refused')
+    await provider.toggleMic()
+
+    expect(calls).toEqual(['1:toggleMic'])
+  })
+
+  it('hands the mic to an older start that connects after the newest one failed', async () => {
+    const { calls, gates } = mockScriptedAdapters(['gate', 'fail'])
+    const provider = createProvider('hr_avatar', false)
+    const older = provider.start(document.createElement('video'), cfg)
+    await connecting(gates, 1)
+    await expect(provider.start(document.createElement('video'), cfg)).rejects.toThrow(
+      'connect refused'
+    )
+    await provider.toggleMic()
+    expect(calls).toEqual([])
+
+    gates[0]!()
+    await older
+
+    expect(calls).toEqual(['0:toggleMic'])
+  })
+})
+
+/** A first adapter whose setMicMuted stays pending until released, to hold the queued flush open. */
+function mockSlowFlushAdapter() {
+  const calls: string[] = []
+  const state = { muted: false }
+  let release: () => void = () => {}
+  class FakeAdapter {
+    on() {}
+    async start() {
+      return {}
+    }
+    async stop() {}
+    async toggleMic() {
+      calls.push('toggleMic')
+      state.muted = !state.muted
+    }
+    async setMicMuted(muted: boolean) {
+      calls.push(`setMicMuted:${muted}`)
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+      state.muted = muted
+    }
+  }
+  vi.doMock('~/app/providers/hr-avatar', () => ({ HrAvatarProvider: FakeAdapter }))
+  vi.stubGlobal('useRuntimeConfig', () => ({ public: { hrAvatarEnabled: true } }))
+  return { calls, state, release: () => release() }
+}
+
+describe('a mic control used while the queued choice is being applied', () => {
+  it('waits for the queued choice and is applied after it', async () => {
+    const { calls, state, release } = mockSlowFlushAdapter()
+    const provider = createProvider('hr_avatar', false)
+    await provider.setMicMuted(true)
+    const starting = provider.start(document.createElement('video'), cfg)
+    await vi.waitFor(() => expect(calls).toEqual(['setMicMuted:true']))
+
+    await provider.toggleMic()
+    expect(calls).toEqual(['setMicMuted:true'])
+
+    release()
+    await starting
+
+    expect(calls).toEqual(['setMicMuted:true', 'toggleMic'])
+    expect(state.muted).toBe(false)
+  })
+
+  it('an explicit choice made during the flush is not overwritten by the queued one', async () => {
+    const { calls, state, release } = mockSlowFlushAdapter()
+    const provider = createProvider('hr_avatar', false)
+    await provider.setMicMuted(true)
+    const starting = provider.start(document.createElement('video'), cfg)
+    await vi.waitFor(() => expect(calls).toEqual(['setMicMuted:true']))
+
+    await provider.setMicMuted(false)
+    release()
+    await vi.waitFor(() => expect(calls).toEqual(['setMicMuted:true', 'setMicMuted:false']))
+    release()
+    await starting
+
+    expect(state.muted).toBe(false)
+  })
+
+  it('is forwarded at once after the flush is over', async () => {
+    const { calls, release } = mockSlowFlushAdapter()
+    const provider = createProvider('hr_avatar', false)
+    await provider.setMicMuted(true)
+    const starting = provider.start(document.createElement('video'), cfg)
+    await vi.waitFor(() => expect(calls).toEqual(['setMicMuted:true']))
+    release()
+    await starting
+
+    await provider.toggleMic()
+
+    expect(calls).toEqual(['setMicMuted:true', 'toggleMic'])
+  })
+})
+
 describe('factory switch', () => {
   it('keeps the compile-time exhaustiveness check over ProviderName', () => {
     const source = readFileSync(join(process.cwd(), 'app', 'providers', 'factory.ts'), 'utf8')
