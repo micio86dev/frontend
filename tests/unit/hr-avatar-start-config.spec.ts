@@ -196,3 +196,31 @@ describe('hr_avatar start config', () => {
     expect(mockCreateProvider).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('hr_avatar join object validation (R3-002)', () => {
+  it.each([
+    ['an empty base_url', { base_url: '', publishable_key: 'PK' }],
+    ['an empty publishable_key', { base_url: 'https://hra.test', publishable_key: '' }],
+    ['a missing publishable_key', { base_url: 'https://hra.test' }],
+    ['a missing base_url', { publishable_key: 'PK' }],
+    ['a non-string base_url', { base_url: 42, publishable_key: 'PK' }],
+    ['a null publishable_key', { base_url: 'https://hra.test', publishable_key: null }],
+    ['an empty object', {}],
+  ])(
+    '%s never reaches the provider: hrAvatar stays absent so the start fails there',
+    async (_n, join) => {
+      const session = await liveSession(hrAvatarBody({ hr_avatar: join }))
+
+      expect('hrAvatar' in session.activeConfig.value!).toBe(false)
+    }
+  )
+
+  it('a complete join object still maps untouched', async () => {
+    const session = await liveSession(hrAvatarBody())
+
+    expect(session.activeConfig.value!.hrAvatar).toEqual({
+      baseUrl: 'https://hra.test',
+      publishableKey: 'PK',
+    })
+  })
+})

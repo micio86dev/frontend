@@ -518,6 +518,20 @@ function parseContinuation(response: StartResponse): ParsedContinuation | null |
   return { conversationId: continuation.conversation_id, competencyCode }
 }
 
+/**
+ * The third provider's join inputs, or nothing. A partial object (a missing or empty
+ * string) is dropped whole, so the provider's own absent-input guard fails the start
+ * through the usual error path instead of the SDK receiving a half-built join.
+ */
+function hrAvatarJoinOf(response: StartResponse): Pick<StartConfig, 'hrAvatar'> {
+  const join: { base_url?: unknown; publishable_key?: unknown } | null | undefined =
+    response.hr_avatar
+  const { base_url: baseUrl, publishable_key: publishableKey } = join ?? {}
+  if (typeof baseUrl !== 'string' || baseUrl === '') return {}
+  if (typeof publishableKey !== 'string' || publishableKey === '') return {}
+  return { hrAvatar: { baseUrl, publishableKey } }
+}
+
 /** Everything `isValidStartResponse` checks except the continuation. */
 function isBaseValidStartResponse(response: unknown): boolean {
   if (!response || typeof response !== 'object') return false
@@ -2027,14 +2041,7 @@ export function useInterviewSession(
         sessionToken: response.provider_token ?? undefined,
         conversationUrl: response.conversation_url ?? undefined,
         // The third provider's join inputs; the key is absent for every other provider.
-        ...(response.hr_avatar
-          ? {
-              hrAvatar: {
-                baseUrl: response.hr_avatar.base_url,
-                publishableKey: response.hr_avatar.publishable_key,
-              },
-            }
-          : {}),
+        ...hrAvatarJoinOf(response),
         endPhrase: end_phrase,
         finalPhrase: final_phrase,
         // Omitted, not set to undefined-as-a-value: the provider treats an absent
