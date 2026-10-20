@@ -63,14 +63,14 @@ describe('a mic choice made before the adapter has connected', () => {
     expect(calls).toEqual(['start', 'setMicMuted:false'])
   })
 
-  it('a toggle before start() counts as a mute choice', async () => {
+  it('a toggle before start() is applied as a flip once start() has resolved', async () => {
     const calls = mockAdapter()
     const provider = createProvider('hr_avatar', false)
 
     await provider.toggleMic()
     await provider.start(document.createElement('video'), cfg)
 
-    expect(calls).toEqual(['start', 'setMicMuted:true'])
+    expect(calls).toEqual(['start', 'toggleMic'])
   })
 
   it('is applied once: a later start() does not replay it', async () => {
@@ -166,7 +166,7 @@ describe('a mic choice made while a later start() is connecting', () => {
     gates[1]!()
     await second
 
-    expect(calls).toEqual(['start', 'connected', 'start', 'connected', 'setMicMuted:true'])
+    expect(calls).toEqual(['start', 'connected', 'start', 'connected', 'toggleMic'])
   })
 
   it('is applied by the newest start only, not by an older one that resolves later', async () => {
@@ -200,6 +200,107 @@ describe('a mic choice made while a later start() is connecting', () => {
     await provider.setMicMuted(true)
 
     expect(calls).toEqual(['start', 'connected', 'setMicMuted:true'])
+  })
+})
+
+/** An adapter that keeps a real mute state, so what the user ends up with can be asserted. */
+function mockStatefulAdapter(options: { initiallyMuted?: boolean; micFails?: boolean } = {}) {
+  const state = { muted: options.initiallyMuted ?? false }
+  class FakeAdapter {
+    on() {}
+    async start() {
+      return {}
+    }
+    async stop() {}
+    async toggleMic() {
+      if (options.micFails) throw new Error('transport down: https://hra.example.test')
+      state.muted = !state.muted
+    }
+    async setMicMuted(muted: boolean) {
+      if (options.micFails) throw new Error('transport down: https://hra.example.test')
+      state.muted = muted
+    }
+  }
+  vi.doMock('~/app/providers/hr-avatar', () => ({ HrAvatarProvider: FakeAdapter }))
+  vi.stubGlobal('useRuntimeConfig', () => ({ public: { hrAvatarEnabled: true } }))
+  return state
+}
+
+describe('a queued toggle is relative to the adapter, never to an assumed initial state', () => {
+  it('flips an adapter that starts muted to unmuted', async () => {
+    const state = mockStatefulAdapter({ initiallyMuted: true })
+    const provider = createProvider('hr_avatar', false)
+
+    await provider.toggleMic()
+    await provider.start(document.createElement('video'), cfg)
+
+    expect(state.muted).toBe(false)
+  })
+
+  it('two queued toggles cancel out', async () => {
+    const state = mockStatefulAdapter()
+    const provider = createProvider('hr_avatar', false)
+
+    await provider.toggleMic()
+    await provider.toggleMic()
+    await provider.start(document.createElement('video'), cfg)
+
+    expect(state.muted).toBe(false)
+  })
+
+  it('an explicit choice then a toggle applies the choice first and the flip after it', async () => {
+    const state = mockStatefulAdapter({ initiallyMuted: true })
+    const provider = createProvider('hr_avatar', false)
+
+    await provider.setMicMuted(true)
+    await provider.toggleMic()
+    await provider.start(document.createElement('video'), cfg)
+
+    expect(state.muted).toBe(false)
+  })
+
+  it('a toggle then an explicit choice keeps only the choice', async () => {
+    const state = mockStatefulAdapter()
+    const provider = createProvider('hr_avatar', false)
+
+    await provider.toggleMic()
+    await provider.setMicMuted(false)
+    await provider.start(document.createElement('video'), cfg)
+
+    expect(state.muted).toBe(false)
+  })
+})
+
+describe('a queued mic choice the adapter refuses', () => {
+  it('is logged with a stable reason and never fails the start or raises an error event', async () => {
+    mockStatefulAdapter({ micFails: true })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const provider = createProvider('hr_avatar', false)
+    const errors: unknown[] = []
+    provider.on('error', (e) => errors.push(e))
+
+    await provider.setMicMuted(true)
+    await expect(provider.start(document.createElement('video'), cfg)).resolves.toEqual({})
+
+    expect(errors).toEqual([])
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith('[hr_avatar] a queued mic choice was not applied', {
+      reason: 'mic_apply_failed',
+    })
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('hra.example.test')
+    warn.mockRestore()
+  })
+
+  it('a refused queued toggle is logged the same way', async () => {
+    mockStatefulAdapter({ micFails: true })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const provider = createProvider('hr_avatar', false)
+
+    await provider.toggleMic()
+    await expect(provider.start(document.createElement('video'), cfg)).resolves.toEqual({})
+
+    expect(warn).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
   })
 })
 

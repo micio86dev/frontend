@@ -91,9 +91,12 @@ function createDeferredHrAvatar(): InterviewProvider {
   // The adapter ignores mic controls until its conversation exists, so a choice made while
   // ANY start() is connecting (the first or a re-start) is kept here and applied once the
   // newest start() has resolved; `generation` lets an older start that resolves late skip it.
+  // A toggle is kept as a flip, not resolved into a mute: the handle cannot read the adapter's
+  // mic, so the flip is applied through the adapter's own toggle once it exists.
   let started = false
   let generation = 0
   let pendingMuted: boolean | null = null
+  let pendingFlip = false
 
   return {
     on(evt, cb) {
@@ -122,10 +125,21 @@ function createDeferredHrAvatar(): InterviewProvider {
       const result = await adapter.start(mountEl, cfg)
       if (gen !== generation) return result
       started = true
-      if (pendingMuted !== null && !stopped) {
+      if ((pendingMuted !== null || pendingFlip) && !stopped) {
         const muted = pendingMuted
+        const flip = pendingFlip
         pendingMuted = null
-        await adapter.setMicMuted(muted).catch(() => {})
+        pendingFlip = false
+        try {
+          if (muted !== null) await adapter.setMicMuted(muted)
+          if (flip) await adapter.toggleMic()
+        } catch {
+          // The mic is not worth the interview: logged under a stable reason (never the
+          // adapter's text, which can name the engine and its host), and nothing is raised.
+          console.warn('[hr_avatar] a queued mic choice was not applied', {
+            reason: 'mic_apply_failed',
+          })
+        }
       }
       return result
     },
@@ -135,11 +149,14 @@ function createDeferredHrAvatar(): InterviewProvider {
     },
     async toggleMic() {
       if (adapter && started) await adapter.toggleMic()
-      else pendingMuted = !(pendingMuted ?? false)
+      else pendingFlip = !pendingFlip
     },
     async setMicMuted(muted) {
       if (adapter && started) await adapter.setMicMuted(muted)
-      else pendingMuted = muted
+      else {
+        pendingMuted = muted
+        pendingFlip = false
+      }
     },
     async whenAvatarSilent(maxMs) {
       await adapter?.whenAvatarSilent?.(maxMs)
