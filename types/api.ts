@@ -5386,11 +5386,7 @@ export interface operations {
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
-            /**
-             * @description Deleting what candidates are currently being interviewed with is
-             *     a decision, not a cleanup. 409 rather than 422: the request is
-             *     well-formed, the state is what refuses it.
-             */
+            /** @description Still active (`template_active`) or pinned by projects (`template_in_use`, with counts). */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8802,7 +8798,8 @@ export interface operations {
                     "application/json": {
                         /** @enum {string} */
                         error: "template_active" | "template_in_use";
-                        message: string;
+                        /** @enum {string} */
+                        message: "template_active" | "template_in_use";
                         project_count?: number;
                         organization_count?: number;
                     };
