@@ -32,6 +32,8 @@ vi.mock('~/app/composables/useCandidateSession', () => ({
 
 // eslint-disable-next-line import/first
 import { useInterviewSession, isValidStartResponse } from '~/app/composables/useInterviewSession'
+// eslint-disable-next-line import/first
+import { HrAvatarProvider } from '~/app/providers/hr-avatar'
 
 type EventCallback = (payload: unknown) => void
 
@@ -212,6 +214,20 @@ describe('hr_avatar join object validation (R3-002)', () => {
       const session = await liveSession(hrAvatarBody({ hr_avatar: join }))
 
       expect('hrAvatar' in session.activeConfig.value!).toBe(false)
+
+      // The config the session built, handed to the REAL adapter: its absent-input guard
+      // fails the start with sdk_error through the error event, before any SDK load.
+      const sdkLoader = vi.fn()
+      const adapter = new HrAvatarProvider(sdkLoader)
+      const errors: unknown[] = []
+      adapter.on('error', (e) => errors.push(e))
+
+      await expect(
+        adapter.start(document.createElement('video'), session.activeConfig.value!)
+      ).resolves.toEqual({})
+
+      expect(errors).toEqual([{ code: 'sdk_error', message: 'provider_unavailable' }])
+      expect(sdkLoader).not.toHaveBeenCalled()
     }
   )
 
