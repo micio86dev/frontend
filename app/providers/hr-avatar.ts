@@ -113,6 +113,7 @@ export class HrAvatarProvider implements InterviewProvider {
     this.terminal = null
     this.completing = false
     this.generation += 1
+    const generation = this.generation
     this.phrases = { endPhrase: cfg.endPhrase, finalPhrase: cfg.finalPhrase }
     this.emitState('connecting')
 
@@ -128,8 +129,9 @@ export class HrAvatarProvider implements InterviewProvider {
         forwardTranscript: HR_AVATAR_FORWARD_TRANSCRIPT,
       })
 
-      // Stopped while connecting: nobody is listening any more, so release it at once.
-      if (this.stopping) {
+      // Stopped, or superseded by a newer start(), while connecting: nobody is listening
+      // any more, so release it at once and leave the newer conversation alone.
+      if (this.stopping || generation !== this.generation) {
         await conversation.end().catch(() => {})
         return {}
       }
@@ -138,6 +140,8 @@ export class HrAvatarProvider implements InterviewProvider {
       this.wire(conversation)
       return {}
     } catch (error) {
+      // A superseded start has no one left to tell.
+      if (generation !== this.generation) return {}
       // A stable code, never the SDK's text: it names the engine and its host.
       const code = (error as { code?: unknown } | null)?.code
       this.emitError(code === ORIGIN_REFUSED ? ORIGIN_REFUSED : 'sdk_error')
@@ -155,7 +159,8 @@ export class HrAvatarProvider implements InterviewProvider {
         // Deferred one macrotask: the SDK reports the state before the reasoned `ended` event
         // in the same tick, and a completion must be able to win over `stopped`.
         setTimeout(() => this.settle('stopped', generation), 0)
-      } else this.settle('error', generation)
+      } else if (state === 'error') this.settle('error', generation)
+      // Any other state is not a failure: ignored, the next known state decides.
     })
 
     conversation.on('error', () => this.settle('error', generation))
