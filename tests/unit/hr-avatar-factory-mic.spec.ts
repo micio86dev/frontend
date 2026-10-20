@@ -489,6 +489,65 @@ describe('a mic control used while the queued choice is being applied', () => {
   })
 })
 
+/** An adapter whose FIRST setMicMuted never settles; every later mic call is recorded and settles. */
+function mockNeverSettlingMicAdapter() {
+  const calls: string[] = []
+  let hung = false
+  class FakeAdapter {
+    on() {}
+    async start() {
+      return {}
+    }
+    async stop() {}
+    async toggleMic() {
+      calls.push('toggleMic')
+    }
+    async setMicMuted(muted: boolean) {
+      calls.push(`setMicMuted:${muted}`)
+      if (!hung) {
+        hung = true
+        await new Promise<void>(() => {})
+      }
+    }
+  }
+  vi.doMock('~/app/providers/hr-avatar', () => ({ HrAvatarProvider: FakeAdapter }))
+  vi.stubGlobal('useRuntimeConfig', () => ({ public: { hrAvatarEnabled: true } }))
+  return calls
+}
+
+describe('a queued mic choice the adapter never settles', () => {
+  it('is given up after a timeout, logged once, and later controls are forwarded directly', async () => {
+    vi.useFakeTimers()
+    try {
+      const calls = mockNeverSettlingMicAdapter()
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const provider = createProvider('hr_avatar', false)
+      await provider.setMicMuted(true)
+      const starting = provider.start(document.createElement('video'), cfg)
+      await vi.waitFor(() => expect(calls).toEqual(['setMicMuted:true']))
+
+      await provider.toggleMic()
+      expect(calls).toEqual(['setMicMuted:true'])
+
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(warn).toHaveBeenCalledWith('[hr_avatar] a queued mic choice was not applied', {
+        reason: 'mic_apply_timeout',
+      })
+      await expect(starting).resolves.toEqual({})
+      // What was queued behind the hung step is drained, not lost.
+      expect(calls).toEqual(['setMicMuted:true', 'toggleMic'])
+
+      await provider.setMicMuted(false)
+      expect(calls).toEqual(['setMicMuted:true', 'toggleMic', 'setMicMuted:false'])
+      expect(vi.getTimerCount()).toBe(0)
+      warn.mockRestore()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('factory switch', () => {
   it('keeps the compile-time exhaustiveness check over ProviderName', () => {
     const source = readFileSync(join(process.cwd(), 'app', 'providers', 'factory.ts'), 'utf8')

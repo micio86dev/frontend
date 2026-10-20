@@ -69,6 +69,18 @@ export function createProvider(name: ProviderName, mock: boolean): InterviewProv
   }
 }
 
+/**
+ * How long one queued mic step may take before the handle gives up on it. A few seconds, in
+ * line with the SDK's own settle waits (its completion silence window is 1.5 s), so a mic that
+ * is merely slow still applies and a hung one cannot keep later controls queued.
+ */
+const MIC_APPLY_TIMEOUT_MS = 5000
+
+/** The mic is not worth the interview: logged under a stable reason (never the adapter's text, which can name the engine and its host), and nothing is raised. */
+function warnMicNotApplied(reason: 'mic_apply_failed' | 'mic_apply_timeout') {
+  console.warn('[hr_avatar] a queued mic choice was not applied', { reason })
+}
+
 function unknownProviderError(name: unknown): Error {
   return new Error(
     `[createProvider] Unknown provider: "${String(name)}". Expected 'heygen' or 'tavus'.`
@@ -108,19 +120,30 @@ function createDeferredHrAvatar(): InterviewProvider {
 
   async function flushQueued() {
     while (adapter && (pendingMuted !== null || pendingFlip) && !stopped) {
+      const target = adapter
       const muted = pendingMuted
       const flip = pendingFlip
       pendingMuted = null
       pendingFlip = false
+      // Each step is bounded: an adapter mic call that never settles would otherwise hold
+      // `flushing` for good and queue every later control forever. On timeout the step is
+      // given up (its late result, if any, is ignored) and the loop moves on.
+      let timer: ReturnType<typeof setTimeout> | undefined
       try {
-        if (muted !== null) await adapter.setMicMuted(muted)
-        if (flip) await adapter.toggleMic()
+        const outcome = await Promise.race([
+          (async () => {
+            if (muted !== null) await target.setMicMuted(muted)
+            if (flip) await target.toggleMic()
+          })().then(() => 'applied' as const),
+          new Promise<'timeout'>((resolve) => {
+            timer = setTimeout(() => resolve('timeout'), MIC_APPLY_TIMEOUT_MS)
+          }),
+        ])
+        if (outcome === 'timeout') warnMicNotApplied('mic_apply_timeout')
       } catch {
-        // The mic is not worth the interview: logged under a stable reason (never the
-        // adapter's text, which can name the engine and its host), and nothing is raised.
-        console.warn('[hr_avatar] a queued mic choice was not applied', {
-          reason: 'mic_apply_failed',
-        })
+        warnMicNotApplied('mic_apply_failed')
+      } finally {
+        clearTimeout(timer)
       }
     }
   }
