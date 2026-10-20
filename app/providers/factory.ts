@@ -89,9 +89,11 @@ function createDeferredHrAvatar(): InterviewProvider {
   const subscriptions: Array<[ProviderEvent, (payload: unknown) => void]> = []
   let adapter: InterviewProvider | null = null
   let stopped = false
-  // The adapter ignores mic controls until its conversation exists, so a choice made earlier
-  // is kept here and applied once start() has resolved.
+  // The adapter ignores mic controls until its conversation exists, so a choice made while
+  // ANY start() is connecting (the first or a re-start) is kept here and applied once the
+  // newest start() has resolved; `generation` lets an older start that resolves late skip it.
   let started = false
+  let generation = 0
   let pendingMuted: boolean | null = null
 
   return {
@@ -104,6 +106,8 @@ function createDeferredHrAvatar(): InterviewProvider {
       if (import.meta.server) {
         throw new Error('[createProvider] The provider can only start in the browser.')
       }
+      const gen = ++generation
+      started = false
       try {
         const { HrAvatarProvider } = await import('~/app/providers/hr-avatar')
         if (stopped) return {}
@@ -117,6 +121,7 @@ function createDeferredHrAvatar(): InterviewProvider {
         return {}
       }
       const result = await adapter.start(mountEl, cfg)
+      if (gen !== generation) return result
       started = true
       if (pendingMuted !== null && !stopped) {
         const muted = pendingMuted
