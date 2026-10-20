@@ -56,15 +56,22 @@ export function createProvider(name: ProviderName, mock: boolean): InterviewProv
       // The flag is read HERE and nowhere else, so the other arms never touch it. Nuxt
       // coerces NUXT_PUBLIC_* with destr before this runs, hence a boolean `true` for
       // `true`/`TRUE`/`True`; anything else (unset, '', 1, 'yes') keeps the arm off and
-      // falls through to the unknown-provider error below, exactly as before the adapter.
+      // fails with the unknown-provider error, exactly as before the adapter.
       const flag = (useRuntimeConfig().public as Record<string, unknown>).hrAvatarEnabled
       if (flag === true || flag === 'true') return createDeferredHrAvatar()
-      break
+      throw unknownProviderError(name)
+    }
+    default: {
+      // TypeScript narrows `name` to `never` here: a ProviderName without an arm above is a
+      // compile error. The throw is the runtime guard for an unexpected API value.
+      const exhaustive: never = name
+      throw unknownProviderError(exhaustive)
     }
   }
+}
 
-  // Defensive runtime guard in case the API returns an unexpected provider value.
-  throw new Error(
+function unknownProviderError(name: unknown): Error {
+  return new Error(
     `[createProvider] Unknown provider: "${String(name)}". Expected 'heygen' or 'tavus'.`
   )
 }
@@ -75,13 +82,17 @@ export function createProvider(name: ProviderName, mock: boolean): InterviewProv
  * `createProvider` is synchronous and its callers wire events before the player mounts,
  * but the adapter and its SDK must not be loaded unless this arm is actually taken. So the
  * handle buffers `on()` subscriptions and imports the adapter on `start()`, which runs on
- * the client only. Controls called before the load are no-ops; a `stop()` that lands before
+ * the client only. A mic choice made before the adapter has connected is remembered and applied after; a `stop()` that lands before
  * the load finishes keeps the adapter from starting at all.
  */
 function createDeferredHrAvatar(): InterviewProvider {
   const subscriptions: Array<[ProviderEvent, (payload: unknown) => void]> = []
   let adapter: InterviewProvider | null = null
   let stopped = false
+  // The adapter ignores mic controls until its conversation exists, so a choice made earlier
+  // is kept here and applied once start() has resolved.
+  let started = false
+  let pendingMuted: boolean | null = null
 
   return {
     on(evt, cb) {
@@ -105,17 +116,26 @@ function createDeferredHrAvatar(): InterviewProvider {
         }
         return {}
       }
-      return adapter.start(mountEl, cfg)
+      const result = await adapter.start(mountEl, cfg)
+      started = true
+      if (pendingMuted !== null && !stopped) {
+        const muted = pendingMuted
+        pendingMuted = null
+        await adapter.setMicMuted(muted).catch(() => {})
+      }
+      return result
     },
     async stop() {
       stopped = true
       await adapter?.stop()
     },
     async toggleMic() {
-      await adapter?.toggleMic()
+      if (adapter && started) await adapter.toggleMic()
+      else pendingMuted = !(pendingMuted ?? false)
     },
     async setMicMuted(muted) {
-      await adapter?.setMicMuted(muted)
+      if (adapter && started) await adapter.setMicMuted(muted)
+      else pendingMuted = muted
     },
     async whenAvatarSilent(maxMs) {
       await adapter?.whenAvatarSilent?.(maxMs)
