@@ -5,9 +5,9 @@
  * returned by the POST /candidate/interview/start response.
  *
  * Mock injection point (W3 decision):
- *   When NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK === 'true', the factory returns the
- *   MockInterviewProvider from tests/e2e/fixtures/interview-provider.ts instead of
- *   a real SDK provider. This is the E2E test injection mechanism.
+ *   When NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK === 'true', the factory returns the inline
+ *   mock built by createMockProvider() below instead of a real SDK provider, and exposes
+ *   it on `window` for Playwright. This is the E2E test injection mechanism.
  *
  * SSR note: this factory is only called from useInterviewSession on the client side
  * (the interview page is ssr:false). The factory itself has no direct SDK imports
@@ -16,6 +16,7 @@
 
 import type {
   InterviewProvider,
+  ProviderEvent,
   ProviderName,
   SteeringResult,
   SupportsContextSteering,
@@ -28,18 +29,18 @@ import { TavusProvider } from '~/app/providers/tavus'
 /**
  * Create an InterviewProvider for the given provider name.
  *
- * @param name - Provider identifier from the /start response ('heygen' | 'tavus')
+ * @param name - Provider identifier from the /start response ('heygen' | 'tavus' | 'hr_avatar')
  * @param mock - When true, return the mock provider instead of a real SDK provider.
  *               Driven by useRuntimeConfig().public.interviewProviderMock === 'true'.
  * @returns An InterviewProvider instance ready to call .start() on.
- * @throws Error for unknown provider names (defensive runtime guard; TS prevents at compile time).
+ * @throws Error for unknown provider names, and for 'hr_avatar' while its runtime flag is off
+ *         (defensive runtime guard; TS prevents the first at compile time).
  */
 export function createProvider(name: ProviderName, mock: boolean): InterviewProvider {
   if (mock) {
-    // Lazy import of mock provider to avoid including it in the production bundle.
-    // The mock is a lightweight in-memory implementation — no real SDK deps.
-    // NOTE: In Vitest unit tests this import resolves synchronously from the test module.
-    // In E2E (Playwright), NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK=true activates this path.
+    // The mock is a lightweight in-memory implementation built inline: no SDK and no
+    // test-fixture import. In E2E (Playwright), NUXT_PUBLIC_INTERVIEW_PROVIDER_MOCK=true
+    // activates this path.
     const provider = createMockProvider()
     exposeMockProviderForE2E(provider)
     return provider
@@ -50,14 +51,180 @@ export function createProvider(name: ProviderName, mock: boolean): InterviewProv
       return new HeyGenProvider()
     case 'tavus':
       return new TavusProvider()
-    default: {
-      // TypeScript narrows `name` to `never` here, but we add a runtime guard
-      // for defensive safety in case the API returns an unexpected provider value.
-      const exhaustive: never = name
-      throw new Error(
-        `[createProvider] Unknown provider: "${String(exhaustive)}". Expected 'heygen' or 'tavus'.`
-      )
+    case 'hr_avatar': {
+      // The flag is read HERE and nowhere else, so the other arms never touch it. Nuxt
+      // coerces NUXT_PUBLIC_* with destr before this runs, hence a boolean `true` for
+      // `true`/`TRUE`/`True`; anything else (unset, '', 1, 'yes') keeps the arm off and
+      // fails with the unknown-provider error, exactly as before the adapter.
+      const flag = (useRuntimeConfig().public as Record<string, unknown>).hrAvatarEnabled
+      if (flag === true || flag === 'true') return createDeferredHrAvatar()
+      throw unknownProviderError(name)
     }
+    default: {
+      // TypeScript narrows `name` to `never` here: a ProviderName without an arm above is a
+      // compile error. The throw is the runtime guard for an unexpected API value.
+      const exhaustive: never = name
+      throw unknownProviderError(exhaustive)
+    }
+  }
+}
+
+/**
+ * How long one queued mic step may take before the handle gives up on it. A few seconds, in
+ * line with the SDK's own settle waits (its completion silence window is 1.5 s), so a mic that
+ * is merely slow still applies and a hung one cannot keep later controls queued.
+ */
+const MIC_APPLY_TIMEOUT_MS = 5000
+
+/** The mic is not worth the interview: logged under a stable reason (never the adapter's text, which can name the engine and its host), and nothing is raised. */
+function warnMicNotApplied(reason: 'mic_apply_failed' | 'mic_apply_timeout') {
+  console.warn('[hr_avatar] a queued mic choice was not applied', { reason })
+}
+
+function unknownProviderError(name: unknown): Error {
+  return new Error(
+    `[createProvider] Unknown provider: "${String(name)}". Expected 'heygen' or 'tavus'.`
+  )
+}
+
+/**
+ * The third provider as a handle that exists before its code does.
+ *
+ * `createProvider` is synchronous and its callers wire events before the player mounts,
+ * but the adapter and its SDK must not be loaded unless this arm is actually taken. So the
+ * handle buffers `on()` subscriptions and imports the adapter on `start()`, which runs on
+ * the client only. A mic choice made before the adapter has connected is remembered and applied after; a `stop()` that lands before
+ * the load finishes keeps the adapter from starting at all.
+ */
+function createDeferredHrAvatar(): InterviewProvider {
+  const subscriptions: Array<[ProviderEvent, (payload: unknown) => void]> = []
+  let adapter: InterviewProvider | null = null
+  let stopped = false
+  // The adapter ignores mic controls until its conversation exists, so a choice made while
+  // ANY start() is connecting (the first or a re-start) is kept here and applied once the
+  // newest start() has resolved; `generation` lets an older start that resolves late skip it.
+  // A toggle is kept as a flip, not resolved into a mute: the handle cannot read the adapter's
+  // mic, so the flip is applied through the adapter's own toggle once it exists.
+  //
+  // `live` is the newest adapter whose start() connected. When the newest start fails, control
+  // goes back to it (or to an older start that connects later) instead of queueing forever.
+  // While the queued choices are being applied (`flushing`), new controls join the queue, so a
+  // user's toggle is never overtaken by the absolute choice that was queued before it.
+  let started = false
+  let flushing = false
+  let generation = 0
+  let live: { adapter: InterviewProvider; generation: number } | null = null
+  let newestFailed = false
+  let pendingMuted: boolean | null = null
+  let pendingFlip = false
+
+  async function flushQueued() {
+    while (adapter && (pendingMuted !== null || pendingFlip) && !stopped) {
+      const target = adapter
+      const muted = pendingMuted
+      const flip = pendingFlip
+      pendingMuted = null
+      pendingFlip = false
+      // Each step is bounded: an adapter mic call that never settles would otherwise hold
+      // `flushing` for good and queue every later control forever. On timeout the step is
+      // given up (its late result, if any, is ignored) and the loop moves on.
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        const outcome = await Promise.race([
+          (async () => {
+            if (muted !== null) await target.setMicMuted(muted)
+            if (flip) await target.toggleMic()
+          })().then(() => 'applied' as const),
+          new Promise<'timeout'>((resolve) => {
+            timer = setTimeout(() => resolve('timeout'), MIC_APPLY_TIMEOUT_MS)
+          }),
+        ])
+        if (outcome === 'timeout') warnMicNotApplied('mic_apply_timeout')
+      } catch {
+        warnMicNotApplied('mic_apply_failed')
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+  }
+
+  /** Hands the mic to `target` and applies what was queued; no await sits before `flushing` is set. */
+  async function adopt(target: InterviewProvider) {
+    adapter = target
+    started = true
+    if (flushing) return
+    flushing = true
+    try {
+      await flushQueued()
+    } finally {
+      flushing = false
+    }
+  }
+
+  /** The newest start failed: back to the adapter that is still connected, if there is one. */
+  async function failed(gen: number) {
+    if (gen !== generation) return
+    newestFailed = true
+    if (live) await adopt(live.adapter)
+  }
+
+  return {
+    on(evt, cb) {
+      if (adapter) adapter.on(evt, cb)
+      else subscriptions.push([evt, cb])
+    },
+    async start(mountEl, cfg) {
+      /* v8 ignore next 3 — dead branch: start() is only reached from the client-only player */
+      if (import.meta.server) {
+        throw new Error('[createProvider] The provider can only start in the browser.')
+      }
+      const gen = ++generation
+      newestFailed = false
+      started = false
+      let mine: InterviewProvider
+      try {
+        const { HrAvatarProvider } = await import('~/app/providers/hr-avatar')
+        if (stopped) return {}
+        mine = new HrAvatarProvider()
+        adapter = mine
+        for (const [evt, cb] of subscriptions) mine.on(evt, cb)
+      } catch {
+        // A stable code, never the loader's text.
+        for (const [evt, cb] of subscriptions) {
+          if (evt === 'error') cb({ code: 'sdk_error', message: 'provider_unavailable' })
+        }
+        await failed(gen)
+        return {}
+      }
+      let result: Awaited<ReturnType<InterviewProvider['start']>>
+      try {
+        result = await mine.start(mountEl, cfg)
+      } catch (error) {
+        await failed(gen)
+        throw error
+      }
+      if (!live || gen > live.generation) live = { adapter: mine, generation: gen }
+      if (gen === generation || newestFailed) await adopt(live.adapter)
+      return result
+    },
+    async stop() {
+      stopped = true
+      await adapter?.stop()
+    },
+    async toggleMic() {
+      if (adapter && started && !flushing) await adapter.toggleMic()
+      else pendingFlip = !pendingFlip
+    },
+    async setMicMuted(muted) {
+      if (adapter && started && !flushing) await adapter.setMicMuted(muted)
+      else {
+        pendingMuted = muted
+        pendingFlip = false
+      }
+    },
+    async whenAvatarSilent(maxMs) {
+      await adapter?.whenAvatarSilent?.(maxMs)
+    },
   }
 }
 

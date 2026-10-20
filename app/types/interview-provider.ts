@@ -25,7 +25,7 @@
 import type { TavusBoundaryTicket } from '~/app/utils/advance-interaction'
 
 /** The set of supported provider backends. */
-export type ProviderName = 'heygen' | 'tavus'
+export type ProviderName = 'heygen' | 'tavus' | 'hr_avatar'
 
 /** UI-facing connection lifecycle states. Providers map their own lifecycle onto these. */
 export type ProviderState =
@@ -72,6 +72,12 @@ export interface StartConfig {
   sessionToken?: string
   /** Tavus room URL — from /start response field `conversation_url`. */
   conversationUrl?: string
+  /**
+   * Join inputs of a session on the third provider: where to connect and the
+   * browser-safe key. Source: /start response `hr_avatar`, present for that
+   * provider only. The client secret travels as `sessionToken`.
+   */
+  hrAvatar?: { baseUrl: string; publishableKey: string }
   /**
    * Project-language phrase signalling end of an intermediate question.
    * Source: /start response `question_context.end_phrase` (NOT top-level).
