@@ -5377,29 +5377,42 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The template was deleted. */
+            /** @description No content */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": null;
-                };
+                content?: never;
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
-            /** @description Still active (`template_active`) or pinned by projects (`template_in_use`, with counts). */
+            /**
+             * @description Deleting what candidates are currently being interviewed with is
+             *     a decision, not a cleanup. 409 rather than 422: the request is
+             *     well-formed, the state is what refuses it.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        /** @enum {string} */
-                        error: "template_active" | "template_in_use";
-                        message: string;
-                        project_count?: number;
-                        organization_count?: number;
+                        /** @constant */
+                        error: "template_in_use";
+                        /** @constant */
+                        message: "template_in_use";
+                        /** @description Live projects that pin the template. */
+                        project_count: number;
+                        /**
+                         * @description Organizations those projects belong to: always 1 for an organization template, since a project can
+                         *     pin only a template of its own organization or a platform template.
+                         */
+                        organization_count: number;
+                    } | {
+                        /** @constant */
+                        error: "template_active";
+                        /** @constant */
+                        message: "template_active";
                     };
                 };
             };
@@ -8771,14 +8784,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The template was deleted. */
+            /** @description No content */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": null;
-                };
+                content?: never;
             };
             401: components["responses"]["AuthenticationException"];
             403: components["responses"]["AuthorizationException"];
